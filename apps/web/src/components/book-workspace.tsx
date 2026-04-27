@@ -258,6 +258,8 @@ type ParsedDocumentTool = "preview" | "inspect" | "pages";
 type WorkspaceTab = "source" | "chapters" | "generate" | "study-sets" | "export";
 type StudySetView = "vocabulary" | "multiple-choice" | "short-answer";
 type ExportFileFormat = "pdf" | "docx";
+type ThemeMode = "light" | "dark";
+type UiLanguage = "en" | "ko";
 type PdfExportType =
   | "vocabulary-list"
   | "vocabulary-quiz"
@@ -390,6 +392,18 @@ function formatDateTime(value: string) {
   }).format(date);
 }
 
+function formatStatusLabel(value: string) {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function getChoiceLabel(index: number) {
+  return String.fromCharCode(65 + index);
+}
+
 function formatLogTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -477,6 +491,8 @@ export function BookWorkspace() {
   const [isBookMetadataOpen, setIsBookMetadataOpen] = useState(false);
   const [isGenerationModalOpen, setIsGenerationModalOpen] = useState(false);
   const [showSingleChapterExport, setShowSingleChapterExport] = useState(false);
+  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
+  const [uiLanguage, setUiLanguage] = useState<UiLanguage>("en");
   const [sourceFiles, setSourceFiles] = useState<SourceFile[]>([]);
   const [sourceUploadFilename, setSourceUploadFilename] = useState("");
   const [studySetCount, setStudySetCount] = useState(0);
@@ -568,15 +584,66 @@ export function BookWorkspace() {
   const selectedChapterWordCount = selectedChapterEdit
     ? selectedChapterEdit.textContent.trim().split(/\s+/).filter(Boolean).length
     : 0;
+  const t = (english: string, korean: string) => uiLanguage === "ko" ? korean : english;
+  const formatUiStatus = (value: string) => {
+    const normalized = value.toLowerCase();
+    const koreanLabels: Record<string, string> = {
+      draft: "초안",
+      ready: "준비됨",
+      reviewed: "검토됨",
+      archived: "보관됨",
+      failed: "실패",
+      generating: "생성 중",
+      completed: "완료",
+      active: "활성"
+    };
+
+    return uiLanguage === "ko" ? koreanLabels[normalized] || value : formatStatusLabel(value);
+  };
   const bookStats = activeBook
     ? [
-      `${sourceFiles.length} source${sourceFiles.length === 1 ? "" : "s"}`,
-      `${chapters.length} chapter${chapters.length === 1 ? "" : "s"}`,
-      `${studySetCount} study set${studySetCount === 1 ? "" : "s"}`
+      t(`${sourceFiles.length} source${sourceFiles.length === 1 ? "" : "s"}`, `소스 ${sourceFiles.length}개`),
+      t(`${chapters.length} chapter${chapters.length === 1 ? "" : "s"}`, `챕터 ${chapters.length}개`),
+      t(`${studySetCount} study set${studySetCount === 1 ? "" : "s"}`, `학습 세트 ${studySetCount}개`)
     ]
     : [];
   const hasChapters = chapters.length > 0;
   const hasStudySets = studySetCount > 0;
+
+  useEffect(() => {
+    const storedTheme = window.localStorage.getItem("topreading-theme");
+    if (storedTheme === "light" || storedTheme === "dark") {
+      setThemeMode(storedTheme);
+      return;
+    }
+
+    if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      setThemeMode("dark");
+    }
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = themeMode;
+    window.localStorage.setItem("topreading-theme", themeMode);
+  }, [themeMode]);
+
+  useEffect(() => {
+    const storedLanguage = window.localStorage.getItem("topreading-ui-language");
+    if (storedLanguage === "en" || storedLanguage === "ko") {
+      setUiLanguage(storedLanguage);
+      return;
+    }
+
+    if (window.navigator.language.toLowerCase().startsWith("ko")) {
+      setUiLanguage("ko");
+    }
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.lang = uiLanguage === "ko" ? "ko" : "en";
+    window.localStorage.setItem("topreading-ui-language", uiLanguage);
+  }, [uiLanguage]);
+
   const generationTotals = useMemo(() => chapters.reduce(
     (totals, chapter) => {
       const draft = generationPlansByChapterId[chapter.id];
@@ -608,28 +675,28 @@ export function BookWorkspace() {
   }).length, [chapters, generationPlansByChapterId]);
 
   const pdfExportOptions: Array<{ type: PdfExportType; label: string; description: string }> = [
-    { type: "vocabulary-list", label: "Vocabulary List", description: "Words with English and Korean meanings." },
-    { type: "vocabulary-quiz", label: "Vocabulary Quiz", description: "Words with blank answer lines." },
-    { type: "multiple-choice", label: "MCQs", description: "Multiple-choice questions without answers." },
-    { type: "multiple-choice-concise-key", label: "MCQ Concise Key", description: "Question numbers with answer letters only." },
-    { type: "multiple-choice-key", label: "MCQ Detailed Key", description: "Questions with choices, answers, and explanations." },
-    { type: "short-answer", label: "Short Answer", description: "Short-answer prompts with writing lines." },
-    { type: "short-answer-key", label: "Short Answer Key", description: "Short-answer prompts with suggested answers." }
+    { type: "vocabulary-list", label: t("Vocabulary List", "단어 목록"), description: t("Words with English and Korean meanings.", "영어와 한국어 뜻이 포함된 단어 목록입니다.") },
+    { type: "vocabulary-quiz", label: t("Vocabulary Quiz", "단어 시험지"), description: t("Words with blank answer lines.", "답을 적을 빈칸이 있는 단어 시험지입니다.") },
+    { type: "multiple-choice", label: t("MCQs", "객관식 문제"), description: t("Multiple-choice questions without answers.", "정답이 표시되지 않은 객관식 문제입니다.") },
+    { type: "multiple-choice-concise-key", label: t("MCQ Concise Key", "객관식 간단 정답표"), description: t("Question numbers with answer letters only.", "문제 번호와 정답 선택지만 표시합니다.") },
+    { type: "multiple-choice-key", label: t("MCQ Detailed Key", "객관식 상세 정답표"), description: t("Questions with choices, answers, and explanations.", "선택지, 정답, 해설을 함께 표시합니다.") },
+    { type: "short-answer", label: t("Short Answer", "주관식 문제"), description: t("Short-answer prompts with writing lines.", "답안을 적을 줄이 있는 주관식 문제입니다.") },
+    { type: "short-answer-key", label: t("Short Answer Key", "주관식 정답표"), description: t("Short-answer prompts with suggested answers.", "예시 답안이 포함된 주관식 정답표입니다.") }
   ];
   const exportOptionGroups = [
     {
-      title: "Vocabulary",
-      description: "Word lists and vocabulary quiz sheets.",
+      title: t("Vocabulary", "단어"),
+      description: t("Word lists and vocabulary quiz sheets.", "단어 목록과 단어 시험지를 내보냅니다."),
       options: pdfExportOptions.filter((option) => option.type.startsWith("vocabulary"))
     },
     {
-      title: "Multiple Choice",
-      description: "Student handouts plus concise or detailed answer keys.",
+      title: t("Multiple Choice", "객관식"),
+      description: t("Student handouts plus concise or detailed answer keys.", "학생용 문제지와 간단/상세 정답표를 내보냅니다."),
       options: pdfExportOptions.filter((option) => option.type.startsWith("multiple-choice"))
     },
     {
-      title: "Short Answer",
-      description: "Writing prompts and suggested-answer keys.",
+      title: t("Short Answer", "주관식"),
+      description: t("Writing prompts and suggested-answer keys.", "주관식 문제와 예시 답안을 내보냅니다."),
       options: pdfExportOptions.filter((option) => option.type.startsWith("short-answer"))
     }
   ];
@@ -2184,13 +2251,13 @@ export function BookWorkspace() {
             <span className="brand-mark">TR</span>
             <div>
               <h1>TopReading</h1>
-              <p>Study Guide Studio</p>
+              <p>{t("Study Guide Studio", "학습지 제작 도구")}</p>
             </div>
           </div>
           <button
             className="collapse-sidebar-button"
             type="button"
-            aria-label={isLibraryCollapsed ? "Expand library sidebar" : "Collapse library sidebar"}
+            aria-label={isLibraryCollapsed ? t("Expand library sidebar", "도서 목록 펼치기") : t("Collapse library sidebar", "도서 목록 접기")}
             onClick={() => setIsLibraryCollapsed((current) => !current)}
           >
             {isLibraryCollapsed ? ">" : "<"}
@@ -2200,22 +2267,22 @@ export function BookWorkspace() {
         {!isLibraryCollapsed ? (
           <>
             <button className="primary-action" type="button" disabled={isCreating} onClick={handleCreateBook}>
-              {isCreating ? "Creating..." : "New Book"}
+              {isCreating ? t("Creating...", "생성 중...") : t("New Book", "새 책")}
             </button>
 
             <label className="book-search">
-              Search library
+              {t("Search library", "도서 검색")}
               <input
                 value={bookSearch}
                 onChange={(event) => setBookSearch(event.target.value)}
-                placeholder="Title or author"
+                placeholder={t("Title or author", "제목 또는 저자")}
               />
             </label>
 
-            <section className="library-list" aria-label="Book library">
-              {isLoading ? <p className="muted-text">Loading library...</p> : null}
-              {!isLoading && books.length === 0 ? <p className="muted-text">No books yet.</p> : null}
-              {!isLoading && books.length > 0 && filteredBooks.length === 0 ? <p className="muted-text">No matching books.</p> : null}
+            <section className="library-list" aria-label={t("Book library", "도서 목록")}>
+              {isLoading ? <p className="muted-text">{t("Loading library...", "도서 목록을 불러오는 중...")}</p> : null}
+              {!isLoading && books.length === 0 ? <p className="muted-text">{t("No books yet.", "아직 등록된 책이 없습니다.")}</p> : null}
+              {!isLoading && books.length > 0 && filteredBooks.length === 0 ? <p className="muted-text">{t("No matching books.", "검색 결과가 없습니다.")}</p> : null}
               {filteredBooks.map((book) => (
                 <button
                   className={`book-row ${book.id === activeBook?.id ? "active" : ""}`}
@@ -2235,10 +2302,10 @@ export function BookWorkspace() {
       <section className="workspace">
         <header className="workspace-header">
           <div className="workspace-title-block">
-            <p className="eyebrow">Book Workspace</p>
-            <h2>{activeBook?.title || "Create a book to begin"}</h2>
+            <p className="eyebrow">{t("Book Workspace", "책 작업 공간")}</p>
+            <h2>{activeBook?.title || t("Create a book to begin", "책을 만들어 시작하세요")}</h2>
             <p className="workspace-subtitle">
-              {activeBook?.author || "Upload a source file, review chapters, then generate a study set."}
+              {activeBook?.author || t("Upload a source file, review chapters, then generate a study set.", "소스 파일을 업로드하고, 챕터를 검토한 뒤 학습 세트를 생성하세요.")}
               {activeBook?.readingLevel ? ` · ${activeBook.readingLevel}` : ""}
             </p>
             {activeBook ? (
@@ -2250,44 +2317,62 @@ export function BookWorkspace() {
             ) : null}
           </div>
           <div className="workspace-header-actions">
-            {activeBook ? (
-              <button type="button" onClick={() => setIsBookMetadataOpen(true)}>
-                Edit Details
+            <div className="workspace-utility-actions">
+              <button
+                className="theme-toggle"
+                type="button"
+                aria-pressed={themeMode === "dark"}
+                onClick={() => setThemeMode((current) => current === "dark" ? "light" : "dark")}
+              >
+                {themeMode === "dark" ? t("Light Mode", "라이트 모드") : t("Dark Mode", "다크 모드")}
               </button>
-            ) : null}
-            <div className="workspace-tabs" role="tablist" aria-label="Book workspace sections">
+              <button
+                className="language-toggle"
+                type="button"
+                aria-pressed={uiLanguage === "ko"}
+                onClick={() => setUiLanguage((current) => current === "ko" ? "en" : "ko")}
+              >
+                {uiLanguage === "ko" ? "English" : "한국어"}
+              </button>
+              {activeBook ? (
+                <button type="button" onClick={() => setIsBookMetadataOpen(true)}>
+                  {t("Edit Details", "책 정보 수정")}
+                </button>
+              ) : null}
+            </div>
+            <div className="workspace-tabs" role="tablist" aria-label={t("Book workspace sections", "책 작업 섹션")}>
               <button
                 className={activeWorkspaceTab === "source" ? "active" : ""}
                 type="button"
                 disabled={!activeBook}
-                title={!activeBook ? "Create or select a book first." : "Manage source files."}
+                title={!activeBook ? t("Create or select a book first.", "먼저 책을 만들거나 선택하세요.") : t("Manage source files.", "소스 파일을 관리합니다.")}
                 onClick={() => setActiveWorkspaceTab("source")}
               >
-                Source
+                {t("Source", "소스")}
               </button>
               <button
                 className={activeWorkspaceTab === "chapters" ? "active" : ""}
                 type="button"
                 disabled={!activeBook || !hasChapters}
-                title={!activeBook ? "Create or select a book first." : !hasChapters ? "Create chapters from a source file first." : "Review and edit chapters."}
+                title={!activeBook ? t("Create or select a book first.", "먼저 책을 만들거나 선택하세요.") : !hasChapters ? t("Create chapters from a source file first.", "먼저 소스 파일에서 챕터를 만드세요.") : t("Review and edit chapters.", "챕터를 검토하고 수정합니다.")}
                 onClick={() => setActiveWorkspaceTab("chapters")}
               >
-                Chapters
+                {t("Chapters", "챕터")}
               </button>
               <button
                 className={activeWorkspaceTab === "generate" ? "active" : ""}
                 type="button"
                 disabled={!activeBook || !hasChapters}
-                title={!activeBook ? "Create or select a book first." : !hasChapters ? "Create chapters before generating study material." : "Generate study material."}
+                title={!activeBook ? t("Create or select a book first.", "먼저 책을 만들거나 선택하세요.") : !hasChapters ? t("Create chapters before generating study material.", "학습 자료를 생성하기 전에 챕터를 만드세요.") : t("Generate study material.", "학습 자료를 생성합니다.")}
                 onClick={() => setActiveWorkspaceTab("generate")}
               >
-                Generate
+                {t("Generate", "생성")}
               </button>
               <button
                 className={activeWorkspaceTab === "study-sets" ? "active" : ""}
                 type="button"
                 disabled={!activeBook || !hasStudySets}
-                title={!activeBook ? "Create or select a book first." : !hasStudySets ? "Generate at least one study set first." : "Review generated study sets."}
+                title={!activeBook ? t("Create or select a book first.", "먼저 책을 만들거나 선택하세요.") : !hasStudySets ? t("Generate at least one study set first.", "먼저 학습 세트를 하나 이상 생성하세요.") : t("Review generated study sets.", "생성된 학습 세트를 검토합니다.")}
                 onClick={() => {
                   setActiveWorkspaceTab("study-sets");
                   if (selectedChapter) {
@@ -2295,16 +2380,16 @@ export function BookWorkspace() {
                   }
                 }}
               >
-                Study Sets
+                {t("Study Sets", "학습 세트")}
               </button>
               <button
                 className={activeWorkspaceTab === "export" ? "active" : ""}
                 type="button"
                 disabled={!activeBook || !hasStudySets}
-                title={!activeBook ? "Create or select a book first." : !hasStudySets ? "Generate at least one study set before exporting." : "Export generated study material."}
+                title={!activeBook ? t("Create or select a book first.", "먼저 책을 만들거나 선택하세요.") : !hasStudySets ? t("Generate at least one study set before exporting.", "내보내기 전에 학습 세트를 하나 이상 생성하세요.") : t("Export generated study material.", "생성된 학습 자료를 내보냅니다.")}
                 onClick={() => setActiveWorkspaceTab("export")}
               >
-                Export
+                {t("Export", "내보내기")}
               </button>
             </div>
           </div>
@@ -2315,16 +2400,16 @@ export function BookWorkspace() {
             <section className="metadata-dialog" role="dialog" aria-modal="true" aria-labelledby="book-details-title">
               <div className="dialog-header">
                 <div>
-                  <p className="eyebrow">Book Details</p>
+                  <p className="eyebrow">{t("Book Details", "책 정보")}</p>
                   <h3 id="book-details-title">{activeBook.title}</h3>
                 </div>
                 <button type="button" onClick={() => setIsBookMetadataOpen(false)}>
-                  Close
+                  {t("Close", "닫기")}
                 </button>
               </div>
               <form className="metadata-form" onSubmit={handleSaveBookMetadata}>
                 <label>
-                  Title
+                  {t("Title", "제목")}
                   <input
                     value={bookMetadataEdit.title}
                     onChange={(event) => setBookMetadataEdit((current) => ({ ...current, title: event.target.value }))}
@@ -2332,34 +2417,34 @@ export function BookWorkspace() {
                   />
                 </label>
                 <label>
-                  Author
+                  {t("Author", "저자")}
                   <input
                     value={bookMetadataEdit.author}
                     onChange={(event) => setBookMetadataEdit((current) => ({ ...current, author: event.target.value }))}
-                    placeholder="Optional"
+                    placeholder={t("Optional", "선택 사항")}
                   />
                 </label>
                 <label>
-                  Reading level
+                  {t("Reading level", "읽기 수준")}
                   <input
                     value={bookMetadataEdit.readingLevel}
                     onChange={(event) => setBookMetadataEdit((current) => ({ ...current, readingLevel: event.target.value }))}
-                    placeholder="Optional"
+                    placeholder={t("Optional", "선택 사항")}
                   />
                 </label>
                 <div className="dialog-actions">
                   <button type="submit" disabled={isSavingBookMetadata}>
-                    {isSavingBookMetadata ? "Saving..." : "Save Details"}
+                    {isSavingBookMetadata ? t("Saving...", "저장 중...") : t("Save Details", "정보 저장")}
                   </button>
                   <button type="button" onClick={() => setIsBookMetadataOpen(false)}>
-                    Cancel
+                    {t("Cancel", "취소")}
                   </button>
                 </div>
               </form>
               <div className="dialog-danger-zone">
                 <div>
-                  <strong>Delete book</strong>
-                  <p className="muted-text">Removes the source files, extracted text, chapters, and generated sets for this book.</p>
+                  <strong>{t("Delete book", "책 삭제")}</strong>
+                  <p className="muted-text">{t("Removes the source files, extracted text, chapters, and generated sets for this book.", "이 책의 소스 파일, 추출된 텍스트, 챕터, 생성된 학습 세트를 모두 삭제합니다.")}</p>
                 </div>
                 <button
                   className="danger-button"
@@ -2367,7 +2452,7 @@ export function BookWorkspace() {
                   disabled={deletingId === activeBook.id}
                   onClick={handleDeleteBook}
                 >
-                  {deletingId === activeBook.id ? "Deleting..." : "Delete Book"}
+                  {deletingId === activeBook.id ? t("Deleting...", "삭제 중...") : t("Delete Book", "책 삭제")}
                 </button>
               </div>
             </section>
@@ -2379,53 +2464,53 @@ export function BookWorkspace() {
             <section className="generation-dialog" role="dialog" aria-modal="true" aria-labelledby="generation-dialog-title">
               <div className="dialog-header">
                 <div>
-                  <p className="eyebrow">Generate</p>
-                  <h3 id="generation-dialog-title">Configure Generation</h3>
-                  <p className="muted-text">Select chapters and adjust item counts before starting a new run.</p>
+                  <p className="eyebrow">{t("Generate", "생성")}</p>
+                  <h3 id="generation-dialog-title">{t("Configure Generation", "생성 설정")}</h3>
+                  <p className="muted-text">{t("Select chapters and adjust item counts before starting a new run.", "새 생성 작업을 시작하기 전에 챕터와 문항 수를 조정하세요.")}</p>
                 </div>
                 <div className="dialog-actions">
                   <button type="button" disabled={isGeneratingBook || includedGenerationChapterCount === 0} onClick={handleGenerateBook}>
-                    Start Generation
+                    {t("Start Generation", "생성 시작")}
                   </button>
                   <button type="button" onClick={() => setIsGenerationModalOpen(false)}>
-                    Cancel
+                    {t("Cancel", "취소")}
                   </button>
                 </div>
               </div>
 
               <div className="generation-total-strip" aria-label="Configured generation totals">
                 <article>
-                  <span>Chapters</span>
+                  <span>{t("Chapters", "챕터")}</span>
                   <strong>{includedGenerationChapterCount.toLocaleString()}</strong>
                 </article>
                 <article>
-                  <span>Vocabulary</span>
+                  <span>{t("Vocabulary", "단어")}</span>
                   <strong>{generationTotals.vocabularyCount.toLocaleString()}</strong>
                 </article>
                 <article>
-                  <span>MCQ</span>
+                  <span>{t("MCQ", "객관식")}</span>
                   <strong>{generationTotals.multipleChoiceCount.toLocaleString()}</strong>
                 </article>
                 <article>
-                  <span>Short Answer</span>
+                  <span>{t("Short Answer", "주관식")}</span>
                   <strong>{generationTotals.shortAnswerCount.toLocaleString()}</strong>
                 </article>
               </div>
 
               <div className="generation-modal-toolbar">
                 <button type="button" disabled={isGeneratingBook} onClick={resetGenerationPlans}>
-                  Reset Suggestions
+                  {t("Reset Suggestions", "추천값 초기화")}
                 </button>
               </div>
 
               <div className="generation-plan-table generation-modal-plan-table">
                 <div className="generation-plan-head">
-                  <div>Use</div>
-                  <div>Chapter</div>
-                  <div>Words</div>
-                  <div>Vocabulary</div>
-                  <div>MCQ</div>
-                  <div>Short Answer</div>
+                  <div>{t("Use", "사용")}</div>
+                  <div>{t("Chapter", "챕터")}</div>
+                  <div>{t("Words", "단어 수")}</div>
+                  <div>{t("Vocabulary", "단어")}</div>
+                  <div>{t("MCQ", "객관식")}</div>
+                  <div>{t("Short Answer", "주관식")}</div>
                 </div>
                 {chapters.map((chapter) => {
                   const suggested = deriveGenerationPlan(chapter.wordCount);
@@ -2494,16 +2579,16 @@ export function BookWorkspace() {
           {activeWorkspaceTab === "source" ? (
           <section className="source-panel">
             <div>
-              <p className="step-label">Source</p>
-              <h3>Source Files</h3>
+              <p className="step-label">{t("Source", "소스")}</p>
+              <h3>{t("Source Files", "소스 파일")}</h3>
             </div>
 
             <form className="upload-form" onSubmit={handleSourceUpload}>
               <label className="file-picker">
-                <span className="file-picker-button">Browse...</span>
-                <span className="file-picker-name">{sourceUploadFilename || "No source file selected"}</span>
+                <span className="file-picker-button">{t("Browse...", "파일 선택...")}</span>
+                <span className="file-picker-name">{sourceUploadFilename || t("No source file selected", "선택된 소스 파일 없음")}</span>
                 <input
-                  aria-label="Source file"
+                  aria-label={t("Source file", "소스 파일")}
                   disabled={!activeBook || isUploading}
                   name="sourceFile"
                   type="file"
@@ -2512,16 +2597,16 @@ export function BookWorkspace() {
                 />
               </label>
               <button type="submit" disabled={!activeBook || isUploading}>
-                {isUploading ? "Uploading..." : "Upload Source"}
+                {isUploading ? t("Uploading...", "업로드 중...") : t("Upload Source", "소스 업로드")}
               </button>
             </form>
 
             <div className="source-list">
-              {isLoadingSources ? <p className="muted-text">Loading source files...</p> : null}
+              {isLoadingSources ? <p className="muted-text">{t("Loading source files...", "소스 파일을 불러오는 중...")}</p> : null}
               {!isLoadingSources && activeBook && sourceFiles.length === 0 ? (
                 <div className="empty-state">
-                  <strong>No source files yet</strong>
-                  <p>Upload a PDF, EPUB, or TXT file to begin extracting book text.</p>
+                  <strong>{t("No source files yet", "아직 소스 파일이 없습니다")}</strong>
+                  <p>{t("Upload a PDF, EPUB, or TXT file to begin extracting book text.", "책 텍스트를 추출하려면 PDF, EPUB 또는 TXT 파일을 업로드하세요.")}</p>
                 </div>
               ) : null}
               {sourceFiles.map((sourceFile) => (
@@ -2541,7 +2626,7 @@ export function BookWorkspace() {
                         disabled={extractingSourceId === sourceFile.id}
                         onClick={() => handleExtractSource(sourceFile)}
                       >
-                        {extractingSourceId === sourceFile.id ? "Extracting..." : "Extract Text"}
+                        {extractingSourceId === sourceFile.id ? t("Extracting...", "추출 중...") : t("Extract Text", "텍스트 추출")}
                       </button>
                       <button
                         className="danger-button"
@@ -2549,7 +2634,7 @@ export function BookWorkspace() {
                         disabled={deletingId === sourceFile.id}
                         onClick={() => handleDeleteSourceFile(sourceFile)}
                       >
-                        {deletingId === sourceFile.id ? "Deleting..." : "Delete Source"}
+                        {deletingId === sourceFile.id ? t("Deleting...", "삭제 중...") : t("Delete Source", "소스 삭제")}
                       </button>
                     </div>
                   </div>
@@ -2560,8 +2645,8 @@ export function BookWorkspace() {
                     <div className="parsed-list">
                       {(parsedDocumentsBySource[sourceFile.id] || []).length === 0 ? (
                         <div className="source-next-step">
-                          <strong>Text not extracted yet</strong>
-                          <p>Run extraction to create searchable source text before splitting chapters.</p>
+                          <strong>{t("Text not extracted yet", "아직 텍스트가 추출되지 않았습니다")}</strong>
+                          <p>{t("Run extraction to create searchable source text before splitting chapters.", "챕터를 나누기 전에 검색 가능한 소스 텍스트를 추출하세요.")}</p>
                         </div>
                       ) : null}
                       {(parsedDocumentsBySource[sourceFile.id] || []).map((parsedDocument) => {
@@ -2571,9 +2656,9 @@ export function BookWorkspace() {
                         <article className="parsed-row" key={parsedDocument.id}>
                           <div className="parsed-row-header">
                             <div>
-                              <strong>Extracted Text</strong>
+                              <strong>{t("Extracted Text", "추출된 텍스트")}</strong>
                               <span>
-                                {parsedDocument.pageCount} pages · {parsedDocument.wordCount.toLocaleString()} words · {parsedDocument.parserName}
+                                {t(`${parsedDocument.pageCount} pages`, `${parsedDocument.pageCount}쪽`)} · {t(`${parsedDocument.wordCount.toLocaleString()} words`, `${parsedDocument.wordCount.toLocaleString()}단어`)} · {parsedDocument.parserName}
                               </span>
                             </div>
                           </div>
@@ -2584,7 +2669,7 @@ export function BookWorkspace() {
                                 disabled={splittingParsedDocumentId === parsedDocument.id}
                                 onClick={() => handleCreateChapters(parsedDocument)}
                               >
-                                {splittingParsedDocumentId === parsedDocument.id ? "Creating..." : "Create Chapters"}
+                                {splittingParsedDocumentId === parsedDocument.id ? t("Creating...", "생성 중...") : t("Create Chapters", "챕터 생성")}
                               </button>
                             </div>
                             <div className="button-group parsed-tool-actions">
@@ -2595,10 +2680,10 @@ export function BookWorkspace() {
                                 onClick={() => handlePreviewSplit(parsedDocument)}
                               >
                                 {previewingParsedDocumentId === parsedDocument.id
-                                  ? "Previewing..."
+                                  ? t("Previewing...", "미리보기 중...")
                                   : activeParsedTool === "preview"
-                                    ? "Hide Preview"
-                                    : "Preview Split"}
+                                    ? t("Hide Preview", "미리보기 숨기기")
+                                    : t("Preview Split", "분할 미리보기")}
                               </button>
                               <button
                                 className={activeParsedTool === "inspect" ? "active-tool-button" : ""}
@@ -2607,10 +2692,10 @@ export function BookWorkspace() {
                                 onClick={() => handleLoadParsedText(parsedDocument)}
                               >
                                 {loadingTextParsedDocumentId === parsedDocument.id
-                                  ? "Loading..."
+                                  ? t("Loading...", "불러오는 중...")
                                   : activeParsedTool === "inspect"
-                                    ? "Hide Text"
-                                    : "Inspect Text"}
+                                    ? t("Hide Text", "텍스트 숨기기")
+                                    : t("Inspect Text", "텍스트 검사")}
                               </button>
                               <button
                                 className={activeParsedTool === "pages" ? "active-tool-button" : ""}
@@ -2619,10 +2704,10 @@ export function BookWorkspace() {
                                 onClick={() => handleLoadPages(parsedDocument)}
                               >
                                 {loadingPagesParsedDocumentId === parsedDocument.id
-                                  ? "Loading..."
+                                  ? t("Loading...", "불러오는 중...")
                                   : activeParsedTool === "pages"
-                                    ? "Hide Pages"
-                                    : "Page Split"}
+                                    ? t("Hide Pages", "페이지 숨기기")
+                                    : t("Page Split", "페이지 분할")}
                               </button>
                             </div>
                             <div className="button-group parsed-danger-actions">
@@ -2632,23 +2717,23 @@ export function BookWorkspace() {
                                 disabled={deletingId === parsedDocument.id}
                                 onClick={() => handleDeleteParsedDocument(sourceFile, parsedDocument)}
                               >
-                                {deletingId === parsedDocument.id ? "Deleting..." : "Delete Text"}
+                                {deletingId === parsedDocument.id ? t("Deleting...", "삭제 중...") : t("Delete Text", "텍스트 삭제")}
                               </button>
                             </div>
                           </div>
-                          <p>{parsedDocument.preview || "No preview available."}</p>
+                          <p>{parsedDocument.preview || t("No preview available.", "미리보기가 없습니다.")}</p>
                           {activeParsedTool === "inspect" && parsedDocumentDetailById[parsedDocument.id] ? (
                             <div className="text-inspector">
                               <div className="tool-panel-header">
                                 <div>
-                                  <strong>Inspect extracted text</strong>
-                                  <span>Search the full parse or create chapters from exact text markers.</span>
+                                  <strong>{t("Inspect extracted text", "추출된 텍스트 검사")}</strong>
+                                  <span>{t("Search the full parse or create chapters from exact text markers.", "전체 추출 텍스트를 검색하거나 정확한 텍스트 표시로 챕터를 만들 수 있습니다.")}</span>
                                 </div>
-                                <button type="button" onClick={() => handleCloseParsedTool(parsedDocument.id)}>Close</button>
+                                <button type="button" onClick={() => handleCloseParsedTool(parsedDocument.id)}>{t("Close", "닫기")}</button>
                               </div>
                               <div className="inspector-grid">
                                 <label>
-                                  Search extracted text
+                                  {t("Search extracted text", "추출 텍스트 검색")}
                                   <input
                                     value={textSearchByParsedDocument[parsedDocument.id] || ""}
                                     onChange={(event) => setTextSearchByParsedDocument((current) => ({
@@ -2659,7 +2744,7 @@ export function BookWorkspace() {
                                   />
                                 </label>
                                 <label>
-                                  Manual chapter markers
+                                  {t("Manual chapter markers", "수동 챕터 표시")}
                                   <textarea
                                     rows={5}
                                     value={manualMarkersByParsedDocument[parsedDocument.id] || ""}
@@ -2684,7 +2769,7 @@ export function BookWorkspace() {
                                   disabled={!manualMarkersByParsedDocument[parsedDocument.id]?.trim() || splittingParsedDocumentId === parsedDocument.id}
                                   onClick={() => handleCreateChapters(parsedDocument, manualMarkersByParsedDocument[parsedDocument.id] || "")}
                                 >
-                                  {splittingParsedDocumentId === parsedDocument.id ? "Creating..." : "Create From Markers"}
+                                  {splittingParsedDocumentId === parsedDocument.id ? t("Creating...", "생성 중...") : t("Create From Markers", "표시로 챕터 생성")}
                                 </button>
                               </div>
                             </div>
@@ -2693,14 +2778,14 @@ export function BookWorkspace() {
                             <div className="page-splitter">
                               <div className="tool-panel-header">
                                 <div>
-                                  <strong>Page-based split</strong>
-                                  <span>{parsedPagesByDocumentId[parsedDocument.id].length} extracted pages available</span>
+                                  <strong>{t("Page-based split", "페이지 기준 분할")}</strong>
+                                  <span>{t(`${parsedPagesByDocumentId[parsedDocument.id].length} extracted pages available`, `추출된 페이지 ${parsedPagesByDocumentId[parsedDocument.id].length}개 사용 가능`)}</span>
                                 </div>
-                                <button type="button" onClick={() => handleCloseParsedTool(parsedDocument.id)}>Close</button>
+                                <button type="button" onClick={() => handleCloseParsedTool(parsedDocument.id)}>{t("Close", "닫기")}</button>
                               </div>
                               <div className="inspector-grid">
                                 <label>
-                                  Chapter start pages
+                                  {t("Chapter start pages", "챕터 시작 페이지")}
                                   <textarea
                                     rows={6}
                                     value={pageStartsByParsedDocument[parsedDocument.id] || ""}
@@ -2713,13 +2798,13 @@ export function BookWorkspace() {
                                 </label>
                                 <div className="page-preview-list">
                                   {parsedPagesByDocumentId[parsedDocument.id].length === 0 ? (
-                                    <p className="muted-text">No page rows found. Delete this extracted text and run Extract Text again.</p>
+                                    <p className="muted-text">{t("No page rows found. Delete this extracted text and run Extract Text again.", "페이지 행을 찾을 수 없습니다. 이 추출 텍스트를 삭제한 뒤 텍스트 추출을 다시 실행하세요.")}</p>
                                   ) : null}
                                   {parsedPagesByDocumentId[parsedDocument.id].slice(0, 24).map((page) => (
                                     <article className="page-preview-row" key={page.id}>
-                                      <strong>Page {page.pageNumber}</strong>
-                                      <span>{page.wordCount.toLocaleString()} words</span>
-                                      <p>{page.preview || "No text on this page."}</p>
+                                      <strong>{t(`Page ${page.pageNumber}`, `${page.pageNumber}쪽`)}</strong>
+                                      <span>{t(`${page.wordCount.toLocaleString()} words`, `${page.wordCount.toLocaleString()}단어`)}</span>
+                                      <p>{page.preview || t("No text on this page.", "이 페이지에는 텍스트가 없습니다.")}</p>
                                     </article>
                                   ))}
                                 </div>
@@ -2730,7 +2815,7 @@ export function BookWorkspace() {
                                   disabled={!pageStartsByParsedDocument[parsedDocument.id]?.trim() || splittingParsedDocumentId === parsedDocument.id}
                                   onClick={() => handleCreateChapters(parsedDocument, "", pageStartsByParsedDocument[parsedDocument.id] || "")}
                                 >
-                                  {splittingParsedDocumentId === parsedDocument.id ? "Creating..." : "Create From Pages"}
+                                  {splittingParsedDocumentId === parsedDocument.id ? t("Creating...", "생성 중...") : t("Create From Pages", "페이지로 챕터 생성")}
                                 </button>
                               </div>
                             </div>
@@ -2741,15 +2826,15 @@ export function BookWorkspace() {
                                 <div>
                                   <strong>
                                     {splitPreviewByParsedDocument[parsedDocument.id].strategy === "heading"
-                                      ? "Heading split preview"
-                                      : "Single-chapter fallback"}
+                                      ? t("Heading split preview", "제목 기준 분할 미리보기")
+                                      : t("Single-chapter fallback", "단일 챕터 대체 방식")}
                                   </strong>
                                   <span>
-                                    {splitPreviewByParsedDocument[parsedDocument.id].acceptedCandidates} accepted /{" "}
-                                    {splitPreviewByParsedDocument[parsedDocument.id].totalCandidates} candidates
+                                    {t(`${splitPreviewByParsedDocument[parsedDocument.id].acceptedCandidates} accepted`, `${splitPreviewByParsedDocument[parsedDocument.id].acceptedCandidates}개 승인`)} /{" "}
+                                    {t(`${splitPreviewByParsedDocument[parsedDocument.id].totalCandidates} candidates`, `후보 ${splitPreviewByParsedDocument[parsedDocument.id].totalCandidates}개`)}
                                   </span>
                                 </div>
-                                <button type="button" onClick={() => handleCloseParsedTool(parsedDocument.id)}>Close</button>
+                                <button type="button" onClick={() => handleCloseParsedTool(parsedDocument.id)}>{t("Close", "닫기")}</button>
                               </div>
                               <div className="split-candidate-list">
                                 {splitPreviewByParsedDocument[parsedDocument.id].candidates.slice(0, 20).map((candidate) => (
@@ -2761,8 +2846,8 @@ export function BookWorkspace() {
                                       <strong>{candidate.line}</strong>
                                       <span>
                                         {candidate.reason}
-                                        {candidate.chapterNumber ? ` · chapter ${candidate.chapterNumber}` : ""}
-                                        {candidate.accepted ? " · accepted" : ""}
+                                        {candidate.chapterNumber ? ` · ${t("chapter", "챕터")} ${candidate.chapterNumber}` : ""}
+                                        {candidate.accepted ? ` · ${t("accepted", "승인됨")}` : ""}
                                       </span>
                                     </div>
                                     <p>{candidate.context}</p>
@@ -2786,28 +2871,28 @@ export function BookWorkspace() {
           <section className="generate-panel">
             <div className="panel-title-row">
               <div>
-                <p className="step-label">Generate</p>
-                <h3>Generation Plan</h3>
+                <p className="step-label">{t("Generate", "생성")}</p>
+                <h3>{t("Generation Plan", "생성 계획")}</h3>
               </div>
               <button
                 type="button"
                 disabled={!activeBook || chapters.length === 0 || isGeneratingBook}
                 onClick={openGenerationModal}
               >
-                {isGeneratingBook ? "Generating..." : "Configure Generation"}
+                {isGeneratingBook ? t("Generating...", "생성 중...") : t("Configure Generation", "생성 설정")}
               </button>
             </div>
 
             {chapters.length === 0 ? (
               <div className="empty-state">
-                <strong>No chapters ready</strong>
-                <p>Create chapters from extracted source text before starting generation.</p>
+                <strong>{t("No chapters ready", "준비된 챕터가 없습니다")}</strong>
+                <p>{t("Create chapters from extracted source text before starting generation.", "생성을 시작하기 전에 추출된 소스 텍스트에서 챕터를 만드세요.")}</p>
               </div>
             ) : (
               <div className="generation-plan-panel">
                 <div className="generation-terminal" aria-live="polite">
                   {generationLog.length === 0 ? (
-                    <p>$ waiting for generation job...</p>
+                    <p>$ {t("waiting for generation job...", "생성 작업 대기 중...")}</p>
                   ) : generationLog.map((entry, index) => (
                     <p className={`generation-log-line ${entry.level}`} key={`${index}-${entry.timestamp}-${entry.message}`}>
                       <span>{formatLogTime(entry.timestamp)}</span>
@@ -2819,71 +2904,73 @@ export function BookWorkspace() {
 
                 <div className="generation-summary">
                   <p>
-                    {includedGenerationChapterCount} of {chapters.length} chapter{chapters.length === 1 ? "" : "s"} selected.
-                    Use Configure Generation to choose chapters and adjust item counts before the run.
+                    {t(
+                      `${includedGenerationChapterCount} of ${chapters.length} chapter${chapters.length === 1 ? "" : "s"} selected. Use Configure Generation to choose chapters and adjust item counts before the run.`,
+                      `전체 ${chapters.length}개 챕터 중 ${includedGenerationChapterCount}개가 선택되었습니다. 생성 설정에서 챕터와 문항 수를 조정할 수 있습니다.`
+                    )}
                   </p>
                   <button type="button" disabled={isGeneratingBook} onClick={openGenerationModal}>
-                    Configure
+                    {t("Configure", "설정")}
                   </button>
                 </div>
 
-                <div className="generation-total-strip" aria-label="Whole book generation totals">
+                <div className="generation-total-strip" aria-label={t("Whole book generation totals", "책 전체 생성 총량")}>
                   <article>
-                    <span>Vocabulary</span>
+                    <span>{t("Vocabulary", "단어")}</span>
                     <strong>{generationTotals.vocabularyCount.toLocaleString()}</strong>
                   </article>
                   <article>
-                    <span>Multiple Choice</span>
+                    <span>{t("Multiple Choice", "객관식")}</span>
                     <strong>{generationTotals.multipleChoiceCount.toLocaleString()}</strong>
                   </article>
                   <article>
-                    <span>Short Answer</span>
+                    <span>{t("Short Answer", "주관식")}</span>
                     <strong>{generationTotals.shortAnswerCount.toLocaleString()}</strong>
                   </article>
                 </div>
 
                 <section className="generation-history-panel">
                   <div className="study-item-section-header">
-                    <strong>Generation History</strong>
+                    <strong>{t("Generation History", "생성 기록")}</strong>
                     <span>{generationRuns.length}</span>
                   </div>
                   {generationRuns.length > 0 ? (
                     <div className="active-run-selector">
-                      <label htmlFor="active-generation-run">Active version</label>
+                      <label htmlFor="active-generation-run">{t("Active version", "활성 버전")}</label>
                       <select
                         id="active-generation-run"
                         value={activeBook?.activeGenerationRunId || ""}
                         onChange={(event) => void handleSelectActiveGenerationRun(event.target.value || null)}
                       >
-                        <option value="">Latest study sets across all runs</option>
+                        <option value="">{t("Latest study sets across all runs", "모든 실행에서 가장 최신 학습 세트 사용")}</option>
                         {generationRuns.map((run) => (
                           <option key={run.id} value={run.id}>
-                            {run.name} ({run.status})
+                            {run.name} ({formatUiStatus(run.status)})
                           </option>
                         ))}
                       </select>
                       <p>
-                        Study Sets and whole-book exports use this version.
+                        {t("Study Sets and whole-book exports use this version.", "학습 세트와 책 전체 내보내기는 이 버전을 사용합니다.")}
                       </p>
                     </div>
                   ) : null}
                   {generationRuns.length === 0 ? (
                     <div className="empty-state">
-                      <strong>No generation runs yet</strong>
-                      <p>Completed runs will appear here with chapter and item totals.</p>
+                      <strong>{t("No generation runs yet", "아직 생성 기록이 없습니다")}</strong>
+                      <p>{t("Completed runs will appear here with chapter and item totals.", "완료된 생성 작업은 챕터 및 문항 수와 함께 여기에 표시됩니다.")}</p>
                     </div>
                   ) : (
                     <div className="generation-history-list">
                       {generationRuns.map((run) => (
                         <article className="generation-history-card" key={run.id}>
                           <div>
-                            <strong>{run.name}{activeBook?.activeGenerationRunId === run.id ? " · Active" : ""}</strong>
+                            <strong>{run.name}{activeBook?.activeGenerationRunId === run.id ? ` · ${t("Active", "활성")}` : ""}</strong>
                             <p>
-                              {formatDateTime(run.startedAt)} · {run.status}
-                              {run.finishedAt ? ` · finished ${formatDateTime(run.finishedAt)}` : ""}
+                              {formatDateTime(run.startedAt)} · {formatUiStatus(run.status)}
+                              {run.finishedAt ? ` · ${t("finished", "완료")} ${formatDateTime(run.finishedAt)}` : ""}
                             </p>
                             <p>
-                              {run.chapterCount} chapters · {run.vocabularyCount} vocab · {run.multipleChoiceCount} MCQ · {run.shortAnswerCount} short answer
+                              {t(`${run.chapterCount} chapters`, `챕터 ${run.chapterCount}개`)} · {t(`${run.vocabularyCount} vocab`, `단어 ${run.vocabularyCount}개`)} · {t(`${run.multipleChoiceCount} MCQ`, `객관식 ${run.multipleChoiceCount}개`)} · {t(`${run.shortAnswerCount} short answer`, `주관식 ${run.shortAnswerCount}개`)}
                             </p>
                             {run.errorMessage ? <p className="generation-error-text">{run.errorMessage}</p> : null}
                           </div>
@@ -2893,7 +2980,7 @@ export function BookWorkspace() {
                               disabled={activeBook?.activeGenerationRunId === run.id}
                               onClick={() => void handleSelectActiveGenerationRun(run.id)}
                             >
-                              {activeBook?.activeGenerationRunId === run.id ? "Active" : "Use Run"}
+                              {activeBook?.activeGenerationRunId === run.id ? t("Active", "활성") : t("Use Run", "이 실행 사용")}
                             </button>
                             <button
                               className="danger-button"
@@ -2901,7 +2988,7 @@ export function BookWorkspace() {
                               disabled={run.status === "generating" || deletingId === run.id}
                               onClick={() => handleDeleteGenerationRun(run)}
                             >
-                              {deletingId === run.id ? "Deleting..." : "Delete Run"}
+                              {deletingId === run.id ? t("Deleting...", "삭제 중...") : t("Delete Run", "실행 삭제")}
                             </button>
                           </div>
                         </article>
@@ -2919,27 +3006,27 @@ export function BookWorkspace() {
           <section className="export-panel">
             <div className="panel-title-row">
               <div>
-                <p className="step-label">Export</p>
-                <h3>Exports</h3>
+                <p className="step-label">{t("Export", "내보내기")}</p>
+                <h3>{t("Exports", "내보내기")}</h3>
               </div>
             </div>
 
             {chapters.length === 0 ? (
               <div className="empty-state">
-                <strong>No exports available</strong>
-                <p>Create chapters and generate at least one study set before exporting files.</p>
+                <strong>{t("No exports available", "내보낼 자료가 없습니다")}</strong>
+                <p>{t("Create chapters and generate at least one study set before exporting files.", "파일을 내보내기 전에 챕터를 만들고 학습 세트를 하나 이상 생성하세요.")}</p>
               </div>
             ) : (
               <div className="export-page-stack">
                 <div className="export-workspace">
                   <div className="export-scope-block">
                     <div>
-                      <p className="step-label">Whole Book</p>
-                      <h4>{activeGenerationRun ? `Export ${activeGenerationRun.name}` : "Export latest generated set for every chapter"}</h4>
+                      <p className="step-label">{t("Whole Book", "책 전체")}</p>
+                      <h4>{activeGenerationRun ? t(`Export ${activeGenerationRun.name}`, `${activeGenerationRun.name} 내보내기`) : t("Export latest generated set for every chapter", "각 챕터의 최신 학습 세트 내보내기")}</h4>
                       <p className="muted-text">
                         {activeGenerationRun
-                          ? "Uses study sets from the active generation run."
-                          : "Uses the newest study set for each chapter that has generated material."}
+                          ? t("Uses study sets from the active generation run.", "활성 생성 실행의 학습 세트를 사용합니다.")
+                          : t("Uses the newest study set for each chapter that has generated material.", "생성된 자료가 있는 각 챕터의 최신 학습 세트를 사용합니다.")}
                       </p>
                     </div>
                     <div className="export-group-list">
@@ -2962,7 +3049,7 @@ export function BookWorkspace() {
                                     PDF
                                   </button>
                                   <button type="button" onClick={() => handleExportBook(option.type, "docx")}>
-                                    Word
+                                    {t("Word", "Word")}
                                   </button>
                                 </div>
                               </article>
@@ -2979,9 +3066,9 @@ export function BookWorkspace() {
                     type="button"
                     onClick={() => setShowSingleChapterExport((current) => !current)}
                   >
-                    {showSingleChapterExport ? "Hide Single-Chapter Export" : "Show Single-Chapter Export"}
+                    {showSingleChapterExport ? t("Hide Single-Chapter Export", "개별 챕터 내보내기 숨기기") : t("Show Single-Chapter Export", "개별 챕터 내보내기 표시")}
                   </button>
-                  <p className="muted-text">Use this only when you need a one-chapter handout.</p>
+                  <p className="muted-text">{t("Use this only when you need a one-chapter handout.", "한 챕터짜리 자료가 필요할 때만 사용하세요.")}</p>
                 </div>
 
                 {showSingleChapterExport ? (
@@ -2996,9 +3083,9 @@ export function BookWorkspace() {
                       >
                         <div>
                           <strong>
-                            Chapter {chapter.chapterNumber}{chapter.title ? `: ${chapter.title}` : ""}
+                            {t("Chapter", "챕터")} {chapter.chapterNumber}{chapter.title ? `: ${chapter.title}` : ""}
                           </strong>
-                          <span>{chapter.wordCount.toLocaleString()} words</span>
+                          <span>{t(`${chapter.wordCount.toLocaleString()} words`, `${chapter.wordCount.toLocaleString()}단어`)}</span>
                         </div>
                         <p>{chapter.preview}</p>
                       </button>
@@ -3008,23 +3095,23 @@ export function BookWorkspace() {
                   <div className="export-workspace">
                     <div className="export-scope-block">
                     {!selectedChapter ? (
-                      <p className="muted-text">Select a chapter to export.</p>
+                      <p className="muted-text">{t("Select a chapter to export.", "내보낼 챕터를 선택하세요.")}</p>
                     ) : (
                       <>
                         <div className="study-set-header">
                           <div>
-                            <p className="step-label">Single Chapter</p>
-                            <h4>{selectedStudySet?.title || "No generated study set selected"}</h4>
+                            <p className="step-label">{t("Single Chapter", "개별 챕터")}</p>
+                            <h4>{selectedStudySet?.title || t("No generated study set selected", "선택된 학습 세트가 없습니다")}</h4>
                             {selectedStudySet ? (
                               <p className="muted-text">
-                                Generated {formatDateTime(selectedStudySet.createdAt)}
-                                {selectedStudySet.model ? ` with ${selectedStudySet.model}` : ""}
+                                {t("Generated", "생성됨")} {formatDateTime(selectedStudySet.createdAt)}
+                                {selectedStudySet.model ? ` ${t("with", "모델:")} ${selectedStudySet.model}` : ""}
                               </p>
                             ) : null}
                           </div>
                           <div className="study-set-controls">
                             {loadingStudySetsChapterId === selectedChapter.id ? (
-                              <span>Loading...</span>
+                              <span>{t("Loading...", "불러오는 중...")}</span>
                             ) : selectedChapterStudySets.length ? (
                               <select
                                 value={selectedStudySetId || ""}
@@ -3041,7 +3128,7 @@ export function BookWorkspace() {
                         </div>
 
                         {!selectedStudySet ? (
-                          <p className="muted-text">Generate a study set for this chapter before exporting.</p>
+                          <p className="muted-text">{t("Generate a study set for this chapter before exporting.", "내보내기 전에 이 챕터의 학습 세트를 생성하세요.")}</p>
                         ) : (
                           <div className="export-group-list">
                             {exportOptionGroups.map((group) => (
@@ -3063,7 +3150,7 @@ export function BookWorkspace() {
                                           PDF
                                         </button>
                                         <button type="button" onClick={() => handleExportStudySet(option.type, "docx")}>
-                                          Word
+                                          {t("Word", "Word")}
                                         </button>
                                       </div>
                                     </article>
@@ -3088,10 +3175,10 @@ export function BookWorkspace() {
           <section className="chapter-panel">
             <div className="panel-title-row">
               <div>
-                <p className="step-label">{activeWorkspaceTab === "study-sets" ? "Study Sets" : "Chapters"}</p>
-                <h3>{activeWorkspaceTab === "study-sets" ? "Study Set Review" : "Chapter Review"}</h3>
+                <p className="step-label">{activeWorkspaceTab === "study-sets" ? t("Study Sets", "학습 세트") : t("Chapters", "챕터")}</p>
+                <h3>{activeWorkspaceTab === "study-sets" ? t("Study Set Review", "학습 세트 검토") : t("Chapter Review", "챕터 검토")}</h3>
                 {activeWorkspaceTab === "study-sets" && activeGenerationRun ? (
-                  <p className="muted-text">Viewing active version: {activeGenerationRun.name}</p>
+                  <p className="muted-text">{t("Viewing active version:", "활성 버전:")} {activeGenerationRun.name}</p>
                 ) : null}
               </div>
               {activeWorkspaceTab === "chapters" ? (
@@ -3101,15 +3188,15 @@ export function BookWorkspace() {
                   disabled={chapters.length === 0 || deletingId === "chapters"}
                   onClick={handleClearChapters}
                 >
-                  {deletingId === "chapters" ? "Clearing..." : "Clear Chapters"}
+                  {deletingId === "chapters" ? t("Clearing...", "삭제 중...") : t("Clear Chapters", "챕터 모두 삭제")}
                 </button>
               ) : null}
             </div>
 
             {chapters.length === 0 ? (
               <div className="empty-state">
-                <strong>No chapters created yet</strong>
-                <p>Use the Source tab to extract text and split the book into chapters.</p>
+                <strong>{t("No chapters created yet", "아직 생성된 챕터가 없습니다")}</strong>
+                <p>{t("Use the Source tab to extract text and split the book into chapters.", "소스 탭에서 텍스트를 추출하고 챕터를 나누세요.")}</p>
               </div>
             ) : (
               <div className="chapter-editor-layout">
@@ -3123,9 +3210,9 @@ export function BookWorkspace() {
                     >
                       <div>
                         <strong>
-                          Chapter {chapter.chapterNumber}{chapter.title ? `: ${chapter.title}` : ""}
+                          {t("Chapter", "챕터")} {chapter.chapterNumber}{chapter.title ? `: ${chapter.title}` : ""}
                         </strong>
-                        <span>{chapter.wordCount.toLocaleString()} words</span>
+                        <span>{t(`${chapter.wordCount.toLocaleString()} words`, `${chapter.wordCount.toLocaleString()}단어`)}</span>
                       </div>
                       <p>{chapter.preview}</p>
                     </button>
@@ -3134,19 +3221,19 @@ export function BookWorkspace() {
 
                 <div className="chapter-editor">
                   {!selectedChapter ? (
-                    <p className="muted-text">Select a chapter to continue.</p>
+                    <p className="muted-text">{t("Select a chapter to continue.", "계속하려면 챕터를 선택하세요.")}</p>
                   ) : loadingChapterId === selectedChapter.id ? (
-                    <p className="muted-text">Loading chapter...</p>
+                    <p className="muted-text">{t("Loading chapter...", "챕터를 불러오는 중...")}</p>
                   ) : activeWorkspaceTab === "study-sets" ? (
                     <>
                       <div className="study-set-panel">
                         <div className="study-set-header">
                           <div>
-                            <p className="step-label">Study Set</p>
-                            <h4>{selectedStudySet?.title || "No study set yet"}</h4>
+                            <p className="step-label">{t("Study Set", "학습 세트")}</p>
+                            <h4>{selectedStudySet?.title || t("No study set yet", "아직 학습 세트가 없습니다")}</h4>
                             {selectedStudySet ? (
                               <div className="study-set-meta-row">
-                                <span>{selectedStudySet.status}</span>
+                                <span>{formatUiStatus(selectedStudySet.status)}</span>
                                 <span>{formatDateTime(selectedStudySet.createdAt)}</span>
                                 {selectedStudySet.model ? <span>{selectedStudySet.model}</span> : null}
                               </div>
@@ -3154,7 +3241,7 @@ export function BookWorkspace() {
                           </div>
                           <div className="study-set-controls">
                             {loadingStudySetsChapterId === selectedChapter.id ? (
-                              <span>Loading...</span>
+                              <span>{t("Loading...", "불러오는 중...")}</span>
                             ) : selectedChapterStudySets.length ? (
                               <select
                                 value={selectedStudySetId || ""}
@@ -3174,57 +3261,60 @@ export function BookWorkspace() {
                                 disabled={deletingId === selectedStudySet.id}
                                 onClick={() => handleDeleteStudySet(selectedChapter, selectedStudySet)}
                               >
-                                {deletingId === selectedStudySet.id ? "Deleting..." : "Delete Study Set"}
+                                {deletingId === selectedStudySet.id ? t("Deleting...", "삭제 중...") : t("Delete Study Set", "학습 세트 삭제")}
                               </button>
                             ) : null}
                           </div>
                         </div>
 
                         {selectedStudySet ? (
-                          <div className="study-set-edit-panel">
-                            <label>
-                              Rename
-                              <input
-                                value={studySetDraftById[selectedStudySet.id]?.title || selectedStudySet.title}
-                                onChange={(event) => updateStudySetDraft(selectedStudySet.id, { title: event.target.value })}
-                              />
-                            </label>
-                            <label>
-                              Status
-                              <select
-                                value={studySetDraftById[selectedStudySet.id]?.status || selectedStudySet.status}
-                                onChange={(event) => updateStudySetDraft(selectedStudySet.id, { status: event.target.value })}
+                          <details className="study-set-edit-details">
+                            <summary>{t("Rename and status", "이름 및 상태")}</summary>
+                            <div className="study-set-edit-panel">
+                              <label>
+                                {t("Rename", "이름 변경")}
+                                <input
+                                  value={studySetDraftById[selectedStudySet.id]?.title || selectedStudySet.title}
+                                  onChange={(event) => updateStudySetDraft(selectedStudySet.id, { title: event.target.value })}
+                                />
+                              </label>
+                              <label>
+                                {t("Status", "상태")}
+                                <select
+                                  value={studySetDraftById[selectedStudySet.id]?.status || selectedStudySet.status}
+                                  onChange={(event) => updateStudySetDraft(selectedStudySet.id, { status: event.target.value })}
+                                >
+                                  {studySetStatuses.map((status) => (
+                                    <option key={status} value={status}>
+                                      {formatUiStatus(status)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <button
+                                type="button"
+                                disabled={savingStudySetId === selectedStudySet.id}
+                                onClick={() => handleSaveStudySet(selectedStudySet)}
                               >
-                                {studySetStatuses.map((status) => (
-                                  <option key={status} value={status}>
-                                    {status}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <button
-                              type="button"
-                              disabled={savingStudySetId === selectedStudySet.id}
-                              onClick={() => handleSaveStudySet(selectedStudySet)}
-                            >
-                              {savingStudySetId === selectedStudySet.id ? "Saving..." : "Save Study Set"}
-                            </button>
-                          </div>
+                                {savingStudySetId === selectedStudySet.id ? t("Saving...", "저장 중...") : t("Save Study Set", "학습 세트 저장")}
+                              </button>
+                            </div>
+                          </details>
                         ) : null}
 
                         {!selectedStudySet ? (
-                          <p className="muted-text">Generate a study set to review vocabulary and questions.</p>
+                          <p className="muted-text">{t("Generate a study set to review vocabulary and questions.", "단어와 문제를 검토하려면 학습 세트를 생성하세요.")}</p>
                         ) : loadingStudyItemsSetId === selectedStudySet.id ? (
-                          <p className="muted-text">Loading generated items...</p>
+                          <p className="muted-text">{t("Loading generated items...", "생성된 항목을 불러오는 중...")}</p>
                         ) : selectedStudyItems ? (
                           <>
-                          <div className="study-set-subtabs" role="tablist" aria-label="Study set item type">
+                          <div className="study-set-subtabs" role="tablist" aria-label={t("Study set item type", "학습 세트 항목 종류")}>
                             <button
                               className={activeStudySetView === "vocabulary" ? "active" : ""}
                               type="button"
                               onClick={() => setActiveStudySetView("vocabulary")}
                             >
-                              Vocabulary
+                              {t("Vocabulary", "단어")}
                               <span>{selectedStudyItems.vocabularyItems.length}</span>
                             </button>
                             <button
@@ -3232,7 +3322,7 @@ export function BookWorkspace() {
                               type="button"
                               onClick={() => setActiveStudySetView("multiple-choice")}
                             >
-                              Multiple Choice
+                              {t("Multiple Choice", "객관식")}
                               <span>{selectedStudyItems.multipleChoiceQuestions.length}</span>
                             </button>
                             <button
@@ -3240,7 +3330,7 @@ export function BookWorkspace() {
                               type="button"
                               onClick={() => setActiveStudySetView("short-answer")}
                             >
-                              Short Answer
+                              {t("Short Answer", "주관식")}
                               <span>{selectedStudyItems.shortAnswerQuestions.length}</span>
                             </button>
                           </div>
@@ -3249,7 +3339,7 @@ export function BookWorkspace() {
                           <div className="study-items-grid single-column">
                             <section className="study-item-section">
                               <div className="study-item-section-header">
-                                <strong>Vocabulary</strong>
+                                <strong>{t("Vocabulary", "단어")}</strong>
                                 <span>{selectedStudyItems.vocabularyItems.length}</span>
                               </div>
                               {selectedStudyItems.vocabularyItems.map((item) => (
@@ -3274,13 +3364,13 @@ export function BookWorkspace() {
                                   <div className="study-item-actions">
                                     {editingStudyItemId === item.id ? (
                                       <>
-                                        <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("vocabulary", item.id)}>{savingStudyItemId === item.id ? "Saving..." : "Save"}</button>
-                                        <button type="button" onClick={() => setEditingStudyItemId(null)}>Cancel</button>
+                                        <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("vocabulary", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
+                                        <button type="button" onClick={() => setEditingStudyItemId(null)}>{t("Cancel", "취소")}</button>
                                       </>
                                     ) : (
-                                      <button type="button" onClick={() => startEditingStudyItem("vocabulary", item)}>Edit</button>
+                                      <button type="button" onClick={() => startEditingStudyItem("vocabulary", item)}>{t("Edit", "수정")}</button>
                                     )}
-                                    <button className="danger-button" type="button" disabled={deletingId === item.id} onClick={() => handleDeleteStudyItem("vocabulary", item.id)}>{deletingId === item.id ? "Deleting..." : "Delete"}</button>
+                                    <button className="danger-button" type="button" disabled={deletingId === item.id} onClick={() => handleDeleteStudyItem("vocabulary", item.id)}>{deletingId === item.id ? t("Deleting...", "삭제 중...") : t("Delete", "삭제")}</button>
                                   </div>
                                 </article>
                               ))}
@@ -3290,7 +3380,7 @@ export function BookWorkspace() {
                           <div className="study-items-grid single-column">
                             <section className="study-item-section">
                               <div className="study-item-section-header">
-                                <strong>Multiple Choice</strong>
+                                <strong>{t("Multiple Choice", "객관식")}</strong>
                                 <span>{selectedStudyItems.multipleChoiceQuestions.length}</span>
                               </div>
                               {selectedStudyItems.multipleChoiceQuestions.map((item) => (
@@ -3305,24 +3395,30 @@ export function BookWorkspace() {
                                   ) : (
                                     <>
                                       <strong>{item.questionText}</strong>
-                                      <ol>
+                                      <div className="choice-list">
                                         {item.choices.map((choice, index) => (
-                                          <li className={index === item.correctChoiceIndex ? "correct-choice" : ""} key={`${item.id}-${choice}`}>{choice}</li>
+                                          <div
+                                            className={`choice-row ${index === item.correctChoiceIndex ? "correct-choice" : ""}`}
+                                            key={`${item.id}-${choice}`}
+                                          >
+                                            <span>{getChoiceLabel(index)}</span>
+                                            <p>{choice}</p>
+                                          </div>
                                         ))}
-                                      </ol>
+                                      </div>
                                       {item.explanation ? <small>{item.explanation}</small> : null}
                                     </>
                                   )}
                                   <div className="study-item-actions">
                                     {editingStudyItemId === item.id ? (
                                       <>
-                                        <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("multiple-choice", item.id)}>{savingStudyItemId === item.id ? "Saving..." : "Save"}</button>
-                                        <button type="button" onClick={() => setEditingStudyItemId(null)}>Cancel</button>
+                                        <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("multiple-choice", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
+                                        <button type="button" onClick={() => setEditingStudyItemId(null)}>{t("Cancel", "취소")}</button>
                                       </>
                                     ) : (
-                                      <button type="button" onClick={() => startEditingStudyItem("multiple-choice", item)}>Edit</button>
+                                      <button type="button" onClick={() => startEditingStudyItem("multiple-choice", item)}>{t("Edit", "수정")}</button>
                                     )}
-                                    <button className="danger-button" type="button" disabled={deletingId === item.id} onClick={() => handleDeleteStudyItem("multiple-choice", item.id)}>{deletingId === item.id ? "Deleting..." : "Delete"}</button>
+                                    <button className="danger-button" type="button" disabled={deletingId === item.id} onClick={() => handleDeleteStudyItem("multiple-choice", item.id)}>{deletingId === item.id ? t("Deleting...", "삭제 중...") : t("Delete", "삭제")}</button>
                                   </div>
                                 </article>
                               ))}
@@ -3332,7 +3428,7 @@ export function BookWorkspace() {
                           <div className="study-items-grid single-column">
                             <section className="study-item-section">
                               <div className="study-item-section-header">
-                                <strong>Short Answer</strong>
+                                <strong>{t("Short Answer", "주관식")}</strong>
                                 <span>{selectedStudyItems.shortAnswerQuestions.length}</span>
                               </div>
                               {selectedStudyItems.shortAnswerQuestions.map((item) => (
@@ -3353,13 +3449,13 @@ export function BookWorkspace() {
                                   <div className="study-item-actions">
                                     {editingStudyItemId === item.id ? (
                                       <>
-                                        <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("short-answer", item.id)}>{savingStudyItemId === item.id ? "Saving..." : "Save"}</button>
-                                        <button type="button" onClick={() => setEditingStudyItemId(null)}>Cancel</button>
+                                        <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("short-answer", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
+                                        <button type="button" onClick={() => setEditingStudyItemId(null)}>{t("Cancel", "취소")}</button>
                                       </>
                                     ) : (
-                                      <button type="button" onClick={() => startEditingStudyItem("short-answer", item)}>Edit</button>
+                                      <button type="button" onClick={() => startEditingStudyItem("short-answer", item)}>{t("Edit", "수정")}</button>
                                     )}
-                                    <button className="danger-button" type="button" disabled={deletingId === item.id} onClick={() => handleDeleteStudyItem("short-answer", item.id)}>{deletingId === item.id ? "Deleting..." : "Delete"}</button>
+                                    <button className="danger-button" type="button" disabled={deletingId === item.id} onClick={() => handleDeleteStudyItem("short-answer", item.id)}>{deletingId === item.id ? t("Deleting...", "삭제 중...") : t("Delete", "삭제")}</button>
                                   </div>
                                 </article>
                               ))}
@@ -3368,31 +3464,31 @@ export function BookWorkspace() {
                           )}
                           </>
                         ) : (
-                          <p className="muted-text">Select a study set to load its generated items.</p>
+                          <p className="muted-text">{t("Select a study set to load its generated items.", "생성된 항목을 불러오려면 학습 세트를 선택하세요.")}</p>
                         )}
                       </div>
                     </>
                   ) : !selectedChapterEdit ? (
                     <div className="empty-editor">
-                      <h4>Chapter {selectedChapter.chapterNumber}</h4>
-                      <p className="muted-text">Open this chapter to load the full text for editing.</p>
+                      <h4>{t("Chapter", "챕터")} {selectedChapter.chapterNumber}</h4>
+                      <p className="muted-text">{t("Open this chapter to load the full text for editing.", "수정할 전체 텍스트를 불러오려면 이 챕터를 여세요.")}</p>
                       <button type="button" onClick={() => handleSelectChapter(selectedChapter)}>
-                        Open Chapter
+                        {t("Open Chapter", "챕터 열기")}
                       </button>
                     </div>
                   ) : (
                     <>
                       <div className="chapter-editor-header">
                         <div>
-                          <p className="step-label">Editor</p>
-                          <h4>Chapter {selectedChapter.chapterNumber}</h4>
+                          <p className="step-label">{t("Editor", "편집기")}</p>
+                          <h4>{t("Chapter", "챕터")} {selectedChapter.chapterNumber}</h4>
                         </div>
-                        <span>{selectedChapterWordCount.toLocaleString()} words</span>
+                        <span>{t(`${selectedChapterWordCount.toLocaleString()} words`, `${selectedChapterWordCount.toLocaleString()}단어`)}</span>
                       </div>
 
                       <div className="chapter-form-grid">
                         <label>
-                          Number
+                          {t("Number", "번호")}
                           <input
                             min="1"
                             type="number"
@@ -3401,17 +3497,17 @@ export function BookWorkspace() {
                           />
                         </label>
                         <label>
-                          Title
+                          {t("Title", "제목")}
                           <input
                             value={selectedChapterEdit.title}
                             onChange={(event) => handleChapterEdit(selectedChapter.id, { title: event.target.value })}
-                            placeholder={`Chapter ${selectedChapter.chapterNumber}`}
+                            placeholder={`${t("Chapter", "챕터")} ${selectedChapter.chapterNumber}`}
                           />
                         </label>
                       </div>
 
                       <label className="chapter-text-field">
-                        Chapter text
+                        {t("Chapter text", "챕터 텍스트")}
                         <textarea
                           rows={22}
                           value={selectedChapterEdit.textContent}
@@ -3425,7 +3521,7 @@ export function BookWorkspace() {
                           disabled={savingChapterId === selectedChapter.id}
                           onClick={() => handleSaveChapter(selectedChapter)}
                         >
-                          {savingChapterId === selectedChapter.id ? "Saving..." : "Save Chapter"}
+                          {savingChapterId === selectedChapter.id ? t("Saving...", "저장 중...") : t("Save Chapter", "챕터 저장")}
                         </button>
                         {activeWorkspaceTab === "chapters" ? (
                           <button
@@ -3434,7 +3530,7 @@ export function BookWorkspace() {
                             disabled={deletingId === selectedChapter.id}
                             onClick={() => handleDeleteChapter(selectedChapter)}
                           >
-                            {deletingId === selectedChapter.id ? "Deleting..." : "Delete Chapter"}
+                            {deletingId === selectedChapter.id ? t("Deleting...", "삭제 중...") : t("Delete Chapter", "챕터 삭제")}
                           </button>
                         ) : null}
                       </div>

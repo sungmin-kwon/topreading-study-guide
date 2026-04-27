@@ -174,7 +174,8 @@ export async function summarizeGenerationRun(run: GenerationRun, index = 0) {
 
   if (run.status === "generating") {
     const expectedChapterIds = getConfiguredChapterIds(parsedConfig);
-    const generatedChapterIds = new Set(studySets.map((studySet) => studySet.chapterId));
+    const completedStudySets = studySets.filter((studySet) => studySet.status === "ready" || studySet.status === "reviewed");
+    const generatedChapterIds = new Set(completedStudySets.map((studySet) => studySet.chapterId));
     const hasAllExpectedChapters = expectedChapterIds.length > 0
       && expectedChapterIds.every((chapterId) => generatedChapterIds.has(chapterId));
 
@@ -195,7 +196,7 @@ export async function summarizeGenerationRun(run: GenerationRun, index = 0) {
           {
             timestamp: nowIso(),
             level: "warn",
-            message: "Run was marked completed after detecting generated study sets for every planned chapter."
+            message: "Run was marked completed after detecting ready study sets for every planned chapter."
           }
         ],
         finishedAt: run.finishedAt || nowIso()
