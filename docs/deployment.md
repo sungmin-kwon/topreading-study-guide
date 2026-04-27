@@ -63,9 +63,122 @@ PYTHON_EXECUTABLE=/srv/topreading/app/.topreading/bin/python
 
 Before deployment:
 
-```powershell
+```bash
 npm run typecheck
 npm run build
+```
+
+## Ubuntu Server Quick Setup
+
+These are the basic steps for a private Ubuntu Server deployment.
+
+Install system packages:
+
+```bash
+sudo apt update
+sudo apt install -y curl git python3 python3-venv python3-pip build-essential
+```
+
+Install Node 22 if it is not already installed:
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+node -v
+npm -v
+```
+
+Clone and install:
+
+```bash
+git clone https://github.com/sungmin-kwon/topreading-study-guide.git
+cd topreading-study-guide
+npm ci
+```
+
+Create the Python helper environment:
+
+```bash
+python3 -m venv .topreading
+./.topreading/bin/python -m pip install --upgrade pip
+./.topreading/bin/python -m pip install -r requirements.txt
+```
+
+Create durable data directories:
+
+```bash
+sudo mkdir -p /srv/topreading/data /srv/topreading/uploads /srv/topreading/exports /srv/topreading/backups
+sudo chown -R "$USER":"$USER" /srv/topreading
+```
+
+Create `.env.local`:
+
+```bash
+cp .env.example .env.local
+nano .env.local
+```
+
+Use Linux-style paths:
+
+```text
+DATABASE_URL=file:/srv/topreading/data/topreading.sqlite
+UPLOAD_DIR=/srv/topreading/uploads
+EXPORT_DIR=/srv/topreading/exports
+BACKUP_DIR=/srv/topreading/backups
+PYTHON_EXECUTABLE=/home/sungmin-kwon/topreading-study-guide/.topreading/bin/python
+AUTH_MODE=cloudflare_access
+AUTH_ALLOWED_EMAILS=your-email@example.com
+```
+
+Build and start:
+
+```bash
+npm run typecheck
+npm run build
+npm run start -- -H 0.0.0.0 -p 3000
+```
+
+### systemd Service
+
+Create `/etc/systemd/system/topreading-study-guide.service`:
+
+```ini
+[Unit]
+Description=TopReading Study Guide
+After=network.target
+
+[Service]
+Type=simple
+User=sungmin-kwon
+Group=sungmin-kwon
+WorkingDirectory=/home/sungmin-kwon/topreading-study-guide
+EnvironmentFile=/home/sungmin-kwon/topreading-study-guide/.env.local
+Environment=NODE_ENV=production
+Environment=PORT=3000
+ExecStart=/usr/bin/npm run start -- -H 0.0.0.0 -p 3000
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
+```
+
+If `which npm` is not `/usr/bin/npm`, update `ExecStart`.
+
+Enable and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable topreading-study-guide
+sudo systemctl start topreading-study-guide
+sudo systemctl status topreading-study-guide
+```
+
+Useful logs:
+
+```bash
+journalctl -u topreading-study-guide -f
 ```
 
 ## Runtime Storage

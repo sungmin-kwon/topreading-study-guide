@@ -83,6 +83,16 @@ function normalizeStatus(status: string | undefined) {
   return normalized;
 }
 
+function getConfiguredChapterIds(config: Record<string, unknown>) {
+  const chapters = Array.isArray(config.chapters) ? config.chapters : [];
+  return chapters
+    .map((item) => {
+      const chapter = item && typeof item === "object" ? item as Record<string, unknown> : {};
+      return String(chapter.chapterId || "");
+    })
+    .filter(Boolean);
+}
+
 export async function createGenerationRun(input: CreateGenerationRunInput): Promise<GenerationRun> {
   const timestamp = nowIso();
   const row = {
@@ -159,28 +169,63 @@ export async function deleteGenerationRun(id: string): Promise<void> {
 
 export async function summarizeGenerationRun(run: GenerationRun, index = 0) {
   const studySets = await listStudySetsForRun(run.id);
+  const parsedConfig = parseJsonObject(run.configJson);
+  let normalizedRun = run;
+
+  if (run.status === "generating") {
+    const expectedChapterIds = getConfiguredChapterIds(parsedConfig);
+    const generatedChapterIds = new Set(studySets.map((studySet) => studySet.chapterId));
+    const hasAllExpectedChapters = expectedChapterIds.length > 0
+      && expectedChapterIds.every((chapterId) => generatedChapterIds.has(chapterId));
+
+    if (hasAllExpectedChapters) {
+      const completed = await updateGenerationRun({
+        id: run.id,
+        status: "completed",
+        progress: {
+          ...parseJsonObject(run.progressJson),
+          completedChapters: expectedChapterIds.length,
+          totalChapters: expectedChapterIds.length,
+          currentChapterId: null,
+          currentChapterNumber: null,
+          repairedFromStaleGeneratingState: true
+        },
+        log: [
+          ...parseJsonArray(run.logJson),
+          {
+            timestamp: nowIso(),
+            level: "warn",
+            message: "Run was marked completed after detecting generated study sets for every planned chapter."
+          }
+        ],
+        finishedAt: run.finishedAt || nowIso()
+      });
+      normalizedRun = completed || run;
+    }
+  }
+
   const itemGroups = await Promise.all(studySets.map((studySet) => listStudyItems(studySet.id)));
   const vocabularyCount = itemGroups.reduce((total, items) => total + items.vocabulary.length, 0);
   const multipleChoiceCount = itemGroups.reduce((total, items) => total + items.multipleChoice.length, 0);
   const shortAnswerCount = itemGroups.reduce((total, items) => total + items.shortAnswer.length, 0);
 
   return {
-    id: run.id,
-    bookId: run.bookId,
-    name: run.name || `Run ${index + 1}`,
-    status: run.status,
-    config: parseJsonObject(run.configJson),
-    progress: parseJsonObject(run.progressJson),
-    log: parseJsonArray(run.logJson),
-    errorMessage: run.errorMessage,
+    id: normalizedRun.id,
+    bookId: normalizedRun.bookId,
+    name: normalizedRun.name || `Run ${index + 1}`,
+    status: normalizedRun.status,
+    config: parseJsonObject(normalizedRun.configJson),
+    progress: parseJsonObject(normalizedRun.progressJson),
+    log: parseJsonArray(normalizedRun.logJson),
+    errorMessage: normalizedRun.errorMessage,
     chapterCount: studySets.length,
     vocabularyCount,
     multipleChoiceCount,
     shortAnswerCount,
-    startedAt: run.startedAt,
-    finishedAt: run.finishedAt,
-    createdAt: run.createdAt,
-    updatedAt: run.updatedAt
+    startedAt: normalizedRun.startedAt,
+    finishedAt: normalizedRun.finishedAt,
+    createdAt: normalizedRun.createdAt,
+    updatedAt: normalizedRun.updatedAt
   };
 }
 

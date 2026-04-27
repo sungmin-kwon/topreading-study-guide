@@ -87,4 +87,6 @@ This app currently assumes durable local filesystem access for SQLite, uploaded 
 
 Before exposing the app publicly, enable authentication with `AUTH_MODE`. Cloudflare Access is the preferred first option when the app is published through Cloudflare Tunnel.
 
+On Ubuntu Server, see [Deployment Notes](docs/deployment.md#ubuntu-server-quick-setup) for the package install, Python venv, `.env.local`, and `systemd` service steps.
+
 See [Deployment Notes](docs/deployment.md) and [Future Work](docs/future-work.md).

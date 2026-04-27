@@ -556,6 +556,7 @@ export function BookWorkspace() {
   const activeGenerationRun = activeBook?.activeGenerationRunId
     ? generationRuns.find((run) => run.id === activeBook.activeGenerationRunId) || null
     : null;
+  const generatingRun = generationRuns.find((run) => run.status === "generating") || null;
   const selectedChapterStudySets = selectedChapter ? studySetsByChapterId[selectedChapter.id] || [] : [];
   const selectedStudySetId = selectedChapter
     ? selectedStudySetIdByChapterId[selectedChapter.id] || selectedChapterStudySets[0]?.id || null
@@ -808,6 +809,60 @@ export function BookWorkspace() {
       void loadStudySets(selectedChapter);
     }
   }, [activeWorkspaceTab, selectedChapter?.id, activeBook?.activeGenerationRunId]);
+
+  useEffect(() => {
+    if (!activeBook?.id || !generatingRun) {
+      return;
+    }
+
+    let isMounted = true;
+    const syncGeneratingRun = async () => {
+      try {
+        const runs = await fetchGenerationRuns(activeBook.id);
+        if (!isMounted) {
+          return;
+        }
+
+        setGenerationRuns(runs);
+        const updatedRun = runs.find((run) => run.id === generatingRun.id);
+        if (!updatedRun) {
+          setIsGeneratingBook(false);
+          setGeneratingChapterId(null);
+          return;
+        }
+
+        setGenerationLog(updatedRun.log);
+        const currentChapterId = typeof updatedRun.progress.currentChapterId === "string"
+          ? updatedRun.progress.currentChapterId
+          : null;
+        setGeneratingChapterId(updatedRun.status === "generating" ? currentChapterId : null);
+        setIsGeneratingBook(updatedRun.status === "generating");
+
+        if (updatedRun.status !== "generating") {
+          setStudySetsByChapterId({});
+          setSelectedStudySetIdByChapterId({});
+          setStudyItemsByStudySetId({});
+          await refreshActiveBookStats(activeBook.id);
+          if ((activeWorkspaceTab === "study-sets" || activeWorkspaceTab === "export") && selectedChapter) {
+            await loadStudySets(selectedChapter, activeBook.activeGenerationRunId);
+          }
+        }
+      } catch {
+        // Keep the existing UI state if a polling request fails.
+      }
+    };
+
+    setIsGeneratingBook(true);
+    void syncGeneratingRun();
+    const pollId = window.setInterval(() => {
+      void syncGeneratingRun();
+    }, 2500);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(pollId);
+    };
+  }, [activeBook?.id, activeBook?.activeGenerationRunId, activeWorkspaceTab, generatingRun?.id, selectedChapter?.id]);
 
   useEffect(() => {
     if (!selectedStudySet) {

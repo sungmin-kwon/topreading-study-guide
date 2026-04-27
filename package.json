@@ -14,6 +14,7 @@
   "scripts": {
     "dev": "npm run dev --workspace @topreading/web",
     "build": "npm run build --workspace @topreading/web",
+    "start": "npm run start --workspace @topreading/web",
     "lint": "npm run lint --workspace @topreading/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "backup": "node scripts/backup-data.mjs"
