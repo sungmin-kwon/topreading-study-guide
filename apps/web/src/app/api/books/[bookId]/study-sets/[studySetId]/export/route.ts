@@ -1,0 +1,42 @@
+import fs from "node:fs/promises";
+import { NextResponse } from "next/server";
+import { exportStudySetFile, parseExportFileFormat, parsePdfExportType } from "@/lib/pdf-export";
+
+export const runtime = "nodejs";
+
+type RouteContext = {
+  params: Promise<{
+    bookId: string;
+    studySetId: string;
+  }>;
+};
+
+export async function GET(request: Request, context: RouteContext) {
+  const { bookId, studySetId } = await context.params;
+  const url = new URL(request.url);
+  const type = parsePdfExportType(url.searchParams.get("type"));
+  const format = parseExportFileFormat(url.searchParams.get("format"));
+
+  if (!type) {
+    return NextResponse.json({ error: "PDF export type is not valid." }, { status: 400 });
+  }
+
+  try {
+    const exported = await exportStudySetFile(bookId, studySetId, type, format);
+    const buffer = await fs.readFile(exported.filePath);
+
+    return new NextResponse(buffer, {
+      headers: {
+        "Content-Type": format === "docx"
+          ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          : "application/pdf",
+        "Content-Disposition": `attachment; filename="${exported.filename}"`
+      }
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not export PDF." },
+      { status: 400 }
+    );
+  }
+}

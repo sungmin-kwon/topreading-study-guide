@@ -1,0 +1,21 @@
+{
+  "name": "topreading-study-guide",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A polished study guide maker for chapter-based reading comprehension, vocabulary, and export workflows.",
+  "engines": {
+    "node": "22.x"
+  },
+  "packageManager": "npm@10.9.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @topreading/web",
+    "build": "npm run build --workspace @topreading/web",
+    "lint": "npm run lint --workspace @topreading/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "backup": "node scripts/backup-data.mjs"
+  }
+}

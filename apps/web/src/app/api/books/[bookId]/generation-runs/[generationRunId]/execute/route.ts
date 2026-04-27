@@ -1,0 +1,283 @@
+import { NextResponse } from "next/server";
+import { getBook } from "@/lib/books";
+import { getChapter } from "@/lib/chapters";
+import { getGeneratingRunForBook, getGenerationRun, summarizeGenerationRun, updateGenerationRun, type GenerationLogEntry } from "@/lib/generation-runs";
+import { generateOpenAIStudySet, type OpenAIUsageSummary } from "@/lib/openai-generator";
+import { deleteStudySetsForRun } from "@/lib/study-sets";
+
+export const runtime = "nodejs";
+export const maxDuration = 900;
+
+type RouteContext = {
+  params: Promise<{
+    bookId: string;
+    generationRunId: string;
+  }>;
+};
+
+type ChapterPlanConfig = {
+  chapterId: string;
+  chapterNumber: number;
+  plan: {
+    vocabularyCount: number;
+    multipleChoiceCount: number;
+    shortAnswerCount: number;
+  };
+};
+
+function parseRunConfig(value: unknown): ChapterPlanConfig[] {
+  const config = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const chapters = Array.isArray(config.chapters) ? config.chapters : [];
+
+  return chapters
+    .map((item) => {
+      const chapter = item && typeof item === "object" ? item as Record<string, unknown> : {};
+      const plan = chapter.plan && typeof chapter.plan === "object" ? chapter.plan as Record<string, unknown> : {};
+
+      return {
+        chapterId: String(chapter.chapterId || ""),
+        chapterNumber: Number(chapter.chapterNumber) || 0,
+        plan: {
+          vocabularyCount: Math.max(0, Number(plan.vocabularyCount) || 0),
+          multipleChoiceCount: Math.max(0, Number(plan.multipleChoiceCount) || 0),
+          shortAnswerCount: Math.max(0, Number(plan.shortAnswerCount) || 0)
+        }
+      };
+    })
+    .filter((chapter) => chapter.chapterId && (
+      chapter.plan.vocabularyCount > 0
+      || chapter.plan.multipleChoiceCount > 0
+      || chapter.plan.shortAnswerCount > 0
+    ));
+}
+
+function getPositiveIntegerEnv(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function getPlanItemCount(chapter: ChapterPlanConfig) {
+  return chapter.plan.vocabularyCount + chapter.plan.multipleChoiceCount + chapter.plan.shortAnswerCount;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function logEntry(level: GenerationLogEntry["level"], message: string): GenerationLogEntry {
+  return {
+    timestamp: nowIso(),
+    level,
+    message
+  };
+}
+
+function addUsage(total: Required<RunUsageSummary>, usage: OpenAIUsageSummary | null | undefined, model: string | null | undefined) {
+  total.model = total.model || model || null;
+  total.inputTokens += Number(usage?.input_tokens || 0);
+  total.cachedInputTokens += Number(usage?.input_tokens_details?.cached_tokens || 0);
+  total.outputTokens += Number(usage?.output_tokens || 0);
+  total.reasoningTokens += Number(usage?.output_tokens_details?.reasoning_tokens || 0);
+  total.totalTokens += Number(usage?.total_tokens || 0);
+}
+
+type RunUsageSummary = {
+  model: string | null;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number | null;
+};
+
+function resolveModelPricing(modelName: string | null | undefined) {
+  const normalized = String(modelName || "").trim().toLowerCase();
+  const pricingByModel: Record<string, { input: number; cachedInput: number; output: number }> = {
+    "gpt-5.2": { input: 1.75, cachedInput: 0.175, output: 14.0 },
+    "gpt-5.1": { input: 1.25, cachedInput: 0.125, output: 10.0 },
+    "gpt-5": { input: 1.25, cachedInput: 0.125, output: 10.0 },
+    "gpt-5-mini": { input: 0.25, cachedInput: 0.025, output: 2.0 },
+    "gpt-5-nano": { input: 0.05, cachedInput: 0.005, output: 0.4 },
+    "gpt-4.1": { input: 2.0, cachedInput: 0.5, output: 8.0 },
+    "gpt-4.1-mini": { input: 0.4, cachedInput: 0.1, output: 1.6 },
+    "gpt-4.1-nano": { input: 0.1, cachedInput: 0.025, output: 0.4 },
+    "gpt-4o": { input: 2.5, cachedInput: 1.25, output: 10.0 },
+    "gpt-4o-mini": { input: 0.15, cachedInput: 0.075, output: 0.6 }
+  };
+
+  return pricingByModel[normalized] || pricingByModel[normalized.replace(/-\d{4}-\d{2}-\d{2}$/, "")] || null;
+}
+
+function finalizeUsage(summary: Required<RunUsageSummary>): RunUsageSummary {
+  const pricing = resolveModelPricing(summary.model);
+  if (!pricing) {
+    return { ...summary, estimatedCostUsd: null };
+  }
+
+  const uncachedInputTokens = Math.max(summary.inputTokens - summary.cachedInputTokens, 0);
+  return {
+    ...summary,
+    estimatedCostUsd:
+      (uncachedInputTokens / 1_000_000) * pricing.input
+      + (summary.cachedInputTokens / 1_000_000) * pricing.cachedInput
+      + (summary.outputTokens / 1_000_000) * pricing.output
+  };
+}
+
+function formatUsageLine(summary: RunUsageSummary) {
+  return `Run usage: model=${summary.model || "unknown"}, input=${summary.inputTokens.toLocaleString()} tokens (cached=${summary.cachedInputTokens.toLocaleString()}), output=${summary.outputTokens.toLocaleString()} tokens (reasoning=${summary.reasoningTokens.toLocaleString()}), total=${summary.totalTokens.toLocaleString()} tokens${summary.estimatedCostUsd === null ? "" : `, estimated cost=$${summary.estimatedCostUsd.toFixed(4)}`}.`;
+}
+
+export async function POST(_request: Request, context: RouteContext) {
+  const { bookId, generationRunId } = await context.params;
+  const book = await getBook(bookId);
+  const generationRun = book ? await getGenerationRun(generationRunId) : null;
+
+  if (!book || !generationRun || generationRun.bookId !== book.id) {
+    return NextResponse.json({ error: "Generation run not found." }, { status: 404 });
+  }
+
+  if (generationRun.status === "generating") {
+    return NextResponse.json({ error: "Generation is already running for this version." }, { status: 400 });
+  }
+
+  const activeGeneratingRun = await getGeneratingRunForBook(book.id);
+  if (activeGeneratingRun && activeGeneratingRun.id !== generationRun.id) {
+    return NextResponse.json({ error: "Another generation run is already running for this book." }, { status: 409 });
+  }
+
+  const chaptersToGenerate = parseRunConfig(JSON.parse(generationRun.configJson || "{}"));
+  if (!chaptersToGenerate.length) {
+    return NextResponse.json({ error: "Generation run has no usable chapter plan." }, { status: 400 });
+  }
+
+  const maxChaptersPerRun = getPositiveIntegerEnv("MAX_GENERATION_CHAPTERS", 80);
+  if (chaptersToGenerate.length > maxChaptersPerRun) {
+    return NextResponse.json({ error: `This run includes ${chaptersToGenerate.length} chapters. The configured limit is ${maxChaptersPerRun}.` }, { status: 400 });
+  }
+
+  const maxItemsPerRun = getPositiveIntegerEnv("MAX_GENERATION_ITEMS", 2500);
+  const requestedItems = chaptersToGenerate.reduce((total, chapter) => total + getPlanItemCount(chapter), 0);
+  if (requestedItems > maxItemsPerRun) {
+    return NextResponse.json({ error: `This run requests ${requestedItems} generated items. The configured limit is ${maxItemsPerRun}.` }, { status: 400 });
+  }
+
+  let runLog: GenerationLogEntry[] = [
+    logEntry("info", `Starting OpenAI generation for "${book.title}".`),
+    logEntry("info", `Queued ${chaptersToGenerate.length} chapter${chaptersToGenerate.length === 1 ? "" : "s"}.`)
+  ];
+  const usageSummary: Required<RunUsageSummary> = {
+    model: null,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    totalTokens: 0,
+    estimatedCostUsd: null
+  };
+
+  await deleteStudySetsForRun(generationRun.id);
+  await updateGenerationRun({
+    id: generationRun.id,
+    status: "generating",
+    progress: {
+      completedChapters: 0,
+      totalChapters: chaptersToGenerate.length,
+      currentChapterId: null,
+      currentChapterNumber: null
+    },
+    log: runLog,
+    errorMessage: null,
+    finishedAt: null
+  });
+
+  try {
+    for (const [index, chapterConfig] of chaptersToGenerate.entries()) {
+      const chapter = await getChapter(chapterConfig.chapterId);
+      if (!chapter || chapter.bookId !== book.id) {
+        throw new Error(`Chapter ${chapterConfig.chapterNumber || index + 1} was not found.`);
+      }
+
+      runLog = [...runLog, logEntry("info", `Generating Chapter ${chapter.chapterNumber}${chapter.title ? `: ${chapter.title}` : ""}...`)];
+      await updateGenerationRun({
+        id: generationRun.id,
+        status: "generating",
+        progress: {
+          completedChapters: index,
+          totalChapters: chaptersToGenerate.length,
+          currentChapterId: chapter.id,
+          currentChapterNumber: chapter.chapterNumber
+        },
+        log: runLog
+      });
+
+      const result = await generateOpenAIStudySet(book, chapter, chapterConfig.plan, {
+        generationRunId: generationRun.id,
+        runName: generationRun.name || null
+      });
+      addUsage(usageSummary, result.usage, result.model);
+
+      runLog = [
+        ...runLog,
+        logEntry("success", `Done Chapter ${chapter.chapterNumber}: ${result.items.vocabularyItems.length} vocab, ${result.items.multipleChoiceQuestions.length} MCQ, ${result.items.shortAnswerQuestions.length} short answer.`)
+      ];
+      await updateGenerationRun({
+        id: generationRun.id,
+        status: "generating",
+        progress: {
+          completedChapters: index + 1,
+          totalChapters: chaptersToGenerate.length,
+          currentChapterId: chapter.id,
+          currentChapterNumber: chapter.chapterNumber
+        },
+        log: runLog
+      });
+    }
+
+    const finalUsage = finalizeUsage(usageSummary);
+    runLog = [
+      ...runLog,
+      logEntry("info", formatUsageLine(finalUsage)),
+      logEntry("success", "Generation complete. Review results in Study Sets.")
+    ];
+    const completed = await updateGenerationRun({
+      id: generationRun.id,
+      status: "completed",
+      progress: {
+        completedChapters: chaptersToGenerate.length,
+        totalChapters: chaptersToGenerate.length,
+        currentChapterId: null,
+        currentChapterNumber: null,
+        usage: finalUsage
+      },
+      log: runLog,
+      finishedAt: nowIso()
+    });
+
+    return NextResponse.json({ generationRun: await summarizeGenerationRun(completed || generationRun) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Generation failed.";
+    const finalUsage = finalizeUsage(usageSummary);
+    runLog = [...runLog, logEntry("error", `Failed: ${message}`)];
+    const failed = await updateGenerationRun({
+      id: generationRun.id,
+      status: "failed",
+      progress: {
+        completedChapters: Math.max(0, runLog.filter((line) => line.message.startsWith("Done Chapter ")).length),
+        totalChapters: chaptersToGenerate.length,
+        currentChapterId: null,
+        currentChapterNumber: null,
+        usage: finalUsage
+      },
+      log: runLog,
+      errorMessage: message,
+      finishedAt: nowIso()
+    });
+
+    return NextResponse.json(
+      { error: message, generationRun: failed ? await summarizeGenerationRun(failed) : null },
+      { status: 400 }
+    );
+  }
+}

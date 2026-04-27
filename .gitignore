@@ -1,0 +1,31 @@
+# Dependencies and build output
+node_modules/
+.next/
+dist/
+coverage/
+
+# Local environment and secrets
+.env
+.env.local
+.env.*.local
+apps/web/.env.local
+
+# Local Python environment
+.topreading/
+
+# Runtime data
+data/*.db
+data/*.db-*
+data/uploads/*
+data/exports/*
+backups/*
+!data/.gitkeep
+!data/uploads/
+!data/uploads/.gitkeep
+!data/exports/
+!data/exports/.gitkeep
+
+# Logs and editor noise
+*.log
+.DS_Store
+Thumbs.db
