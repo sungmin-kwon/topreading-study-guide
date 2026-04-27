@@ -190,9 +190,10 @@ export async function listStudyItems(studySetId: string) {
 }
 
 export async function appendStudyItems(studySetId: string, input: StudyItemsInput) {
-  const vocabulary = (input.vocabularyItems || []).map((item, index) => normalizeVocabularyInput(studySetId, item, index));
-  const multipleChoice = (input.multipleChoiceQuestions || []).map((item, index) => normalizeMultipleChoiceInput(studySetId, item, index));
-  const shortAnswer = (input.shortAnswerQuestions || []).map((item, index) => normalizeShortAnswerInput(studySetId, item, index));
+  const existing = await listStudyItems(studySetId);
+  const vocabulary = (input.vocabularyItems || []).map((item, index) => normalizeVocabularyInput(studySetId, item, existing.vocabulary.length + index));
+  const multipleChoice = (input.multipleChoiceQuestions || []).map((item, index) => normalizeMultipleChoiceInput(studySetId, item, existing.multipleChoice.length + index));
+  const shortAnswer = (input.shortAnswerQuestions || []).map((item, index) => normalizeShortAnswerInput(studySetId, item, existing.shortAnswer.length + index));
 
   if (vocabulary.length) {
     await db.insert(vocabularyItems).values(vocabulary);
