@@ -1,5 +1,17 @@
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  displayName: text("display_name"),
+  role: text("role").notNull().default("member"),
+  status: text("status").notNull().default("active"),
+  notes: text("notes"),
+  lastSeenAt: text("last_seen_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+});
+
 export const books = sqliteTable("books", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
@@ -133,6 +145,8 @@ export const shortAnswerQuestions = sqliteTable("short_answer_questions", {
 
 export type Book = typeof books.$inferSelect;
 export type NewBook = typeof books.$inferInsert;
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
 export type SourceFile = typeof sourceFiles.$inferSelect;
 export type NewSourceFile = typeof sourceFiles.$inferInsert;
 export type ParsedDocument = typeof parsedDocuments.$inferSelect;

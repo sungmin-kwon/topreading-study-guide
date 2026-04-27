@@ -276,7 +276,7 @@ type GenerationPlanDraft = {
   shortAnswerCount: string;
 };
 
-type UiIconName = "check" | "fileDocx" | "filePdf" | "globe" | "moon" | "sun" | "user";
+type UiIconName = "check" | "fileDocx" | "filePdf" | "globe" | "moon" | "settings" | "sun" | "user";
 
 function UiIcon({ name }: { name: UiIconName }) {
   const paths: Record<UiIconName, ReactNode> = {
@@ -308,6 +308,12 @@ function UiIcon({ name }: { name: UiIconName }) {
       </>
     ),
     moon: <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5Z" />,
+    settings: (
+      <>
+        <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
+        <path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.04.04a2.1 2.1 0 0 1-2.98 2.98l-.04-.04a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.1 1.66V21a2.1 2.1 0 0 1-4.2 0v-.06a1.8 1.8 0 0 0-1.1-1.66 1.8 1.8 0 0 0-1.98.36l-.04.04a2.1 2.1 0 0 1-2.98-2.98l.04-.04A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.66-1.1H3a2.1 2.1 0 0 1 0-4.2h.06A1.8 1.8 0 0 0 4.72 8.6a1.8 1.8 0 0 0-.36-1.98l-.04-.04a2.1 2.1 0 0 1 2.98-2.98l.04.04a1.8 1.8 0 0 0 1.98.36H9.4A1.8 1.8 0 0 0 10.5 2.34V2a2.1 2.1 0 0 1 4.2 0v.06a1.8 1.8 0 0 0 1.1 1.66 1.8 1.8 0 0 0 1.98-.36l.04-.04a2.1 2.1 0 0 1 2.98 2.98l-.04.04a1.8 1.8 0 0 0-.36 1.98v.08a1.8 1.8 0 0 0 1.66 1.1H22a2.1 2.1 0 0 1 0 4.2h-.06A1.8 1.8 0 0 0 19.4 15Z" />
+      </>
+    ),
     sun: (
       <>
         <circle cx="12" cy="12" r="4" />
@@ -546,7 +552,7 @@ export function BookWorkspace() {
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>("source");
-  const [activeStudySetView, setActiveStudySetView] = useState<StudySetView>("vocabulary");
+  const [activeStudySetView, setActiveStudySetView] = useState<StudySetView>("multiple-choice");
   const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(false);
   const [isBookMetadataOpen, setIsBookMetadataOpen] = useState(false);
   const [isGenerationModalOpen, setIsGenerationModalOpen] = useState(false);
@@ -739,20 +745,15 @@ export function BookWorkspace() {
   }).length, [chapters, generationPlansByChapterId]);
 
   const pdfExportOptions: Array<{ type: PdfExportType; label: string; description: string }> = [
-    { type: "vocabulary-list", label: t("Vocabulary List", "단어 목록"), description: t("Words with English and Korean meanings.", "영어와 한국어 뜻이 포함된 단어 목록입니다.") },
-    { type: "vocabulary-quiz", label: t("Vocabulary Quiz", "단어 퀴즈"), description: t("Words with blank answer lines.", "답을 적을 빈칸이 있는 단어 퀴즈입니다.") },
     { type: "multiple-choice", label: t("MCQs", "객관식 문제"), description: t("Multiple-choice questions without answers.", "정답이 표시되지 않은 객관식 문제입니다.") },
     { type: "multiple-choice-concise-key", label: t("MCQ Concise Key", "객관식 간단 답지"), description: t("Question numbers with answer letters only.", "문제 번호와 정답 선택지만 표시합니다.") },
     { type: "multiple-choice-key", label: t("MCQ Detailed Key", "객관식 상세 답지"), description: t("Questions with choices, answers, and explanations.", "선택지, 정답, 해설을 함께 표시합니다.") },
     { type: "short-answer", label: t("Short Answer", "단답형 문제"), description: t("Short-answer prompts with writing lines.", "답안을 적을 줄이 있는 단답형 문제입니다.") },
-    { type: "short-answer-key", label: t("Short Answer Key", "단답형 답지"), description: t("Short-answer prompts with suggested answers.", "예시 답안이 포함된 단답형 답지입니다.") }
+    { type: "short-answer-key", label: t("Short Answer Key", "단답형 답지"), description: t("Short-answer prompts with suggested answers.", "예시 답안이 포함된 단답형 답지입니다.") },
+    { type: "vocabulary-list", label: t("Vocabulary List", "단어 목록"), description: t("Words with English and Korean meanings.", "영어와 한국어 뜻이 포함된 단어 목록입니다.") },
+    { type: "vocabulary-quiz", label: t("Vocabulary Quiz", "단어 퀴즈"), description: t("Words with blank answer lines.", "답을 적을 빈칸이 있는 단어 퀴즈입니다.") }
   ];
   const exportOptionGroups = [
-    {
-      title: t("Vocabulary", "단어"),
-      description: t("Word lists and vocabulary quiz sheets.", "단어 목록과 단어 퀴즈를 내보냅니다."),
-      options: pdfExportOptions.filter((option) => option.type.startsWith("vocabulary"))
-    },
     {
       title: t("Multiple Choice", "객관식"),
       description: t("Student handouts plus concise or detailed answer keys.", "학생용 문제지와 간단/상세 답지를 내보냅니다."),
@@ -762,6 +763,11 @@ export function BookWorkspace() {
       title: t("Short Answer", "단답형"),
       description: t("Writing prompts and suggested-answer keys.", "단답형 문제와 예시 답안을 내보냅니다."),
       options: pdfExportOptions.filter((option) => option.type.startsWith("short-answer"))
+    },
+    {
+      title: t("Vocabulary", "단어"),
+      description: t("Word lists and vocabulary quiz sheets.", "단어 목록과 단어 퀴즈를 내보냅니다."),
+      options: pdfExportOptions.filter((option) => option.type.startsWith("vocabulary"))
     }
   ];
   const studySetStatuses = ["draft", "ready", "reviewed", "archived", "failed"];
@@ -2600,6 +2606,15 @@ export function BookWorkspace() {
                   <small>{t("Change the interface language.", "화면 언어를 변경합니다.")}</small>
                 </span>
               </button>
+              <a className="preference-row" href="/admin" role="menuitem">
+                <span className="preference-icon">
+                  <UiIcon name="settings" />
+                </span>
+                <span>
+                  <strong>{t("Admin", "관리자")}</strong>
+                  <small>{t("Manage users and app parameters.", "사용자와 앱 설정을 관리합니다.")}</small>
+                </span>
+              </a>
             </div>
           ) : null}
           <button
@@ -2796,16 +2811,16 @@ export function BookWorkspace() {
                   <strong>{includedGenerationChapterCount.toLocaleString()}</strong>
                 </article>
                 <article>
-                  <span>{t("Vocabulary", "단어")}</span>
-                  <strong>{generationTotals.vocabularyCount.toLocaleString()}</strong>
-                </article>
-                <article>
                   <span>{t("MCQ", "객관식")}</span>
                   <strong>{generationTotals.multipleChoiceCount.toLocaleString()}</strong>
                 </article>
                 <article>
                   <span>{t("Short Answer", "단답형")}</span>
                   <strong>{generationTotals.shortAnswerCount.toLocaleString()}</strong>
+                </article>
+                <article>
+                  <span>{t("Vocabulary", "단어")}</span>
+                  <strong>{generationTotals.vocabularyCount.toLocaleString()}</strong>
                 </article>
               </div>
 
@@ -2820,9 +2835,9 @@ export function BookWorkspace() {
                   <div>{t("Use", "사용")}</div>
                   <div>{t("Chapter", "챕터")}</div>
                   <div>{t("Words", "단어 수")}</div>
-                  <div>{t("Vocabulary", "단어")}</div>
                   <div>{t("MCQ", "객관식")}</div>
                   <div>{t("Short Answer", "단답형")}</div>
+                  <div>{t("Vocabulary", "단어")}</div>
                 </div>
                 {chapters.map((chapter) => {
                   const suggested = deriveGenerationPlan(chapter.wordCount);
@@ -2852,14 +2867,6 @@ export function BookWorkspace() {
                         className="generation-count-input"
                         type="number"
                         min="0"
-                        value={draft.vocabularyCount}
-                        disabled={isGeneratingBook || !draft.included}
-                        onChange={(event) => updateGenerationPlan(chapter.id, "vocabularyCount", event.target.value)}
-                      />
-                      <input
-                        className="generation-count-input"
-                        type="number"
-                        min="0"
                         value={draft.multipleChoiceCount}
                         disabled={isGeneratingBook || !draft.included}
                         onChange={(event) => updateGenerationPlan(chapter.id, "multipleChoiceCount", event.target.value)}
@@ -2871,6 +2878,14 @@ export function BookWorkspace() {
                         value={draft.shortAnswerCount}
                         disabled={isGeneratingBook || !draft.included}
                         onChange={(event) => updateGenerationPlan(chapter.id, "shortAnswerCount", event.target.value)}
+                      />
+                      <input
+                        className="generation-count-input"
+                        type="number"
+                        min="0"
+                        value={draft.vocabularyCount}
+                        disabled={isGeneratingBook || !draft.included}
+                        onChange={(event) => updateGenerationPlan(chapter.id, "vocabularyCount", event.target.value)}
                       />
                     </div>
                   );
@@ -3228,16 +3243,16 @@ export function BookWorkspace() {
 
                 <div className="generation-total-strip" aria-label={t("Whole book generation totals", "책 전체 생성 총량")}>
                   <article>
-                    <span>{t("Vocabulary", "단어")}</span>
-                    <strong>{generationTotals.vocabularyCount.toLocaleString()}</strong>
-                  </article>
-                  <article>
                     <span>{t("Multiple Choice", "객관식")}</span>
                     <strong>{generationTotals.multipleChoiceCount.toLocaleString()}</strong>
                   </article>
                   <article>
                     <span>{t("Short Answer", "단답형")}</span>
                     <strong>{generationTotals.shortAnswerCount.toLocaleString()}</strong>
+                  </article>
+                  <article>
+                    <span>{t("Vocabulary", "단어")}</span>
+                    <strong>{generationTotals.vocabularyCount.toLocaleString()}</strong>
                   </article>
                 </div>
 
@@ -3282,7 +3297,7 @@ export function BookWorkspace() {
                               {run.finishedAt ? ` · ${t("finished", "완료")} ${formatDateTime(run.finishedAt)}` : ""}
                             </p>
                             <p>
-                              {t(`${run.chapterCount} chapters`, `챕터 ${run.chapterCount}개`)} · {t(`${run.vocabularyCount} vocab`, `단어 ${run.vocabularyCount}개`)} · {t(`${run.multipleChoiceCount} MCQ`, `객관식 ${run.multipleChoiceCount}개`)} · {t(`${run.shortAnswerCount} short answer`, `단답형 ${run.shortAnswerCount}개`)}
+                              {t(`${run.chapterCount} chapters`, `챕터 ${run.chapterCount}개`)} · {t(`${run.multipleChoiceCount} MCQ`, `객관식 ${run.multipleChoiceCount}개`)} · {t(`${run.shortAnswerCount} short answer`, `단답형 ${run.shortAnswerCount}개`)} · {t(`${run.vocabularyCount} vocab`, `단어 ${run.vocabularyCount}개`)}
                             </p>
                             {run.errorMessage ? <p className="generation-error-text">{run.errorMessage}</p> : null}
                           </div>
@@ -3642,17 +3657,6 @@ export function BookWorkspace() {
                           <>
                           <div className="study-set-subtabs" role="tablist" aria-label={t("Study set item type", "학습 세트 항목 종류")}>
                             <button
-                              className={activeStudySetView === "vocabulary" ? "active" : ""}
-                              type="button"
-                              onClick={() => {
-                                setActiveStudySetView("vocabulary");
-                                setCreatingStudyItemKind(null);
-                              }}
-                            >
-                              {t("Vocabulary", "단어")}
-                              <span>{selectedStudyItems.vocabularyItems.length}</span>
-                            </button>
-                            <button
                               className={activeStudySetView === "multiple-choice" ? "active" : ""}
                               type="button"
                               onClick={() => {
@@ -3673,6 +3677,17 @@ export function BookWorkspace() {
                             >
                               {t("Short Answer", "단답형")}
                               <span>{selectedStudyItems.shortAnswerQuestions.length}</span>
+                            </button>
+                            <button
+                              className={activeStudySetView === "vocabulary" ? "active" : ""}
+                              type="button"
+                              onClick={() => {
+                                setActiveStudySetView("vocabulary");
+                                setCreatingStudyItemKind(null);
+                              }}
+                            >
+                              {t("Vocabulary", "단어")}
+                              <span>{selectedStudyItems.vocabularyItems.length}</span>
                             </button>
                           </div>
                           <div className="study-item-toolbar">
@@ -3783,7 +3798,7 @@ export function BookWorkspace() {
                                     <>
                                       <strong>{item.questionText}</strong>
                                       <p>{item.suggestedAnswer}</p>
-                                      {item.rubric ? <small>{item.rubric}</small> : null}
+                                      {item.rubric ? <small className="short-answer-rubric">{item.rubric}</small> : null}
                                     </>
                                   )}
                                   <div className="study-item-actions">
