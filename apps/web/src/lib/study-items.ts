@@ -11,6 +11,7 @@ import {
 } from "@/lib/db/schema";
 
 export type VocabularyItemInput = {
+  chapterId?: unknown;
   term?: unknown;
   definition?: unknown;
   contextSentence?: unknown;
@@ -21,6 +22,7 @@ export type VocabularyItemInput = {
 };
 
 export type MultipleChoiceQuestionInput = {
+  chapterId?: unknown;
   questionText?: unknown;
   choices?: unknown;
   correctChoiceIndex?: unknown;
@@ -32,6 +34,7 @@ export type MultipleChoiceQuestionInput = {
 };
 
 export type ShortAnswerQuestionInput = {
+  chapterId?: unknown;
   questionText?: unknown;
   suggestedAnswer?: unknown;
   rubric?: unknown;
@@ -47,7 +50,12 @@ export type StudyItemsInput = {
   shortAnswerQuestions?: ShortAnswerQuestionInput[];
 };
 
+type StudyItemsOptions = {
+  chapterId?: string | null;
+};
+
 export type StudyItemKind = "vocabulary" | "multiple-choice" | "short-answer";
+export type StudyItemMoveDirection = "up" | "down";
 
 const allowedItemStatuses = new Set(["draft", "reviewed", "approved", "rejected", "archived"]);
 
@@ -105,7 +113,11 @@ function normalizeCorrectChoiceIndex(value: unknown, choices: string[]) {
   return index;
 }
 
-function normalizeVocabularyInput(studySetId: string, item: VocabularyItemInput, index: number) {
+function normalizeChapterId(item: { chapterId?: unknown }, options?: StudyItemsOptions) {
+  return asNullableString(item.chapterId) || options?.chapterId || null;
+}
+
+function normalizeVocabularyInput(studySetId: string, item: VocabularyItemInput, index: number, options?: StudyItemsOptions) {
   const term = asString(item.term);
   const definition = asString(item.definition);
 
@@ -117,6 +129,7 @@ function normalizeVocabularyInput(studySetId: string, item: VocabularyItemInput,
   return {
     id: randomUUID(),
     studySetId,
+    chapterId: normalizeChapterId(item, options),
     term,
     definition,
     contextSentence: asNullableString(item.contextSentence),
@@ -129,7 +142,7 @@ function normalizeVocabularyInput(studySetId: string, item: VocabularyItemInput,
   };
 }
 
-function normalizeMultipleChoiceInput(studySetId: string, item: MultipleChoiceQuestionInput, index: number) {
+function normalizeMultipleChoiceInput(studySetId: string, item: MultipleChoiceQuestionInput, index: number, options?: StudyItemsOptions) {
   const questionText = asString(item.questionText);
   const choices = normalizeChoices(item.choices);
   const correctChoiceIndex = normalizeCorrectChoiceIndex(item.correctChoiceIndex, choices);
@@ -142,6 +155,7 @@ function normalizeMultipleChoiceInput(studySetId: string, item: MultipleChoiceQu
   return {
     id: randomUUID(),
     studySetId,
+    chapterId: normalizeChapterId(item, options),
     questionText,
     choicesJson: JSON.stringify(choices),
     correctChoiceIndex,
@@ -155,7 +169,7 @@ function normalizeMultipleChoiceInput(studySetId: string, item: MultipleChoiceQu
   };
 }
 
-function normalizeShortAnswerInput(studySetId: string, item: ShortAnswerQuestionInput, index: number) {
+function normalizeShortAnswerInput(studySetId: string, item: ShortAnswerQuestionInput, index: number, options?: StudyItemsOptions) {
   const questionText = asString(item.questionText);
   const suggestedAnswer = asString(item.suggestedAnswer);
 
@@ -167,6 +181,7 @@ function normalizeShortAnswerInput(studySetId: string, item: ShortAnswerQuestion
   return {
     id: randomUUID(),
     studySetId,
+    chapterId: normalizeChapterId(item, options),
     questionText,
     suggestedAnswer,
     rubric: asNullableString(item.rubric),
@@ -179,21 +194,31 @@ function normalizeShortAnswerInput(studySetId: string, item: ShortAnswerQuestion
   };
 }
 
-export async function listStudyItems(studySetId: string) {
+export async function listStudyItems(studySetId: string, options: StudyItemsOptions = {}) {
+  const whereVocabulary = options.chapterId
+    ? and(eq(vocabularyItems.studySetId, studySetId), eq(vocabularyItems.chapterId, options.chapterId))
+    : eq(vocabularyItems.studySetId, studySetId);
+  const whereMultipleChoice = options.chapterId
+    ? and(eq(multipleChoiceQuestions.studySetId, studySetId), eq(multipleChoiceQuestions.chapterId, options.chapterId))
+    : eq(multipleChoiceQuestions.studySetId, studySetId);
+  const whereShortAnswer = options.chapterId
+    ? and(eq(shortAnswerQuestions.studySetId, studySetId), eq(shortAnswerQuestions.chapterId, options.chapterId))
+    : eq(shortAnswerQuestions.studySetId, studySetId);
+
   const [vocabulary, multipleChoice, shortAnswer] = await Promise.all([
-    db.select().from(vocabularyItems).where(eq(vocabularyItems.studySetId, studySetId)).orderBy(asc(vocabularyItems.sortOrder)),
-    db.select().from(multipleChoiceQuestions).where(eq(multipleChoiceQuestions.studySetId, studySetId)).orderBy(asc(multipleChoiceQuestions.sortOrder)),
-    db.select().from(shortAnswerQuestions).where(eq(shortAnswerQuestions.studySetId, studySetId)).orderBy(asc(shortAnswerQuestions.sortOrder))
+    db.select().from(vocabularyItems).where(whereVocabulary).orderBy(asc(vocabularyItems.chapterId), asc(vocabularyItems.sortOrder)),
+    db.select().from(multipleChoiceQuestions).where(whereMultipleChoice).orderBy(asc(multipleChoiceQuestions.chapterId), asc(multipleChoiceQuestions.sortOrder)),
+    db.select().from(shortAnswerQuestions).where(whereShortAnswer).orderBy(asc(shortAnswerQuestions.chapterId), asc(shortAnswerQuestions.sortOrder))
   ]);
 
   return { vocabulary, multipleChoice, shortAnswer };
 }
 
-export async function appendStudyItems(studySetId: string, input: StudyItemsInput) {
-  const existing = await listStudyItems(studySetId);
-  const vocabulary = (input.vocabularyItems || []).map((item, index) => normalizeVocabularyInput(studySetId, item, existing.vocabulary.length + index));
-  const multipleChoice = (input.multipleChoiceQuestions || []).map((item, index) => normalizeMultipleChoiceInput(studySetId, item, existing.multipleChoice.length + index));
-  const shortAnswer = (input.shortAnswerQuestions || []).map((item, index) => normalizeShortAnswerInput(studySetId, item, existing.shortAnswer.length + index));
+export async function appendStudyItems(studySetId: string, input: StudyItemsInput, options: StudyItemsOptions = {}) {
+  const existing = await listStudyItems(studySetId, options);
+  const vocabulary = (input.vocabularyItems || []).map((item, index) => normalizeVocabularyInput(studySetId, item, existing.vocabulary.length + index, options));
+  const multipleChoice = (input.multipleChoiceQuestions || []).map((item, index) => normalizeMultipleChoiceInput(studySetId, item, existing.multipleChoice.length + index, options));
+  const shortAnswer = (input.shortAnswerQuestions || []).map((item, index) => normalizeShortAnswerInput(studySetId, item, existing.shortAnswer.length + index, options));
 
   if (vocabulary.length) {
     await db.insert(vocabularyItems).values(vocabulary);
@@ -207,15 +232,25 @@ export async function appendStudyItems(studySetId: string, input: StudyItemsInpu
     await db.insert(shortAnswerQuestions).values(shortAnswer);
   }
 
-  return listStudyItems(studySetId);
+  return listStudyItems(studySetId, options);
 }
 
-export async function replaceStudyItems(studySetId: string, input: StudyItemsInput) {
-  await db.delete(vocabularyItems).where(eq(vocabularyItems.studySetId, studySetId));
-  await db.delete(multipleChoiceQuestions).where(eq(multipleChoiceQuestions.studySetId, studySetId));
-  await db.delete(shortAnswerQuestions).where(eq(shortAnswerQuestions.studySetId, studySetId));
+export async function replaceStudyItems(studySetId: string, input: StudyItemsInput, options: StudyItemsOptions = {}) {
+  const vocabularyWhere = options.chapterId
+    ? and(eq(vocabularyItems.studySetId, studySetId), eq(vocabularyItems.chapterId, options.chapterId))
+    : eq(vocabularyItems.studySetId, studySetId);
+  const multipleChoiceWhere = options.chapterId
+    ? and(eq(multipleChoiceQuestions.studySetId, studySetId), eq(multipleChoiceQuestions.chapterId, options.chapterId))
+    : eq(multipleChoiceQuestions.studySetId, studySetId);
+  const shortAnswerWhere = options.chapterId
+    ? and(eq(shortAnswerQuestions.studySetId, studySetId), eq(shortAnswerQuestions.chapterId, options.chapterId))
+    : eq(shortAnswerQuestions.studySetId, studySetId);
 
-  return appendStudyItems(studySetId, input);
+  await db.delete(vocabularyItems).where(vocabularyWhere);
+  await db.delete(multipleChoiceQuestions).where(multipleChoiceWhere);
+  await db.delete(shortAnswerQuestions).where(shortAnswerWhere);
+
+  return appendStudyItems(studySetId, input, options);
 }
 
 export async function clearStudyItems(studySetId: string) {
@@ -229,6 +264,7 @@ export async function updateVocabularyItem(studySetId: string, itemId: string, i
     .update(vocabularyItems)
     .set({
       term: input.term === undefined ? undefined : asString(input.term),
+      chapterId: input.chapterId === undefined ? undefined : asNullableString(input.chapterId),
       definition: input.definition === undefined ? undefined : asString(input.definition),
       contextSentence: input.contextSentence === undefined ? undefined : asNullableString(input.contextSentence),
       partOfSpeech: input.partOfSpeech === undefined ? undefined : asNullableString(input.partOfSpeech),
@@ -252,6 +288,7 @@ export async function updateMultipleChoiceQuestion(studySetId: string, itemId: s
     .update(multipleChoiceQuestions)
     .set({
       questionText: input.questionText === undefined ? undefined : asString(input.questionText),
+      chapterId: input.chapterId === undefined ? undefined : asNullableString(input.chapterId),
       choicesJson: choices === undefined ? undefined : JSON.stringify(choices),
       correctChoiceIndex,
       explanation: input.explanation === undefined ? undefined : asNullableString(input.explanation),
@@ -269,6 +306,7 @@ export async function updateShortAnswerQuestion(studySetId: string, itemId: stri
     .update(shortAnswerQuestions)
     .set({
       questionText: input.questionText === undefined ? undefined : asString(input.questionText),
+      chapterId: input.chapterId === undefined ? undefined : asNullableString(input.chapterId),
       suggestedAnswer: input.suggestedAnswer === undefined ? undefined : asString(input.suggestedAnswer),
       rubric: input.rubric === undefined ? undefined : asNullableString(input.rubric),
       skill: input.skill === undefined ? undefined : asNullableString(input.skill),
@@ -292,6 +330,62 @@ export async function deleteStudyItem(kind: StudyItemKind, studySetId: string, i
   }
 
   await db.delete(shortAnswerQuestions).where(and(eq(shortAnswerQuestions.studySetId, studySetId), eq(shortAnswerQuestions.id, itemId)));
+}
+
+export async function moveStudyItem(
+  kind: StudyItemKind,
+  studySetId: string,
+  itemId: string,
+  direction: StudyItemMoveDirection,
+  options: StudyItemsOptions = {}
+) {
+  const items = await listStudyItems(studySetId, options);
+  const itemList = kind === "vocabulary"
+    ? items.vocabulary
+    : kind === "multiple-choice"
+      ? items.multipleChoice
+      : items.shortAnswer;
+  const currentIndex = itemList.findIndex((item) => item.id === itemId);
+  const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+
+  if (currentIndex === -1 || nextIndex < 0 || nextIndex >= itemList.length) {
+    return listStudyItems(studySetId, options);
+  }
+
+  const currentItem = itemList[currentIndex];
+  const nextItem = itemList[nextIndex];
+  const timestamp = nowIso();
+
+  if (kind === "vocabulary") {
+    await db
+      .update(vocabularyItems)
+      .set({ sortOrder: nextItem.sortOrder, updatedAt: timestamp })
+      .where(and(eq(vocabularyItems.studySetId, studySetId), eq(vocabularyItems.id, currentItem.id)));
+    await db
+      .update(vocabularyItems)
+      .set({ sortOrder: currentItem.sortOrder, updatedAt: timestamp })
+      .where(and(eq(vocabularyItems.studySetId, studySetId), eq(vocabularyItems.id, nextItem.id)));
+  } else if (kind === "multiple-choice") {
+    await db
+      .update(multipleChoiceQuestions)
+      .set({ sortOrder: nextItem.sortOrder, updatedAt: timestamp })
+      .where(and(eq(multipleChoiceQuestions.studySetId, studySetId), eq(multipleChoiceQuestions.id, currentItem.id)));
+    await db
+      .update(multipleChoiceQuestions)
+      .set({ sortOrder: currentItem.sortOrder, updatedAt: timestamp })
+      .where(and(eq(multipleChoiceQuestions.studySetId, studySetId), eq(multipleChoiceQuestions.id, nextItem.id)));
+  } else {
+    await db
+      .update(shortAnswerQuestions)
+      .set({ sortOrder: nextItem.sortOrder, updatedAt: timestamp })
+      .where(and(eq(shortAnswerQuestions.studySetId, studySetId), eq(shortAnswerQuestions.id, currentItem.id)));
+    await db
+      .update(shortAnswerQuestions)
+      .set({ sortOrder: currentItem.sortOrder, updatedAt: timestamp })
+      .where(and(eq(shortAnswerQuestions.studySetId, studySetId), eq(shortAnswerQuestions.id, nextItem.id)));
+  }
+
+  return listStudyItems(studySetId, options);
 }
 
 export async function updateStudyItem(kind: StudyItemKind, studySetId: string, itemId: string, input: unknown) {
@@ -322,6 +416,7 @@ export function summarizeVocabularyItem(item: VocabularyItem) {
   return {
     id: item.id,
     studySetId: item.studySetId,
+    chapterId: item.chapterId,
     term: item.term,
     definition: item.definition,
     contextSentence: item.contextSentence,
@@ -338,6 +433,7 @@ export function summarizeMultipleChoiceQuestion(item: MultipleChoiceQuestion) {
   return {
     id: item.id,
     studySetId: item.studySetId,
+    chapterId: item.chapterId,
     questionText: item.questionText,
     choices: parseJsonArray(item.choicesJson),
     correctChoiceIndex: item.correctChoiceIndex,
@@ -355,6 +451,7 @@ export function summarizeShortAnswerQuestion(item: ShortAnswerQuestion) {
   return {
     id: item.id,
     studySetId: item.studySetId,
+    chapterId: item.chapterId,
     questionText: item.questionText,
     suggestedAnswer: item.suggestedAnswer,
     rubric: item.rubric,

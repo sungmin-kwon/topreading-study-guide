@@ -16,13 +16,14 @@ export async function GET(request: Request, context: RouteContext) {
   const url = new URL(request.url);
   const type = parsePdfExportType(url.searchParams.get("type"));
   const format = parseExportFileFormat(url.searchParams.get("format"));
+  const chapterId = url.searchParams.get("chapterId");
 
   if (!type) {
     return NextResponse.json({ error: "PDF export type is not valid." }, { status: 400 });
   }
 
   try {
-    const exported = await exportStudySetFile(bookId, studySetId, type, format);
+    const exported = await exportStudySetFile(bookId, studySetId, type, format, chapterId);
     const buffer = await fs.readFile(exported.filePath);
 
     return new NextResponse(buffer, {

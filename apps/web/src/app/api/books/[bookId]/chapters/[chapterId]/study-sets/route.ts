@@ -42,7 +42,7 @@ export async function GET(request: Request, context: RouteContext) {
 
   const studySets = generationRunId
     ? await listStudySetsForChapterInRun(result.chapter.id, generationRunId)
-    : await listStudySetsForChapter(result.chapter.id);
+    : await listStudySetsForChapter(result.book.id, result.chapter.id);
   return NextResponse.json({ studySets: studySets.map(summarizeStudySet) });
 }
 

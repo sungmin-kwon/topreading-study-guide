@@ -221,15 +221,17 @@ button {
   padding: 10px;
 }
 
-.book-search {
+.book-search,
+.book-sort {
   display: grid;
   gap: 6px;
   color: var(--muted);
   font-size: 13px;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
-.book-search input {
+.book-search input,
+.book-sort select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -245,22 +247,62 @@ button {
 
 .book-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
-  padding: 12px;
+  padding: 6px;
   text-align: left;
   color: var(--ink);
+}
+
+.book-row-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 6px;
+  text-align: left;
 }
 
 .book-row-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.book-row-meta {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-pin-button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--control);
+  color: var(--muted);
+  line-height: 1;
+}
+
+.book-pin-button.pinned {
+  border-color: var(--success-line);
+  background: var(--success-surface);
+  color: var(--accent-strong);
+}
+
+.book-pin-button:hover {
+  border-color: var(--accent);
+  color: var(--accent-strong);
 }
 
 .book-status-badge {
@@ -1202,6 +1244,32 @@ button {
   line-height: 1.4;
 }
 
+.generation-run-name-editor {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  max-width: 560px;
+}
+
+.generation-run-name-editor label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.generation-run-name-editor input {
+  min-width: 0;
+}
+
+.generation-run-name-editor button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--control);
+  color: var(--accent-strong);
+  padding: 6px 8px;
+}
+
 .active-run-selector {
   display: grid;
   grid-template-columns: auto minmax(220px, 420px) minmax(0, 1fr);
@@ -1809,6 +1877,15 @@ button {
   justify-content: space-between;
   gap: 12px;
   min-height: 34px;
+}
+
+.panel-actions,
+.inline-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .chapter-editor-layout {
@@ -2438,17 +2515,38 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  align-items: center;
   border-top: 1px solid var(--line);
   padding-top: 8px;
 }
 
-.study-item-actions button {
+.study-item-actions button,
+.study-item-move-actions button {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--control);
   color: var(--accent-strong);
   font-size: 12px;
   padding: 5px 8px;
+}
+
+.study-item-move-actions {
+  display: inline-flex;
+  gap: 4px;
+  margin-right: 2px;
+}
+
+.study-item-move-actions button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  min-width: 28px;
+  padding: 5px 0;
+}
+
+.study-item-move-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .study-item-edit-form {
@@ -2565,6 +2663,7 @@ button {
   .admin-user-row,
   .admin-setting-row,
   .generation-history-card,
+  .generation-run-name-editor,
   .generation-total-strip,
   .study-set-edit-panel,
   .study-items-grid {

@@ -472,6 +472,24 @@ function normalizeGeneratedItems(rawPayload: RawStudyGuidePayload, plan: Generat
   };
 }
 
+export async function generateOpenAIChapterItems(
+  book: Book,
+  chapter: Chapter,
+  planOverride?: Partial<GenerationPlan>
+) {
+  const plan = normalizePlan(chapter, planOverride);
+  const generated = await requestStudyGuideJson(book, chapter, plan);
+  const generatedItems = normalizeGeneratedItems(generated.payload, plan);
+
+  return {
+    plan,
+    generatedItems,
+    rawOutput: generated.payload,
+    usage: generated.usage,
+    model: generated.model
+  };
+}
+
 export async function generateOpenAIStudySet(
   book: Book,
   chapter: Chapter,
@@ -495,7 +513,7 @@ export async function generateOpenAIStudySet(
   try {
     const generated = await requestStudyGuideJson(book, chapter, plan);
     const generatedItems = normalizeGeneratedItems(generated.payload, plan);
-    const items = await replaceStudyItems(studySet.id, generatedItems);
+    const items = await replaceStudyItems(studySet.id, generatedItems, { chapterId: chapter.id });
     const readyStudySet = await updateStudySet({
       studySetId: studySet.id,
       status: "ready",

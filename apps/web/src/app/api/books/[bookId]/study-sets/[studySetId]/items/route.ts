@@ -21,11 +21,16 @@ function parseItemsBody(body: unknown) {
   };
 }
 
+function parseChapterId(request: Request, fallback?: string | null) {
+  const urlChapterId = new URL(request.url).searchParams.get("chapterId")?.trim();
+  return urlChapterId || fallback || null;
+}
+
 async function getAuthorizedStudySet(bookId: string, studySetId: string) {
   return getStudySetForBook(bookId, studySetId);
 }
 
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
   const { bookId, studySetId } = await context.params;
   const studySet = await getAuthorizedStudySet(bookId, studySetId);
 
@@ -33,7 +38,7 @@ export async function GET(_request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Study set not found." }, { status: 404 });
   }
 
-  const items = await listStudyItems(studySet.id);
+  const items = await listStudyItems(studySet.id, { chapterId: parseChapterId(request, studySet.chapterId) });
   return NextResponse.json({ items: summarizeStudyItems(items) });
 }
 
@@ -48,7 +53,8 @@ export async function POST(request: Request, context: RouteContext) {
   const body = await request.json().catch(() => ({}));
 
   try {
-    const items = await appendStudyItems(studySet.id, parseItemsBody(body));
+    const bodyChapterId = body && typeof body === "object" ? String((body as Record<string, unknown>).chapterId || "").trim() : "";
+    const items = await appendStudyItems(studySet.id, parseItemsBody(body), { chapterId: bodyChapterId || studySet.chapterId });
     return NextResponse.json({ items: summarizeStudyItems(items) }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
@@ -69,7 +75,8 @@ export async function PUT(request: Request, context: RouteContext) {
   const body = await request.json().catch(() => ({}));
 
   try {
-    const items = await replaceStudyItems(studySet.id, parseItemsBody(body));
+    const bodyChapterId = body && typeof body === "object" ? String((body as Record<string, unknown>).chapterId || "").trim() : "";
+    const items = await replaceStudyItems(studySet.id, parseItemsBody(body), { chapterId: bodyChapterId || studySet.chapterId });
     return NextResponse.json({ items: summarizeStudyItems(items) });
   } catch (error) {
     return NextResponse.json(

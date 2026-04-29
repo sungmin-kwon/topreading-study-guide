@@ -175,7 +175,18 @@ export async function summarizeGenerationRun(run: GenerationRun, index = 0) {
   if (run.status === "generating") {
     const expectedChapterIds = getConfiguredChapterIds(parsedConfig);
     const completedStudySets = studySets.filter((studySet) => studySet.status === "ready" || studySet.status === "reviewed");
-    const generatedChapterIds = new Set(completedStudySets.map((studySet) => studySet.chapterId));
+    const generatedChapterIds = new Set<string>();
+    for (const studySet of completedStudySets) {
+      if (studySet.chapterId) {
+        generatedChapterIds.add(studySet.chapterId);
+      }
+      const items = await listStudyItems(studySet.id);
+      for (const item of [...items.vocabulary, ...items.multipleChoice, ...items.shortAnswer]) {
+        if (item.chapterId) {
+          generatedChapterIds.add(item.chapterId);
+        }
+      }
+    }
     const hasAllExpectedChapters = expectedChapterIds.length > 0
       && expectedChapterIds.every((chapterId) => generatedChapterIds.has(chapterId));
 
@@ -219,7 +230,7 @@ export async function summarizeGenerationRun(run: GenerationRun, index = 0) {
     progress: parseJsonObject(normalizedRun.progressJson),
     log: parseJsonArray(normalizedRun.logJson),
     errorMessage: normalizedRun.errorMessage,
-    chapterCount: studySets.length,
+    chapterCount: getConfiguredChapterIds(parsedConfig).length || studySets.length,
     vocabularyCount,
     multipleChoiceCount,
     shortAnswerCount,

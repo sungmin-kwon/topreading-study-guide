@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getStudySetForBook } from "@/lib/study-sets";
-import { deleteStudyItem, listStudyItems, normalizeStudyItemKind, summarizeStudyItems, updateStudyItem } from "@/lib/study-items";
+import { deleteStudyItem, listStudyItems, moveStudyItem, normalizeStudyItemKind, summarizeStudyItems, updateStudyItem } from "@/lib/study-items";
 
 export const runtime = "nodejs";
 
@@ -24,6 +24,11 @@ async function getAuthorizedContext(bookId: string, studySetId: string, kindValu
   return { studySet, kind };
 }
 
+function parseChapterId(request: Request, fallback?: string | null) {
+  const value = new URL(request.url).searchParams.get("chapterId")?.trim();
+  return value || fallback || null;
+}
+
 export async function PATCH(request: Request, context: RouteContext) {
   const { bookId, studySetId, kind: kindValue, itemId } = await context.params;
   const authorized = await getAuthorizedContext(bookId, studySetId, kindValue);
@@ -33,10 +38,27 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   const body = await request.json().catch(() => ({}));
+  const chapterId = parseChapterId(request, authorized.studySet.chapterId);
 
   try {
+    if (
+      body
+      && typeof body === "object"
+      && "direction" in body
+      && ((body as Record<string, unknown>).direction === "up" || (body as Record<string, unknown>).direction === "down")
+    ) {
+      const items = await moveStudyItem(
+        authorized.kind,
+        authorized.studySet.id,
+        itemId,
+        (body as Record<string, "up" | "down">).direction,
+        { chapterId }
+      );
+      return NextResponse.json({ items: summarizeStudyItems(items) });
+    }
+
     await updateStudyItem(authorized.kind, authorized.studySet.id, itemId, body);
-    const items = await listStudyItems(authorized.studySet.id);
+    const items = await listStudyItems(authorized.studySet.id, { chapterId });
     return NextResponse.json({ items: summarizeStudyItems(items) });
   } catch (error) {
     return NextResponse.json(

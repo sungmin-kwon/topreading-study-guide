@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { getBook } from "@/lib/books";
 import { getChapter } from "@/lib/chapters";
 import { getGeneratingRunForBook, getGenerationRun, summarizeGenerationRun, updateGenerationRun, type GenerationLogEntry } from "@/lib/generation-runs";
-import { generateOpenAIStudySet, type OpenAIUsageSummary } from "@/lib/openai-generator";
-import { deleteStudySetsForRun } from "@/lib/study-sets";
+import { generateOpenAIChapterItems, type OpenAIUsageSummary } from "@/lib/openai-generator";
+import { appendStudyItems, summarizeStudyItems } from "@/lib/study-items";
+import { createStudySet, deleteStudySet, deleteStudySetsForRun, updateStudySet } from "@/lib/study-sets";
 
 export const runtime = "nodejs";
 export const maxDuration = 900;
@@ -129,6 +130,19 @@ function formatUsageLine(summary: RunUsageSummary) {
   return `Run usage: model=${summary.model || "unknown"}, input=${summary.inputTokens.toLocaleString()} tokens (cached=${summary.cachedInputTokens.toLocaleString()}), output=${summary.outputTokens.toLocaleString()} tokens (reasoning=${summary.reasoningTokens.toLocaleString()}), total=${summary.totalTokens.toLocaleString()} tokens${summary.estimatedCostUsd === null ? "" : `, estimated cost=$${summary.estimatedCostUsd.toFixed(4)}`}.`;
 }
 
+function mergeGeneratedItems(target: Record<string, unknown[]>, source: Record<string, unknown>) {
+  for (const key of ["vocabularyItems", "multipleChoiceQuestions", "shortAnswerQuestions"]) {
+    const existing = target[key] || [];
+    const incoming = Array.isArray(source[key]) ? source[key] as unknown[] : [];
+    target[key] = [...existing, ...incoming];
+  }
+}
+
+async function isCancellationRequested(generationRunId: string) {
+  const latest = await getGenerationRun(generationRunId);
+  return latest?.status === "cancelled";
+}
+
 export async function POST(_request: Request, context: RouteContext) {
   const { bookId, generationRunId } = await context.params;
   const book = await getBook(bookId);
@@ -178,6 +192,16 @@ export async function POST(_request: Request, context: RouteContext) {
   };
 
   await deleteStudySetsForRun(generationRun.id);
+  const runStudySet = await createStudySet({
+    bookId: book.id,
+    generationRunId: generationRun.id,
+    chapter: null,
+    title: generationRun.name || `${book.title} - ${nowIso().slice(0, 16).replace("T", " ")}`,
+    generator: "openai",
+    model: process.env.OPENAI_MODEL || null,
+    promptVersion: "openai-study-guide-v1",
+    settings: JSON.parse(generationRun.configJson || "{}")
+  });
   await updateGenerationRun({
     id: generationRun.id,
     status: "generating",
@@ -193,7 +217,59 @@ export async function POST(_request: Request, context: RouteContext) {
   });
 
   try {
+    const generatedCollections: Record<string, unknown[]> = {
+      vocabularyItems: [],
+      multipleChoiceQuestions: [],
+      shortAnswerQuestions: []
+    };
+    const rawChapters: unknown[] = [];
+    let completedChapters = 0;
+
+    const finishCancelled = async (message: string) => {
+      const finalUsage = finalizeUsage(usageSummary);
+      runLog = [
+        ...runLog,
+        logEntry("warn", message),
+        logEntry("info", formatUsageLine(finalUsage)),
+        logEntry("warn", "Generation cancelled. Partial results from completed chapters were kept.")
+      ];
+
+      await updateStudySet({
+        studySetId: runStudySet.id,
+        status: completedChapters > 0 ? "ready" : "failed",
+        model: finalUsage.model,
+        rawOutput: {
+          bookTitle: book.title,
+          chapters: rawChapters,
+          ...generatedCollections,
+          cancelled: true,
+          usage: finalUsage
+        }
+      });
+
+      const cancelled = await updateGenerationRun({
+        id: generationRun.id,
+        status: "cancelled",
+        progress: {
+          completedChapters,
+          totalChapters: chaptersToGenerate.length,
+          currentChapterId: null,
+          currentChapterNumber: null,
+          usage: finalUsage
+        },
+        log: runLog,
+        errorMessage: null,
+        finishedAt: nowIso()
+      });
+
+      return NextResponse.json({ generationRun: await summarizeGenerationRun(cancelled || generationRun) });
+    };
+
     for (const [index, chapterConfig] of chaptersToGenerate.entries()) {
+      if (await isCancellationRequested(generationRun.id)) {
+        return finishCancelled(`Cancellation received before Chapter ${chapterConfig.chapterNumber || index + 1}.`);
+      }
+
       const chapter = await getChapter(chapterConfig.chapterId);
       if (!chapter || chapter.bookId !== book.id) {
         throw new Error(`Chapter ${chapterConfig.chapterNumber || index + 1} was not found.`);
@@ -212,16 +288,30 @@ export async function POST(_request: Request, context: RouteContext) {
         log: runLog
       });
 
-      const result = await generateOpenAIStudySet(book, chapter, chapterConfig.plan, {
-        generationRunId: generationRun.id,
-        runName: generationRun.name || null
-      });
+      const result = await generateOpenAIChapterItems(book, chapter, chapterConfig.plan);
+      const items = await appendStudyItems(runStudySet.id, result.generatedItems, { chapterId: chapter.id });
+      completedChapters = index + 1;
       addUsage(usageSummary, result.usage, result.model);
+      mergeGeneratedItems(generatedCollections, summarizeStudyItems(items) as unknown as Record<string, unknown>);
+      rawChapters.push({
+        chapterId: chapter.id,
+        chapterNumber: chapter.chapterNumber,
+        chapterTitle: chapter.title,
+        wordCount: chapter.wordCount,
+        plan: result.plan,
+        output: result.rawOutput,
+        usage: result.usage
+      });
 
       runLog = [
         ...runLog,
-        logEntry("success", `Done Chapter ${chapter.chapterNumber}: ${result.items.vocabularyItems.length} vocab, ${result.items.multipleChoiceQuestions.length} MCQ, ${result.items.shortAnswerQuestions.length} short answer.`)
+        logEntry("success", `Done Chapter ${chapter.chapterNumber}: ${result.generatedItems.vocabularyItems?.length || 0} vocab, ${result.generatedItems.multipleChoiceQuestions?.length || 0} MCQ, ${result.generatedItems.shortAnswerQuestions?.length || 0} short answer.`)
       ];
+
+      if (await isCancellationRequested(generationRun.id)) {
+        return finishCancelled(`Cancellation received after Chapter ${chapter.chapterNumber}.`);
+      }
+
       await updateGenerationRun({
         id: generationRun.id,
         status: "generating",
@@ -236,6 +326,17 @@ export async function POST(_request: Request, context: RouteContext) {
     }
 
     const finalUsage = finalizeUsage(usageSummary);
+    await updateStudySet({
+      studySetId: runStudySet.id,
+      status: "ready",
+      model: finalUsage.model,
+      rawOutput: {
+        bookTitle: book.title,
+        chapters: rawChapters,
+        ...generatedCollections,
+        usage: finalUsage
+      }
+    });
     runLog = [
       ...runLog,
       logEntry("info", formatUsageLine(finalUsage)),
@@ -257,6 +358,7 @@ export async function POST(_request: Request, context: RouteContext) {
 
     return NextResponse.json({ generationRun: await summarizeGenerationRun(completed || generationRun) });
   } catch (error) {
+    await deleteStudySet(runStudySet.id);
     const message = error instanceof Error ? error.message : "Generation failed.";
     const finalUsage = finalizeUsage(usageSummary);
     runLog = [...runLog, logEntry("error", `Failed: ${message}`)];

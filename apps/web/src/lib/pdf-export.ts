@@ -307,16 +307,17 @@ async function renderPayloadFile(input: { payload: unknown; basename: string; fo
   };
 }
 
-export async function exportStudySetFile(bookId: string, studySetId: string, type: PdfExportType, format: ExportFileFormat) {
+export async function exportStudySetFile(bookId: string, studySetId: string, type: PdfExportType, format: ExportFileFormat, chapterId?: string | null) {
   const book = await getBook(bookId);
   const studySet = book ? await getStudySetForBook(book.id, studySetId) : null;
-  const chapter = studySet ? await getChapter(studySet.chapterId) : null;
+  const selectedChapterId = chapterId || studySet?.chapterId || null;
+  const chapter = selectedChapterId ? await getChapter(selectedChapterId) : null;
 
   if (!book || !studySet || !chapter || chapter.bookId !== book.id) {
     throw new Error("Study set not found.");
   }
 
-  const items = await listStudyItems(studySet.id);
+  const items = await listStudyItems(studySet.id, { chapterId: chapter.id });
   const payload = buildPayload({
     bookTitle: book.title,
     chapterNumber: chapter.chapterNumber,
@@ -364,7 +365,7 @@ export async function exportBookFile(bookId: string, type: PdfExportType, format
       chapterNumber: chapter.chapterNumber,
       chapterTitle: chapter.title,
       studySetTitle: studySet.title,
-      items: await listStudyItems(studySet.id)
+      items: await listStudyItems(studySet.id, { chapterId: chapter.id })
     });
   }
 

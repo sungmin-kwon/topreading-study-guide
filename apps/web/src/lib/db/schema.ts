@@ -18,6 +18,7 @@ export const books = sqliteTable("books", {
   author: text("author"),
   readingLevel: text("reading_level"),
   activeGenerationRunId: text("active_generation_run_id"),
+  pinnedAt: text("pinned_at"),
   status: text("status").notNull().default("draft"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull()
@@ -88,7 +89,7 @@ export const studySets = sqliteTable("study_sets", {
   id: text("id").primaryKey(),
   bookId: text("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
   generationRunId: text("generation_run_id").references(() => generationRuns.id, { onDelete: "set null" }),
-  chapterId: text("chapter_id").notNull().references(() => chapters.id, { onDelete: "cascade" }),
+  chapterId: text("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
   title: text("title").notNull(),
   status: text("status").notNull().default("draft"),
   generator: text("generator").notNull().default("manual"),
@@ -103,6 +104,7 @@ export const studySets = sqliteTable("study_sets", {
 export const vocabularyItems = sqliteTable("vocabulary_items", {
   id: text("id").primaryKey(),
   studySetId: text("study_set_id").notNull().references(() => studySets.id, { onDelete: "cascade" }),
+  chapterId: text("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
   term: text("term").notNull(),
   definition: text("definition").notNull(),
   contextSentence: text("context_sentence"),
@@ -117,6 +119,7 @@ export const vocabularyItems = sqliteTable("vocabulary_items", {
 export const multipleChoiceQuestions = sqliteTable("multiple_choice_questions", {
   id: text("id").primaryKey(),
   studySetId: text("study_set_id").notNull().references(() => studySets.id, { onDelete: "cascade" }),
+  chapterId: text("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
   questionText: text("question_text").notNull(),
   choicesJson: text("choices_json").notNull(),
   correctChoiceIndex: integer("correct_choice_index").notNull(),
@@ -132,6 +135,7 @@ export const multipleChoiceQuestions = sqliteTable("multiple_choice_questions", 
 export const shortAnswerQuestions = sqliteTable("short_answer_questions", {
   id: text("id").primaryKey(),
   studySetId: text("study_set_id").notNull().references(() => studySets.id, { onDelete: "cascade" }),
+  chapterId: text("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
   questionText: text("question_text").notNull(),
   suggestedAnswer: text("suggested_answer").notNull(),
   rubric: text("rubric"),

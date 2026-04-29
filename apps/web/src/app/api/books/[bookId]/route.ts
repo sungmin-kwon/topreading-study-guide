@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { deleteBook, getBook, updateBook, updateBookActiveGenerationRun } from "@/lib/books";
+import { deleteBook, getBook, updateBook, updateBookActiveGenerationRun, updateBookPinnedAt } from "@/lib/books";
 import { getGenerationRun } from "@/lib/generation-runs";
 
 export const runtime = "nodejs";
@@ -48,6 +48,10 @@ export async function PATCH(request: Request, context: RouteContext) {
       }
 
       book = await updateBookActiveGenerationRun(bookId, activeGenerationRunId);
+    }
+
+    if (body?.pinned !== undefined) {
+      book = await updateBookPinnedAt(bookId, body.pinned ? new Date().toISOString() : null);
     }
 
     return NextResponse.json({ book });

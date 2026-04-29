@@ -9,6 +9,7 @@ type BookSummary = {
   author: string | null;
   readingLevel: string | null;
   activeGenerationRunId: string | null;
+  pinnedAt: string | null;
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -146,7 +147,7 @@ type StudySetSummary = {
   id: string;
   bookId: string;
   generationRunId: string | null;
-  chapterId: string;
+  chapterId: string | null;
   title: string;
   status: string;
   generator: string;
@@ -160,6 +161,7 @@ type StudySetSummary = {
 
 type VocabularyItem = {
   id: string;
+  chapterId: string | null;
   term: string;
   definition: string;
   contextSentence: string | null;
@@ -171,6 +173,7 @@ type VocabularyItem = {
 
 type MultipleChoiceQuestion = {
   id: string;
+  chapterId: string | null;
   questionText: string;
   choices: string[];
   correctChoiceIndex: number;
@@ -183,6 +186,7 @@ type MultipleChoiceQuestion = {
 
 type ShortAnswerQuestion = {
   id: string;
+  chapterId: string | null;
   questionText: string;
   suggestedAnswer: string;
   rubric: string | null;
@@ -209,6 +213,7 @@ type StudyItemsResponse = {
 };
 
 type StudyItemKind = "vocabulary" | "multiple-choice" | "short-answer";
+type BookSortMode = "newest" | "oldest" | "az" | "za";
 
 type SplitCandidate = {
   index: number;
@@ -421,14 +426,23 @@ async function fetchStudySets(bookId: string, chapterId: string, generationRunId
   return payload.studySets || [];
 }
 
-async function fetchStudyItems(bookId: string, studySetId: string) {
-  const response = await fetch(`/api/books/${bookId}/study-sets/${studySetId}/items`, { cache: "no-store" });
+async function fetchStudyItems(bookId: string, studySetId: string, chapterId?: string | null) {
+  const params = new URLSearchParams();
+  if (chapterId) {
+    params.set("chapterId", chapterId);
+  }
+  const query = params.toString();
+  const response = await fetch(`/api/books/${bookId}/study-sets/${studySetId}/items${query ? `?${query}` : ""}`, { cache: "no-store" });
   if (!response.ok) {
     throw new Error("Could not load generated study items.");
   }
 
   const payload = (await response.json()) as StudyItemsResponse;
   return payload.items || { vocabularyItems: [], multipleChoiceQuestions: [], shortAnswerQuestions: [] };
+}
+
+function studyItemsCacheKey(studySetId: string, chapterId?: string | null) {
+  return `${studySetId}:${chapterId || "all"}`;
 }
 
 function formatBytes(value: number) {
@@ -589,11 +603,13 @@ export function BookWorkspace() {
   const [studyItemsByStudySetId, setStudyItemsByStudySetId] = useState<Record<string, StudyItems>>({});
   const [studySetDraftById, setStudySetDraftById] = useState<Record<string, { title: string; status: string }>>({});
   const [generationRuns, setGenerationRuns] = useState<GenerationRunSummary[]>([]);
+  const [generationRunDraftById, setGenerationRunDraftById] = useState<Record<string, string>>({});
   const [editingStudyItemId, setEditingStudyItemId] = useState<string | null>(null);
   const [studyItemDraftById, setStudyItemDraftById] = useState<Record<string, Record<string, string>>>({});
   const [creatingStudyItemKind, setCreatingStudyItemKind] = useState<StudyItemKind | null>(null);
   const [newStudyItemDraft, setNewStudyItemDraft] = useState<Record<string, string>>({});
   const [bookSearch, setBookSearch] = useState("");
+  const [bookSortMode, setBookSortMode] = useState<BookSortMode>("newest");
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [isLoadingSources, setIsLoadingSources] = useState(false);
@@ -611,8 +627,11 @@ export function BookWorkspace() {
   const [savingStudyItemId, setSavingStudyItemId] = useState<string | null>(null);
   const [isSavingNewStudyItem, setIsSavingNewStudyItem] = useState(false);
   const [savingStudySetId, setSavingStudySetId] = useState<string | null>(null);
+  const [savingGenerationRunId, setSavingGenerationRunId] = useState<string | null>(null);
+  const [movingStudyItemId, setMovingStudyItemId] = useState<string | null>(null);
   const [generatingChapterId, setGeneratingChapterId] = useState<string | null>(null);
   const [isGeneratingBook, setIsGeneratingBook] = useState(false);
+  const [cancellingGenerationRunId, setCancellingGenerationRunId] = useState<string | null>(null);
   const [generationLog, setGenerationLog] = useState<GenerationLogEntry[]>([]);
   const [generationPlansByChapterId, setGenerationPlansByChapterId] = useState<Record<string, GenerationPlanDraft>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -625,15 +644,40 @@ export function BookWorkspace() {
   );
   const filteredBooks = useMemo(() => {
     const query = bookSearch.trim().toLowerCase();
-    if (!query) {
-      return books;
-    }
+    const matching = query
+      ? books.filter((book) =>
+        book.title.toLowerCase().includes(query)
+        || (book.author || "").toLowerCase().includes(query)
+      )
+      : books;
 
-    return books.filter((book) =>
-      book.title.toLowerCase().includes(query)
-      || (book.author || "").toLowerCase().includes(query)
-    );
-  }, [bookSearch, books]);
+    const sorted = [...matching].sort((left, right) => {
+      const pinCompare = Number(Boolean(right.pinnedAt)) - Number(Boolean(left.pinnedAt));
+      if (pinCompare !== 0) {
+        return pinCompare;
+      }
+
+      if (left.pinnedAt && right.pinnedAt) {
+        const pinnedCompare = right.pinnedAt.localeCompare(left.pinnedAt);
+        if (pinnedCompare !== 0) {
+          return pinnedCompare;
+        }
+      }
+
+      if (bookSortMode === "oldest") {
+        return left.createdAt.localeCompare(right.createdAt);
+      }
+      if (bookSortMode === "az") {
+        return left.title.localeCompare(right.title, undefined, { sensitivity: "base" });
+      }
+      if (bookSortMode === "za") {
+        return right.title.localeCompare(left.title, undefined, { sensitivity: "base" });
+      }
+      return right.createdAt.localeCompare(left.createdAt);
+    });
+
+    return sorted;
+  }, [bookSearch, bookSortMode, books]);
   const selectedChapter = useMemo(
     () => chapters.find((chapter) => chapter.id === selectedChapterId) || chapters[0] || null,
     [chapters, selectedChapterId]
@@ -650,7 +694,9 @@ export function BookWorkspace() {
   const selectedStudySet = selectedStudySetId
     ? selectedChapterStudySets.find((studySet) => studySet.id === selectedStudySetId) || null
     : null;
-  const selectedStudyItems = selectedStudySetId ? studyItemsByStudySetId[selectedStudySetId] : null;
+  const selectedStudyItems = selectedStudySetId
+    ? studyItemsByStudySetId[studyItemsCacheKey(selectedStudySetId, selectedChapter?.id)]
+    : null;
   const selectedChapterWordCount = selectedChapterEdit
     ? selectedChapterEdit.textContent.trim().split(/\s+/).filter(Boolean).length
     : 0;
@@ -976,6 +1022,7 @@ export function BookWorkspace() {
         setIsGeneratingBook(updatedRun.status === "generating");
 
         if (updatedRun.status !== "generating") {
+          setCancellingGenerationRunId(null);
           setStudySetsByChapterId({});
           setSelectedStudySetIdByChapterId({});
           setStudyItemsByStudySetId({});
@@ -1147,6 +1194,30 @@ export function BookWorkspace() {
 
   function updateBookInState(book: BookSummary) {
     setBooks((current) => current.map((item) => item.id === book.id ? book : item));
+  }
+
+  async function handleToggleBookPin(book: BookSummary) {
+    const response = await fetch(`/api/books/${book.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        title: book.title,
+        author: book.author,
+        readingLevel: book.readingLevel,
+        pinned: !book.pinnedAt
+      })
+    });
+    const payload = (await response.json().catch(() => ({}))) as BookResponse;
+
+    if (!response.ok || !payload.book) {
+      setStatusMessage(payload.error || "Could not update pinned book.");
+      return;
+    }
+
+    updateBookInState(payload.book);
+    setStatusMessage(payload.book.pinnedAt ? "Book pinned." : "Book unpinned.");
   }
 
   async function handleSelectActiveGenerationRun(generationRunId: string | null) {
@@ -1624,18 +1695,19 @@ export function BookWorkspace() {
     setDeletingId(null);
   }
 
-  async function loadStudyItems(studySetId: string) {
-    if (!activeBook || studyItemsByStudySetId[studySetId]) {
+  async function loadStudyItems(studySetId: string, chapterId?: string | null) {
+    const cacheKey = studyItemsCacheKey(studySetId, chapterId);
+    if (!activeBook || studyItemsByStudySetId[cacheKey]) {
       return;
     }
 
     setLoadingStudyItemsSetId(studySetId);
 
     try {
-      const items = await fetchStudyItems(activeBook.id, studySetId);
+      const items = await fetchStudyItems(activeBook.id, studySetId, chapterId);
       setStudyItemsByStudySetId((current) => ({
         ...current,
-        [studySetId]: items
+        [cacheKey]: items
       }));
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "Could not load generated study items.");
@@ -1667,7 +1739,7 @@ export function BookWorkspace() {
           ...current,
           [chapter.id]: selectedId
         }));
-        await loadStudyItems(selectedId);
+        await loadStudyItems(selectedId, chapter.id);
       } else {
         setSelectedStudySetIdByChapterId((current) => {
           const next = { ...current };
@@ -1728,7 +1800,7 @@ export function BookWorkspace() {
       ...current,
       [chapterId]: studySetId
     }));
-    await loadStudyItems(studySetId);
+    await loadStudyItems(studySetId, chapterId);
   }
 
   function handleChapterEdit(chapterId: string, updates: Partial<{ chapterNumber: string; title: string; textContent: string }>) {
@@ -1932,11 +2004,12 @@ export function BookWorkspace() {
 
       setGenerationRuns((current) => current.map((run) => run.id === payload.generationRun?.id ? payload.generationRun : run));
       setGenerationLog(payload.generationRun.log);
-      setStatusMessage("Generation completed.");
+      setStatusMessage(payload.generationRun.status === "cancelled" ? "Generation cancelled." : "Generation completed.");
     } finally {
       window.clearInterval(pollId);
       setGeneratingChapterId(null);
       setIsGeneratingBook(false);
+      setCancellingGenerationRunId(null);
       setStudySetsByChapterId({});
       setSelectedStudySetIdByChapterId({});
       setStudyItemsByStudySetId({});
@@ -1946,6 +2019,38 @@ export function BookWorkspace() {
         await loadStudySets(selectedChapter, generationRun.id);
       }
     }
+  }
+
+  async function handleCancelGenerationRun() {
+    if (!activeBook || !generatingRun || cancellingGenerationRunId) {
+      return;
+    }
+
+    const confirmed = window.confirm(t(
+      "Cancel this generation run? The current chapter may finish before the run stops.",
+      "이 생성 작업을 취소할까요? 현재 처리 중인 챕터는 완료된 뒤 중단될 수 있습니다."
+    ));
+    if (!confirmed) {
+      return;
+    }
+
+    setCancellingGenerationRunId(generatingRun.id);
+    setStatusMessage("");
+
+    const response = await fetch(`/api/books/${activeBook.id}/generation-runs/${generatingRun.id}/cancel`, {
+      method: "POST"
+    });
+    const payload = (await response.json().catch(() => ({}))) as GenerationRunsResponse;
+
+    if (!response.ok || !payload.generationRun) {
+      setStatusMessage(payload.error || "Could not cancel generation.");
+      setCancellingGenerationRunId(null);
+      return;
+    }
+
+    setGenerationRuns((current) => current.map((run) => run.id === payload.generationRun?.id ? payload.generationRun : run));
+    setGenerationLog(payload.generationRun.log);
+    setStatusMessage("Cancellation requested.");
   }
 
   async function handleDeleteStudySet(chapter: ChapterSummary, studySet: StudySetSummary) {
@@ -1985,11 +2090,15 @@ export function BookWorkspace() {
     });
     setStudyItemsByStudySetId((current) => {
       const next = { ...current };
-      delete next[studySet.id];
+      Object.keys(next).forEach((key) => {
+        if (key.startsWith(`${studySet.id}:`)) {
+          delete next[key];
+        }
+      });
       return next;
     });
     if (remaining[0]?.id) {
-      await loadStudyItems(remaining[0].id);
+      await loadStudyItems(remaining[0].id, chapter.id);
     }
     setStudySetCount((current) => Math.max(0, current - 1));
     setStatusMessage("Study set deleted.");
@@ -2026,6 +2135,55 @@ export function BookWorkspace() {
     await refreshActiveBookStats(activeBook.id);
     setStatusMessage("Generation run deleted.");
     setDeletingId(null);
+  }
+
+  function updateGenerationRunDraft(runId: string, value: string) {
+    setGenerationRunDraftById((current) => ({
+      ...current,
+      [runId]: value
+    }));
+  }
+
+  async function handleSaveGenerationRunName(run: GenerationRunSummary) {
+    if (!activeBook) {
+      return;
+    }
+
+    const nextName = (generationRunDraftById[run.id] ?? run.name).trim();
+    if (!nextName) {
+      setStatusMessage("Generation run name cannot be empty.");
+      return;
+    }
+
+    if (nextName === run.name) {
+      return;
+    }
+
+    setSavingGenerationRunId(run.id);
+    setStatusMessage("");
+
+    const response = await fetch(`/api/books/${activeBook.id}/generation-runs/${run.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ name: nextName })
+    });
+    const payload = (await response.json().catch(() => ({}))) as GenerationRunsResponse;
+
+    if (!response.ok || !payload.generationRun) {
+      setStatusMessage(payload.error || "Could not rename generation run.");
+      setSavingGenerationRunId(null);
+      return;
+    }
+
+    setGenerationRuns((current) => current.map((item) => item.id === payload.generationRun?.id ? payload.generationRun : item));
+    setGenerationRunDraftById((current) => ({
+      ...current,
+      [payload.generationRun!.id]: payload.generationRun!.name
+    }));
+    setStatusMessage("Generation run renamed.");
+    setSavingGenerationRunId(null);
   }
 
   function updateStudySetDraft(studySetId: string, updates: Partial<{ title: string; status: string }>) {
@@ -2074,9 +2232,10 @@ export function BookWorkspace() {
     }
 
     const updated = payload.studySet;
+    const chapterKey = selectedChapter?.id || updated.chapterId || "";
     setStudySetsByChapterId((current) => ({
       ...current,
-      [updated.chapterId]: (current[updated.chapterId] || []).map((item) => item.id === updated.id ? updated : item)
+      [chapterKey]: (current[chapterKey] || []).map((item) => item.id === updated.id ? updated : item)
     }));
     setStudySetDraftById((current) => ({
       ...current,
@@ -2095,7 +2254,11 @@ export function BookWorkspace() {
       return;
     }
 
-    const url = `/api/books/${activeBook.id}/study-sets/${selectedStudySet.id}/export?type=${encodeURIComponent(type)}&format=${format}`;
+    const params = new URLSearchParams({ type, format });
+    if (selectedChapter?.id) {
+      params.set("chapterId", selectedChapter.id);
+    }
+    const url = `/api/books/${activeBook.id}/study-sets/${selectedStudySet.id}/export?${params.toString()}`;
     window.location.href = url;
     setStatusMessage(`Preparing ${format.toUpperCase()} export.`);
   }
@@ -2328,7 +2491,12 @@ export function BookWorkspace() {
     setSavingStudyItemId(itemId);
     setStatusMessage("");
 
-    const response = await fetch(`/api/books/${activeBook.id}/study-sets/${selectedStudySetId}/items/${kind}/${itemId}`, {
+    const cacheKey = studyItemsCacheKey(selectedStudySetId, selectedChapter?.id);
+    const params = new URLSearchParams();
+    if (selectedChapter?.id) {
+      params.set("chapterId", selectedChapter.id);
+    }
+    const response = await fetch(`/api/books/${activeBook.id}/study-sets/${selectedStudySetId}/items/${kind}/${itemId}?${params.toString()}`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json"
@@ -2345,7 +2513,7 @@ export function BookWorkspace() {
 
     setStudyItemsByStudySetId((current) => ({
       ...current,
-      [selectedStudySetId]: payload.items as StudyItems
+      [cacheKey]: payload.items as StudyItems
     }));
     setEditingStudyItemId(null);
     setStatusMessage("Generated item saved.");
@@ -2360,12 +2528,16 @@ export function BookWorkspace() {
     setIsSavingNewStudyItem(true);
     setStatusMessage("");
 
+    const cacheKey = studyItemsCacheKey(selectedStudySetId, selectedChapter?.id);
     const response = await fetch(`/api/books/${activeBook.id}/study-sets/${selectedStudySetId}/items`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(buildAppendStudyItemsPayload(kind, buildStudyItemPayload(kind, newStudyItemDraft)))
+      body: JSON.stringify({
+        chapterId: selectedChapter?.id || null,
+        ...buildAppendStudyItemsPayload(kind, buildStudyItemPayload(kind, newStudyItemDraft))
+      })
     });
     const payload = (await response.json().catch(() => ({}))) as StudyItemsResponse;
 
@@ -2377,12 +2549,48 @@ export function BookWorkspace() {
 
     setStudyItemsByStudySetId((current) => ({
       ...current,
-      [selectedStudySetId]: payload.items as StudyItems
+      [cacheKey]: payload.items as StudyItems
     }));
     setCreatingStudyItemKind(null);
     setNewStudyItemDraft({});
     setStatusMessage(kind === "vocabulary" ? t("Vocabulary item added.", "단어가 추가되었습니다.") : t("Question added.", "문제가 추가되었습니다."));
     setIsSavingNewStudyItem(false);
+  }
+
+  async function handleMoveStudyItem(kind: StudyItemKind, itemId: string, direction: "up" | "down") {
+    if (!activeBook || !selectedStudySetId) {
+      return;
+    }
+
+    setMovingStudyItemId(itemId);
+    setStatusMessage("");
+
+    const cacheKey = studyItemsCacheKey(selectedStudySetId, selectedChapter?.id);
+    const params = new URLSearchParams();
+    if (selectedChapter?.id) {
+      params.set("chapterId", selectedChapter.id);
+    }
+    const response = await fetch(`/api/books/${activeBook.id}/study-sets/${selectedStudySetId}/items/${kind}/${itemId}?${params.toString()}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ direction })
+    });
+    const payload = (await response.json().catch(() => ({}))) as StudyItemsResponse;
+
+    if (!response.ok || !payload.items) {
+      setStatusMessage(payload.error || "Could not reorder generated item.");
+      setMovingStudyItemId(null);
+      return;
+    }
+
+    setStudyItemsByStudySetId((current) => ({
+      ...current,
+      [cacheKey]: payload.items as StudyItems
+    }));
+    setStatusMessage("Generated item reordered.");
+    setMovingStudyItemId(null);
   }
 
   async function handleDeleteStudyItem(kind: StudyItemKind, itemId: string) {
@@ -2404,14 +2612,40 @@ export function BookWorkspace() {
       return;
     }
 
-    const items = await fetchStudyItems(activeBook.id, selectedStudySetId);
+    const cacheKey = studyItemsCacheKey(selectedStudySetId, selectedChapter?.id);
+    const items = await fetchStudyItems(activeBook.id, selectedStudySetId, selectedChapter?.id);
     setStudyItemsByStudySetId((current) => ({
       ...current,
-      [selectedStudySetId]: items
+      [cacheKey]: items
     }));
     setEditingStudyItemId((current) => current === itemId ? null : current);
     setStatusMessage("Generated item deleted.");
     setDeletingId(null);
+  }
+
+  function renderMoveStudyItemButtons(kind: StudyItemKind, itemId: string, index: number, itemCount: number) {
+    return (
+      <span className="study-item-move-actions" aria-label={t("Reorder item", "항목 순서 변경")}>
+        <button
+          type="button"
+          disabled={index === 0 || movingStudyItemId === itemId}
+          title={t("Move up", "위로 이동")}
+          aria-label={t("Move up", "위로 이동")}
+          onClick={() => handleMoveStudyItem(kind, itemId, "up")}
+        >
+          ↑
+        </button>
+        <button
+          type="button"
+          disabled={index === itemCount - 1 || movingStudyItemId === itemId}
+          title={t("Move down", "아래로 이동")}
+          aria-label={t("Move down", "아래로 이동")}
+          onClick={() => handleMoveStudyItem(kind, itemId, "down")}
+        >
+          ↓
+        </button>
+      </span>
+    );
   }
 
   function renderNewStudyItemForm(kind: StudyItemKind) {
@@ -2557,19 +2791,43 @@ export function BookWorkspace() {
               />
             </label>
 
+            <label className="book-sort">
+              {t("Sort books", "도서 정렬")}
+              <select value={bookSortMode} onChange={(event) => setBookSortMode(event.target.value as BookSortMode)}>
+                <option value="newest">{t("Newest", "최신순")}</option>
+                <option value="oldest">{t("Oldest", "오래된순")}</option>
+                <option value="az">{t("A -> Z", "가나다순")}</option>
+                <option value="za">{t("Z -> A", "가나다 역순")}</option>
+              </select>
+            </label>
+
             <section className="library-list" aria-label={t("Book library", "도서 목록")}>
               {isLoading ? <p className="muted-text">{t("Loading library...", "도서 목록을 불러오는 중...")}</p> : null}
               {!isLoading && books.length === 0 ? <p className="muted-text">{t("No books yet.", "아직 등록된 책이 없습니다.")}</p> : null}
               {!isLoading && books.length > 0 && filteredBooks.length === 0 ? <p className="muted-text">{t("No matching books.", "검색 결과가 없습니다.")}</p> : null}
               {filteredBooks.map((book) => (
-                <button
+                <div
                   className={`book-row ${book.id === activeBook?.id ? "active" : ""}`}
                   key={book.id}
-                  type="button"
-                  onClick={() => setActiveBookId(book.id)}
                 >
-                  <span className="book-row-title">{book.title}</span>
-                </button>
+                  <button
+                    className="book-row-main"
+                    type="button"
+                    onClick={() => setActiveBookId(book.id)}
+                  >
+                    <span className="book-row-title">{book.title}</span>
+                    {book.author ? <span className="book-row-meta">{book.author}</span> : null}
+                  </button>
+                  <button
+                    className={`book-pin-button ${book.pinnedAt ? "pinned" : ""}`}
+                    type="button"
+                    title={book.pinnedAt ? t("Unpin book", "고정 해제") : t("Pin book", "고정")}
+                    aria-label={book.pinnedAt ? t("Unpin book", "고정 해제") : t("Pin book", "고정")}
+                    onClick={() => void handleToggleBookPin(book)}
+                  >
+                    {book.pinnedAt ? "★" : "☆"}
+                  </button>
+                </div>
               ))}
             </section>
           </div>
@@ -3201,13 +3459,25 @@ export function BookWorkspace() {
               <div>
                 <h3>{t("Generation", "생성")}</h3>
               </div>
-              <button
-                type="button"
-                disabled={!activeBook || chapters.length === 0 || isGeneratingBook}
-                onClick={openGenerationModal}
-              >
-                {isGeneratingBook ? t("Generating...", "생성 중...") : t("Configure Generation", "생성 설정")}
-              </button>
+              <div className="panel-actions">
+                {generatingRun ? (
+                  <button
+                    type="button"
+                    className="danger-button"
+                    disabled={cancellingGenerationRunId === generatingRun.id}
+                    onClick={handleCancelGenerationRun}
+                  >
+                    {cancellingGenerationRunId === generatingRun.id ? t("Cancelling...", "취소 중...") : t("Cancel Run", "실행 취소")}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={!activeBook || chapters.length === 0 || isGeneratingBook}
+                  onClick={openGenerationModal}
+                >
+                  {isGeneratingBook ? t("Generating...", "생성 중...") : t("Configure Generation", "생성 설정")}
+                </button>
+              </div>
             </div>
 
             {chapters.length === 0 ? (
@@ -3236,9 +3506,21 @@ export function BookWorkspace() {
                       `전체 ${chapters.length}개 챕터 중 ${includedGenerationChapterCount}개가 선택되었습니다. 생성 설정에서 챕터와 문항 수를 조정할 수 있습니다.`
                     )}
                   </p>
-                  <button type="button" disabled={isGeneratingBook} onClick={openGenerationModal}>
-                    {t("Configure", "설정")}
-                  </button>
+                  <div className="inline-actions">
+                    {generatingRun ? (
+                      <button
+                        type="button"
+                        className="danger-button"
+                        disabled={cancellingGenerationRunId === generatingRun.id}
+                        onClick={handleCancelGenerationRun}
+                      >
+                        {cancellingGenerationRunId === generatingRun.id ? t("Cancelling...", "취소 중...") : t("Cancel Run", "실행 취소")}
+                      </button>
+                    ) : null}
+                    <button type="button" disabled={isGeneratingBook} onClick={openGenerationModal}>
+                      {t("Configure", "설정")}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="generation-total-strip" aria-label={t("Whole book generation totals", "책 전체 생성 총량")}>
@@ -3292,6 +3574,27 @@ export function BookWorkspace() {
                         <article className="generation-history-card" key={run.id}>
                           <div>
                             <strong>{run.name}{activeBook?.activeGenerationRunId === run.id ? ` · ${t("Active", "활성")}` : ""}</strong>
+                            <div className="generation-run-name-editor">
+                              <label htmlFor={`generation-run-name-${run.id}`}>{t("Name", "이름")}</label>
+                              <input
+                                id={`generation-run-name-${run.id}`}
+                                value={generationRunDraftById[run.id] ?? run.name}
+                                onChange={(event) => updateGenerationRunDraft(run.id, event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    void handleSaveGenerationRunName(run);
+                                  }
+                                }}
+                              />
+                              <button
+                                type="button"
+                                disabled={savingGenerationRunId === run.id || (generationRunDraftById[run.id] ?? run.name).trim() === run.name}
+                                onClick={() => void handleSaveGenerationRunName(run)}
+                              >
+                                {savingGenerationRunId === run.id ? t("Saving...", "저장 중...") : t("Save", "저장")}
+                              </button>
+                            </div>
                             <p>
                               {formatDateTime(run.startedAt)} · {formatUiStatus(run.status)}
                               {run.finishedAt ? ` · ${t("finished", "완료")} ${formatDateTime(run.finishedAt)}` : ""}
@@ -3703,7 +4006,7 @@ export function BookWorkspace() {
                           <div className="study-items-grid single-column">
                             <section className="study-item-section">
                               {renderNewStudyItemForm("vocabulary")}
-                              {selectedStudyItems.vocabularyItems.map((item) => (
+                              {selectedStudyItems.vocabularyItems.map((item, index) => (
                                 <article className="study-item-card" key={item.id}>
                                   {editingStudyItemId === item.id ? (
                                     <div className="study-item-edit-form">
@@ -3723,6 +4026,7 @@ export function BookWorkspace() {
                                     </>
                                   )}
                                   <div className="study-item-actions">
+                                    {renderMoveStudyItemButtons("vocabulary", item.id, index, selectedStudyItems.vocabularyItems.length)}
                                     {editingStudyItemId === item.id ? (
                                       <>
                                         <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("vocabulary", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
@@ -3741,7 +4045,7 @@ export function BookWorkspace() {
                           <div className="study-items-grid single-column">
                             <section className="study-item-section">
                               {renderNewStudyItemForm("multiple-choice")}
-                              {selectedStudyItems.multipleChoiceQuestions.map((item) => (
+                              {selectedStudyItems.multipleChoiceQuestions.map((item, index) => (
                                 <article className="study-item-card" key={item.id}>
                                   {editingStudyItemId === item.id ? (
                                     <div className="study-item-edit-form">
@@ -3768,6 +4072,7 @@ export function BookWorkspace() {
                                     </>
                                   )}
                                   <div className="study-item-actions">
+                                    {renderMoveStudyItemButtons("multiple-choice", item.id, index, selectedStudyItems.multipleChoiceQuestions.length)}
                                     {editingStudyItemId === item.id ? (
                                       <>
                                         <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("multiple-choice", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
@@ -3786,7 +4091,7 @@ export function BookWorkspace() {
                           <div className="study-items-grid single-column">
                             <section className="study-item-section">
                               {renderNewStudyItemForm("short-answer")}
-                              {selectedStudyItems.shortAnswerQuestions.map((item) => (
+                              {selectedStudyItems.shortAnswerQuestions.map((item, index) => (
                                 <article className="study-item-card" key={item.id}>
                                   {editingStudyItemId === item.id ? (
                                     <div className="study-item-edit-form">
@@ -3802,6 +4107,7 @@ export function BookWorkspace() {
                                     </>
                                   )}
                                   <div className="study-item-actions">
+                                    {renderMoveStudyItemButtons("short-answer", item.id, index, selectedStudyItems.shortAnswerQuestions.length)}
                                     {editingStudyItemId === item.id ? (
                                       <>
                                         <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("short-answer", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>

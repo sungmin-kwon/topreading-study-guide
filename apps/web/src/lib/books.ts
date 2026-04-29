@@ -38,6 +38,7 @@ export async function createBook(input: {
     author: input.author?.trim() || null,
     readingLevel: input.readingLevel?.trim() || null,
     activeGenerationRunId: null,
+    pinnedAt: null,
     status: "draft",
     createdAt: timestamp,
     updatedAt: timestamp
@@ -76,6 +77,18 @@ export async function updateBookActiveGenerationRun(bookId: string, generationRu
     .update(books)
     .set({
       activeGenerationRunId: generationRunId,
+      updatedAt: nowIso()
+    })
+    .where(eq(books.id, bookId));
+
+  return getBook(bookId);
+}
+
+export async function updateBookPinnedAt(bookId: string, pinnedAt: string | null): Promise<BookSummary | null> {
+  await db
+    .update(books)
+    .set({
+      pinnedAt,
       updatedAt: nowIso()
     })
     .where(eq(books.id, bookId));

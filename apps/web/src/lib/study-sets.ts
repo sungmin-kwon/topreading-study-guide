@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { studySets, type Chapter, type StudySet } from "@/lib/db/schema";
+import { listStudyItems } from "@/lib/study-items";
 
 type CreateStudySetInput = {
   bookId: string;
   generationRunId?: string | null;
-  chapter: Chapter;
+  chapter?: Chapter | null;
   title?: string;
   generator?: string;
   model?: string | null;
@@ -57,20 +58,33 @@ function normalizeStatus(status: string | undefined) {
   return normalized;
 }
 
-export async function listStudySetsForChapter(chapterId: string): Promise<StudySet[]> {
-  return db
+export async function listStudySetsForChapter(bookId: string, chapterId: string): Promise<StudySet[]> {
+  const rows = await db
     .select()
     .from(studySets)
-    .where(eq(studySets.chapterId, chapterId))
+    .where(and(eq(studySets.bookId, bookId), eq(studySets.chapterId, chapterId)))
     .orderBy(desc(studySets.createdAt));
+  const bookLevelRows = await db
+    .select()
+    .from(studySets)
+    .where(eq(studySets.bookId, bookId))
+    .orderBy(desc(studySets.createdAt));
+  const matchingBookLevelRows = await filterStudySetsWithChapterItems(
+    bookLevelRows.filter((studySet) => studySet.chapterId !== chapterId),
+    chapterId
+  );
+
+  return dedupeStudySets([...rows, ...matchingBookLevelRows]);
 }
 
 export async function listStudySetsForChapterInRun(chapterId: string, generationRunId: string): Promise<StudySet[]> {
-  return db
+  const rows = await db
     .select()
     .from(studySets)
-    .where(and(eq(studySets.chapterId, chapterId), eq(studySets.generationRunId, generationRunId)))
+    .where(eq(studySets.generationRunId, generationRunId))
     .orderBy(desc(studySets.createdAt));
+
+  return filterStudySetsForChapter(rows, chapterId);
 }
 
 export async function countStudySetsForBook(bookId: string): Promise<number> {
@@ -101,7 +115,7 @@ export async function getStudySet(studySetId: string): Promise<StudySet | null> 
 }
 
 export async function createStudySet(input: CreateStudySetInput): Promise<StudySet> {
-  if (input.chapter.bookId !== input.bookId) {
+  if (input.chapter && input.chapter.bookId !== input.bookId) {
     throw new Error("Chapter does not belong to this book.");
   }
 
@@ -110,8 +124,8 @@ export async function createStudySet(input: CreateStudySetInput): Promise<StudyS
     id: randomUUID(),
     bookId: input.bookId,
     generationRunId: input.generationRunId || null,
-    chapterId: input.chapter.id,
-    title: input.title?.trim() || defaultStudySetTitle(input.chapter),
+    chapterId: input.chapter?.id || null,
+    title: input.title?.trim() || (input.chapter ? defaultStudySetTitle(input.chapter) : "Study Set"),
     status: "draft",
     generator: input.generator?.trim() || "manual",
     model: input.model || null,
@@ -190,13 +204,46 @@ export async function getStudySetForChapterInRun(bookId: string, chapterId: stri
     .from(studySets)
     .where(and(
       eq(studySets.bookId, bookId),
-      eq(studySets.chapterId, chapterId),
       eq(studySets.generationRunId, generationRunId)
     ))
     .orderBy(desc(studySets.createdAt))
-    .limit(1);
+    .limit(10);
 
-  return rows[0] || null;
+  const matching = await filterStudySetsForChapter(rows, chapterId);
+  return matching[0] || null;
+}
+
+function dedupeStudySets(rows: StudySet[]) {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    if (seen.has(row.id)) {
+      return false;
+    }
+    seen.add(row.id);
+    return true;
+  });
+}
+
+async function studySetHasItemsForChapter(studySetId: string, chapterId: string) {
+  const items = await listStudyItems(studySetId, { chapterId });
+  return items.vocabulary.length > 0 || items.multipleChoice.length > 0 || items.shortAnswer.length > 0;
+}
+
+async function filterStudySetsWithChapterItems(rows: StudySet[], chapterId: string) {
+  const checks = await Promise.all(rows.map(async (studySet) => ({
+    studySet,
+    hasItems: await studySetHasItemsForChapter(studySet.id, chapterId)
+  })));
+  return checks.filter((check) => check.hasItems).map((check) => check.studySet);
+}
+
+async function filterStudySetsForChapter(rows: StudySet[], chapterId: string) {
+  const anchored = rows.filter((studySet) => studySet.chapterId === chapterId);
+  const bookLevel = await filterStudySetsWithChapterItems(
+    rows.filter((studySet) => studySet.chapterId !== chapterId),
+    chapterId
+  );
+  return dedupeStudySets([...anchored, ...bookLevel]);
 }
 
 export function summarizeStudySet(studySet: StudySet) {
