@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import { NextResponse } from "next/server";
+import { requireActiveUser } from "@/lib/auth";
 import { exportBookFile, parseExportFileFormat, parsePdfExportType } from "@/lib/pdf-export";
 
 export const runtime = "nodejs";
@@ -11,6 +12,10 @@ type RouteContext = {
 };
 
 export async function GET(request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId } = await context.params;
   const url = new URL(request.url);
   const type = parsePdfExportType(url.searchParams.get("type"));

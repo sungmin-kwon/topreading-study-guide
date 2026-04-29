@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireActiveUser } from "@/lib/auth";
 import { getBook } from "@/lib/books";
 import { deleteChapter, getChapter, serializeChapterDetail, summarizeChapter, updateChapter } from "@/lib/chapters";
 
@@ -23,6 +24,10 @@ async function getBookChapter(bookId: string, chapterId: string) {
 }
 
 export async function GET(_request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(_request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, chapterId } = await context.params;
   const chapter = await getBookChapter(bookId, chapterId);
 
@@ -34,6 +39,10 @@ export async function GET(_request: Request, context: RouteContext) {
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, chapterId } = await context.params;
   const chapter = await getBookChapter(bookId, chapterId);
 
@@ -65,6 +74,10 @@ export async function PATCH(request: Request, context: RouteContext) {
 }
 
 export async function DELETE(_request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(_request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, chapterId } = await context.params;
   const chapter = await getBookChapter(bookId, chapterId);
 

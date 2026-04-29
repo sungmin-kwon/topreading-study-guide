@@ -33,6 +33,8 @@ Copy `.env.example` to `.env.local` or configure equivalent production environme
 - `APP_BASE_URL`
 - `AUTH_MODE`
 - `AUTH_ALLOWED_EMAILS`
+- `APP_ADMIN_EMAILS`
+- `AUTH_AUTO_CREATE_USERS`
 - `AUTH_SHARED_SECRET`
 - `MAX_GENERATION_CHAPTERS`
 - `MAX_GENERATION_ITEMS`
@@ -128,6 +130,8 @@ BACKUP_DIR=/srv/topreading/backups
 PYTHON_EXECUTABLE=/home/sungmin-kwon/topreading-study-guide/.topreading/bin/python
 AUTH_MODE=cloudflare_access
 AUTH_ALLOWED_EMAILS=your-email@example.com
+APP_ADMIN_EMAILS=your-email@example.com
+AUTH_AUTO_CREATE_USERS=false
 ```
 
 Build and start:
@@ -229,7 +233,7 @@ Schedule this command nightly once the app has real users or generated material 
 
 ## Authentication
 
-The app has a lightweight middleware guard controlled by `AUTH_MODE`.
+The app has a lightweight middleware guard controlled by `AUTH_MODE`, plus app-level user authorization through the SQLite `users` table. Middleware handles the outer access layer; API routes then require an active app user for normal book workflows and an active admin user for `/admin`.
 
 ### Local Development
 
@@ -238,6 +242,8 @@ Use:
 ```text
 AUTH_MODE=off
 ```
+
+In local development, the app can bootstrap a local admin identity from `DEV_USER_EMAIL`, `APP_ADMIN_EMAILS`, or a default local email.
 
 ### Cloudflare Access
 
@@ -252,9 +258,13 @@ Recommended setup:
 ```text
 AUTH_MODE=cloudflare_access
 AUTH_ALLOWED_EMAILS=person1@example.com,person2@example.com
+APP_ADMIN_EMAILS=person1@example.com
+AUTH_AUTO_CREATE_USERS=false
 ```
 
 The app checks Cloudflare's `Cf-Access-Authenticated-User-Email` header. If `AUTH_ALLOWED_EMAILS` is empty, any Cloudflare-authenticated email is accepted. Keeping the allowlist populated is safer.
+
+`AUTH_AUTO_CREATE_USERS=false` makes the app-level user table the second authorization layer: Cloudflare can authenticate the email, but the app will still deny access until the email exists as an active user or is listed in `APP_ADMIN_EMAILS`.
 
 Make sure the app is not directly reachable from the public internet except through Cloudflare Tunnel, otherwise headers could be spoofed by a direct client.
 

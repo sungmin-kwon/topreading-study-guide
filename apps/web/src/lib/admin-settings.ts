@@ -27,6 +27,13 @@ const settingDefinitions: Array<Omit<AdminSettingDefinition, "value" | "isSet">>
     placeholder: "teacher@example.com,parent@example.com"
   },
   {
+    key: "AUTH_AUTO_CREATE_USERS",
+    label: "Auto-create users",
+    description: "Set false to require admin-created active user accounts.",
+    kind: "text",
+    placeholder: "false"
+  },
+  {
     key: "OPENAI_MODEL",
     label: "OpenAI model",
     description: "Default model used for study guide generation.",

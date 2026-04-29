@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireActiveUser } from "@/lib/auth";
 import { getStudySetForBook } from "@/lib/study-sets";
 import { appendStudyItems, clearStudyItems, listStudyItems, replaceStudyItems, summarizeStudyItems } from "@/lib/study-items";
 
@@ -31,6 +32,10 @@ async function getAuthorizedStudySet(bookId: string, studySetId: string) {
 }
 
 export async function GET(request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, studySetId } = await context.params;
   const studySet = await getAuthorizedStudySet(bookId, studySetId);
 
@@ -43,6 +48,10 @@ export async function GET(request: Request, context: RouteContext) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, studySetId } = await context.params;
   const studySet = await getAuthorizedStudySet(bookId, studySetId);
 
@@ -87,6 +96,10 @@ export async function PUT(request: Request, context: RouteContext) {
 }
 
 export async function DELETE(_request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(_request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, studySetId } = await context.params;
   const studySet = await getAuthorizedStudySet(bookId, studySetId);
 

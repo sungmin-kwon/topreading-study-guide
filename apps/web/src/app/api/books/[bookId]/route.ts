@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireActiveUser } from "@/lib/auth";
 import { deleteBook, getBook, updateBook, updateBookActiveGenerationRun, updateBookPinnedAt } from "@/lib/books";
 import { getGenerationRun } from "@/lib/generation-runs";
 
@@ -11,6 +12,10 @@ type RouteContext = {
 };
 
 export async function GET(_request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(_request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId } = await context.params;
   const book = await getBook(bookId);
 
@@ -22,6 +27,10 @@ export async function GET(_request: Request, context: RouteContext) {
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId } = await context.params;
   const existing = await getBook(bookId);
 
@@ -64,6 +73,10 @@ export async function PATCH(request: Request, context: RouteContext) {
 }
 
 export async function DELETE(_request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(_request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId } = await context.params;
   const existing = await getBook(bookId);
 

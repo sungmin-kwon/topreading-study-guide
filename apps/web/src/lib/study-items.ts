@@ -9,6 +9,7 @@ import {
   type ShortAnswerQuestion,
   type VocabularyItem
 } from "@/lib/db/schema";
+import { balanceCorrectChoicePositions } from "@/lib/mcq-shuffle";
 
 export type VocabularyItemInput = {
   chapterId?: unknown;
@@ -386,6 +387,29 @@ export async function moveStudyItem(
   }
 
   return listStudyItems(studySetId, options);
+}
+
+export async function rebalanceStudySetMultipleChoiceAnswers(studySetId: string) {
+  const items = await listStudyItems(studySetId);
+  const balanced = balanceCorrectChoicePositions(items.multipleChoice.map((item) => ({
+    id: item.id,
+    choices: parseJsonArray(item.choicesJson),
+    correctChoiceIndex: item.correctChoiceIndex
+  })));
+  const timestamp = nowIso();
+
+  await Promise.all(balanced.map((item) =>
+    db
+      .update(multipleChoiceQuestions)
+      .set({
+        choicesJson: JSON.stringify(item.choices),
+        correctChoiceIndex: item.correctChoiceIndex,
+        updatedAt: timestamp
+      })
+      .where(and(eq(multipleChoiceQuestions.studySetId, studySetId), eq(multipleChoiceQuestions.id, item.id)))
+  ));
+
+  return listStudyItems(studySetId);
 }
 
 export async function updateStudyItem(kind: StudyItemKind, studySetId: string, itemId: string, input: unknown) {

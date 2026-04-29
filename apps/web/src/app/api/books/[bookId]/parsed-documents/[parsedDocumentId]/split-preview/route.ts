@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireActiveUser } from "@/lib/auth";
 import { getBook } from "@/lib/books";
 import { previewChapterSplit } from "@/lib/chapters";
 import { getParsedDocument } from "@/lib/parsed-documents";
@@ -14,6 +15,10 @@ type RouteContext = {
 };
 
 export async function GET(_request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(_request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, parsedDocumentId } = await context.params;
   const book = await getBook(bookId);
   const parsedDocument = await getParsedDocument(parsedDocumentId);

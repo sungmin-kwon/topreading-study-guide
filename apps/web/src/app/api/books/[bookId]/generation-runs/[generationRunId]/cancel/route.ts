@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireActiveUser } from "@/lib/auth";
 import { getBook } from "@/lib/books";
 import { getGenerationRun, summarizeGenerationRun, updateGenerationRun, type GenerationLogEntry } from "@/lib/generation-runs";
 
@@ -45,6 +46,10 @@ function parseProgress(value: string | null | undefined) {
 }
 
 export async function POST(_request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(_request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, generationRunId } = await context.params;
   const book = await getBook(bookId);
   const run = book ? await getGenerationRun(generationRunId) : null;

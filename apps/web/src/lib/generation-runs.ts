@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { generationRuns, type GenerationRun } from "@/lib/db/schema";
+import { books, generationRuns, studySets, type GenerationRun } from "@/lib/db/schema";
 import { listStudyItems } from "@/lib/study-items";
 import { deleteStudySetsForRun, listStudySetsForRun } from "@/lib/study-sets";
 
@@ -167,6 +167,71 @@ export async function deleteGenerationRun(id: string): Promise<void> {
   await db.delete(generationRuns).where(eq(generationRuns.id, id));
 }
 
+async function backfillLegacyStudySetsForBook(bookId: string) {
+  const orphanStudySets = await db
+    .select()
+    .from(studySets)
+    .where(and(eq(studySets.bookId, bookId), isNull(studySets.generationRunId)));
+
+  if (!orphanStudySets.length) {
+    return null;
+  }
+
+  const timestamp = nowIso();
+  const chapterIds = [...new Set(orphanStudySets.map((studySet) => studySet.chapterId).filter(Boolean))];
+  const run = {
+    id: randomUUID(),
+    bookId,
+    name: "Legacy study sets",
+    status: "completed",
+    configJson: JSON.stringify({
+      backfilledFromLegacyStudySets: true,
+      chapters: chapterIds.map((chapterId) => ({ chapterId }))
+    }),
+    progressJson: JSON.stringify({
+      completedChapters: chapterIds.length || orphanStudySets.length,
+      totalChapters: chapterIds.length || orphanStudySets.length,
+      currentChapterId: null,
+      currentChapterNumber: null,
+      backfilledFromLegacyStudySets: true
+    }),
+    logJson: JSON.stringify([
+      {
+        timestamp,
+        level: "info",
+        message: `Created generation history entry for ${orphanStudySets.length} legacy study set${orphanStudySets.length === 1 ? "" : "s"}.`
+      }
+    ]),
+    errorMessage: null,
+    startedAt: orphanStudySets[0]?.createdAt || timestamp,
+    finishedAt: timestamp,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  };
+
+  await db.insert(generationRuns).values(run);
+  await db
+    .update(studySets)
+    .set({
+      generationRunId: run.id,
+      updatedAt: timestamp
+    })
+    .where(and(eq(studySets.bookId, bookId), isNull(studySets.generationRunId)));
+
+  const [book] = await db.select().from(books).where(eq(books.id, bookId)).limit(1);
+  if (book && !book.activeGenerationRunId) {
+    await db
+      .update(books)
+      .set({
+        activeGenerationRunId: run.id,
+        updatedAt: timestamp
+      })
+      .where(eq(books.id, bookId));
+  }
+
+  return run;
+}
+
 export async function summarizeGenerationRun(run: GenerationRun, index = 0) {
   const studySets = await listStudySetsForRun(run.id);
   const parsedConfig = parseJsonObject(run.configJson);
@@ -242,6 +307,7 @@ export async function summarizeGenerationRun(run: GenerationRun, index = 0) {
 }
 
 export async function summarizeGenerationRunsForBook(bookId: string) {
+  await backfillLegacyStudySetsForBook(bookId);
   const runs = await listGenerationRunsForBook(bookId);
   return Promise.all(runs.map((run, index) => summarizeGenerationRun(run, index)));
 }

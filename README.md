@@ -11,10 +11,11 @@ The app is currently intended for private family/home-server use rather than pub
 3. Extract text and split it into chapters.
 4. Review/edit chapter text.
 5. Generate multiple-choice questions, short-answer questions, and vocabulary.
-6. Review/edit generated study sets.
-7. Export whole-book or chapter-level PDF/DOCX files.
+6. Manage generated versions in Sets.
+7. Review/edit generated items in Review.
+8. Export whole-book or chapter-level PDF/DOCX files.
 
-Generated study sets are versioned by generation run, so a book can keep multiple generated versions while one run is marked active for review/export.
+Generated study sets are versioned by generation run, so a book can keep multiple generated versions while one run is marked active for review/export. The Generate tab shows operational run history, Sets manages versions, and Review edits the selected version's items.
 
 ## Features
 
@@ -23,7 +24,9 @@ Generated study sets are versioned by generation run, so a book can keep multipl
 - Rule-based chapter splitting plus page-marker fallback
 - Chapter editor for correcting parsed text
 - Whole-book OpenAI generation with structured progress logs
-- Generation history and active-run selection
+- Configurable whole-book generation targets with word-count-based chapter allocation
+- Generation history with cancellation and structured progress logs
+- Sets tab for renaming, deleting, and selecting active generated versions
 - Manual add/edit/delete for generated items
 - Study set review tabs ordered question-first: Multiple Choice, Short Answer, Vocabulary
 - Whole-book and single-chapter exports to PDF and DOCX
@@ -113,6 +116,7 @@ Copy `.env.example` to `.env.local` and keep `.env.local` out of Git.
 - `AUTH_MODE`: `off`, `cloudflare_access`, or `shared_secret`.
 - `AUTH_ALLOWED_EMAILS`: Cloudflare Access email allowlist.
 - `APP_ADMIN_EMAILS`: comma-separated emails with app-level admin access.
+- `AUTH_AUTO_CREATE_USERS`: set to `false` to require users to be added in `/admin` before they can use the app.
 - `DEV_USER_EMAIL`: optional local development identity.
 - `MAX_GENERATION_CHAPTERS` and `MAX_GENERATION_ITEMS`: coarse generation guardrails.
 
@@ -158,7 +162,7 @@ It currently supports:
 - editing notes
 - editing a safe allowlist of `.env.local` parameters
 
-Cloudflare Access or the shared-secret middleware still protects access to the app. The app-level user table controls internal role/status for the admin console.
+Cloudflare Access or the shared-secret middleware still protects access to the app. The app-level user table controls internal role/status for app APIs and the admin console. Set `AUTH_AUTO_CREATE_USERS=false` in production if you want Cloudflare-authenticated visitors to be denied until an admin adds them.
 
 ## Backup Notes
 

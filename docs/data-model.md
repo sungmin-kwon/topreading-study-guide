@@ -7,19 +7,25 @@ This is the first-pass v2 schema shape. It is intentionally product-oriented rat
 ### users
 
 - id
-- display_name
 - email
-- auth_provider
+- display_name
+- role
+- status
+- notes
+- last_seen_at
 - created_at
-- last_login_at
+- updated_at
+
+Users are identified by email from Cloudflare Access or a trusted proxy header. The app does not store passwords. `role` is currently `admin` or `member`; `status` is currently `active` or `disabled`.
 
 ### books
 
 - id
-- owner_id
 - title
 - author
 - reading_level
+- active_generation_run_id
+- pinned_at
 - status
 - created_at
 - updated_at
@@ -73,52 +79,77 @@ Cleanup is supported during development: source file deletion removes the stored
 
 - id
 - book_id
-- owner_id
 - name
 - status
 - config_json
 - progress_json
 - log_json
+- error_message
 - started_at
 - finished_at
 - created_at
 - updated_at
 
-### question_sets
+Generation runs are operational records: they store configuration, progress, terminal log entries, status, and timing. They are also the user-facing version boundary for generated material.
 
-- id
-- generation_run_id
-- chapter_id
-- status
-- raw_model_json
-- created_at
-- updated_at
-
-### vocabulary_items
-
-- id
-- question_set_id
-- word
-- english_definition
-- korean_definition
-- sort_order
-
-### questions
-
-- id
-- question_set_id
-- type
-- prompt
-- answer
-- choices_json
-- sort_order
-
-### exports
+### study_sets
 
 - id
 - book_id
 - generation_run_id
-- format
-- stored_path
-- options_json
+- chapter_id, nullable for run-level/whole-book sets
+- title
+- status
+- generator
+- model
+- prompt_version
+- settings_json
+- raw_output_json
 - created_at
+- updated_at
+
+A normal whole-book run creates one run-level study set. Generated items point back to the set and carry `chapter_id` so the Review tab can filter by chapter without treating every chapter as a separate version.
+
+### vocabulary_items
+
+- id
+- study_set_id
+- chapter_id
+- term
+- definition
+- context_sentence
+- part_of_speech
+- difficulty
+- status
+- sort_order
+
+### multiple_choice_questions
+
+- id
+- study_set_id
+- chapter_id
+- question_text
+- choices_json
+- correct_choice_index
+- explanation
+- skill
+- difficulty
+- status
+- sort_order
+
+### short_answer_questions
+
+- id
+- study_set_id
+- chapter_id
+- question_text
+- suggested_answer
+- rubric
+- skill
+- difficulty
+- status
+- sort_order
+
+### exports
+
+Exports are generated on demand and written to `EXPORT_DIR`; they are not currently persisted in a dedicated exports table. The export code reads the active generation run or selected study set, renders PDF/DOCX files, and returns the generated file.

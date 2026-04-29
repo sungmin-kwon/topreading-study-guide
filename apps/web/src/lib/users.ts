@@ -94,6 +94,7 @@ export async function touchUser(email: string, overrides: Partial<Pick<User, "ro
   const existing = await getUserByEmail(normalized);
   const role = overrides.role || (isAdminEmail(normalized) ? "admin" : "member");
   const status = overrides.status || "active";
+  const hasStatusOverride = Object.prototype.hasOwnProperty.call(overrides, "status");
 
   if (!existing) {
     const user = {
@@ -115,7 +116,7 @@ export async function touchUser(email: string, overrides: Partial<Pick<User, "ro
     .update(users)
     .set({
       role: role === "admin" && existing.role !== "admin" ? "admin" : existing.role,
-      status: status === "active" && existing.status !== "active" ? "active" : existing.status,
+      status: hasStatusOverride ? status : existing.status,
       lastSeenAt: timestamp,
       updatedAt: timestamp
     })

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireActiveUser } from "@/lib/auth";
 import { getBook } from "@/lib/books";
 import { deleteParsedDocument, extractAndSaveParsedDocument, getParsedDocument, listParsedDocumentsForSource, summarizeParsedDocument } from "@/lib/parsed-documents";
 import { getSourceFile } from "@/lib/source-files";
@@ -24,6 +25,10 @@ async function loadSourceForBook(bookId: string, sourceFileId: string) {
 }
 
 export async function GET(_request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(_request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, sourceFileId } = await context.params;
   const sourceFile = await loadSourceForBook(bookId, sourceFileId);
 
@@ -38,6 +43,10 @@ export async function GET(_request: Request, context: RouteContext) {
 }
 
 export async function POST(_request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(_request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, sourceFileId } = await context.params;
   const sourceFile = await loadSourceForBook(bookId, sourceFileId);
 
@@ -60,6 +69,10 @@ export async function POST(_request: Request, context: RouteContext) {
 }
 
 export async function DELETE(request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, sourceFileId } = await context.params;
   const sourceFile = await loadSourceForBook(bookId, sourceFileId);
 

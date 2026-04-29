@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireActiveUser } from "@/lib/auth";
 import { getBook } from "@/lib/books";
 import { createGenerationRun, summarizeGenerationRun, summarizeGenerationRunsForBook } from "@/lib/generation-runs";
 
@@ -11,6 +12,10 @@ type RouteContext = {
 };
 
 export async function GET(_request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(_request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId } = await context.params;
   const book = await getBook(bookId);
 
@@ -22,6 +27,10 @@ export async function GET(_request: Request, context: RouteContext) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId } = await context.params;
   const book = await getBook(bookId);
 

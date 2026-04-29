@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
-import { deriveGenerationPlan } from "@topreading/core";
+import { allocateCountByWordWeight, deriveBookGenerationPlan } from "@topreading/core";
 
 type BookSummary = {
   id: string;
@@ -212,8 +212,32 @@ type StudyItemsResponse = {
   error?: string;
 };
 
+type CurrentUser = {
+  id: string;
+  email: string;
+  displayName: string | null;
+  role: string;
+  status: string;
+  notes: string | null;
+  lastSeenAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type CurrentUserResponse = {
+  user: CurrentUser | null;
+  isAdmin: boolean;
+  error?: string;
+};
+
 type StudyItemKind = "vocabulary" | "multiple-choice" | "short-answer";
 type BookSortMode = "newest" | "oldest" | "az" | "za";
+
+type StatusToast = {
+  id: string;
+  message: string;
+  closing: boolean;
+};
 
 type SplitCandidate = {
   index: number;
@@ -260,7 +284,7 @@ type ParsedPagesResponse = {
 };
 
 type ParsedDocumentTool = "preview" | "inspect" | "pages";
-type WorkspaceTab = "source" | "chapters" | "generate" | "study-sets" | "export";
+type WorkspaceTab = "source" | "chapters" | "generate" | "sets" | "review" | "export";
 type StudySetView = "vocabulary" | "multiple-choice" | "short-answer";
 type ExportFileFormat = "pdf" | "docx";
 type ThemeMode = "light" | "dark";
@@ -280,12 +304,39 @@ type GenerationPlanDraft = {
   multipleChoiceCount: string;
   shortAnswerCount: string;
 };
+type GenerationCountField = keyof Omit<GenerationPlanDraft, "included">;
 
-type UiIconName = "check" | "fileDocx" | "filePdf" | "globe" | "moon" | "settings" | "sun" | "user";
+type UiIconName = "arrowDown" | "arrowLeft" | "arrowRight" | "arrowUp" | "check" | "chevronDown" | "chevronUp" | "fileDocx" | "filePdf" | "globe" | "moon" | "settings" | "star" | "starFilled" | "sun" | "user";
 
 function UiIcon({ name }: { name: UiIconName }) {
   const paths: Record<UiIconName, ReactNode> = {
+    arrowDown: (
+      <>
+        <path d="M12 5v14" />
+        <path d="m19 12-7 7-7-7" />
+      </>
+    ),
+    arrowLeft: (
+      <>
+        <path d="M19 12H5" />
+        <path d="m12 5-7 7 7 7" />
+      </>
+    ),
+    arrowRight: (
+      <>
+        <path d="M5 12h14" />
+        <path d="m12 5 7 7-7 7" />
+      </>
+    ),
+    arrowUp: (
+      <>
+        <path d="M12 19V5" />
+        <path d="m5 12 7-7 7 7" />
+      </>
+    ),
     check: <path d="m5 12 4 4L19 6" />,
+    chevronDown: <path d="m6 9 6 6 6-6" />,
+    chevronUp: <path d="m18 15-6-6-6 6" />,
     fileDocx: (
       <>
         <path d="M6 3h8l4 4v14H6z" />
@@ -319,6 +370,8 @@ function UiIcon({ name }: { name: UiIconName }) {
         <path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.04.04a2.1 2.1 0 0 1-2.98 2.98l-.04-.04a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.1 1.66V21a2.1 2.1 0 0 1-4.2 0v-.06a1.8 1.8 0 0 0-1.1-1.66 1.8 1.8 0 0 0-1.98.36l-.04.04a2.1 2.1 0 0 1-2.98-2.98l.04-.04A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.66-1.1H3a2.1 2.1 0 0 1 0-4.2h.06A1.8 1.8 0 0 0 4.72 8.6a1.8 1.8 0 0 0-.36-1.98l-.04-.04a2.1 2.1 0 0 1 2.98-2.98l.04.04a1.8 1.8 0 0 0 1.98.36H9.4A1.8 1.8 0 0 0 10.5 2.34V2a2.1 2.1 0 0 1 4.2 0v.06a1.8 1.8 0 0 0 1.1 1.66 1.8 1.8 0 0 0 1.98-.36l.04-.04a2.1 2.1 0 0 1 2.98 2.98l-.04.04a1.8 1.8 0 0 0-.36 1.98v.08a1.8 1.8 0 0 0 1.66 1.1H22a2.1 2.1 0 0 1 0 4.2h-.06A1.8 1.8 0 0 0 19.4 15Z" />
       </>
     ),
+    star: <path d="m12 2.8 2.84 5.76 6.36.92-4.6 4.48 1.08 6.34L12 17.32 6.32 20.3l1.08-6.34-4.6-4.48 6.36-.92L12 2.8Z" />,
+    starFilled: <path className="filled-path" d="m12 2.8 2.84 5.76 6.36.92-4.6 4.48 1.08 6.34L12 17.32 6.32 20.3l1.08-6.34-4.6-4.48 6.36-.92L12 2.8Z" />,
     sun: (
       <>
         <circle cx="12" cy="12" r="4" />
@@ -347,6 +400,29 @@ function UiIcon({ name }: { name: UiIconName }) {
   );
 }
 
+function buildAllocatedGenerationPlans(chapters: ChapterSummary[]): Record<string, GenerationPlanDraft> {
+  const totalWordCount = chapters.reduce((sum, chapter) => sum + Math.max(0, chapter.wordCount), 0);
+  const suggestedTotals = deriveBookGenerationPlan(totalWordCount);
+  const allocationItems = chapters.map((chapter) => ({ id: chapter.id, wordCount: chapter.wordCount }));
+  const vocabularyCounts = allocateCountByWordWeight(allocationItems, suggestedTotals.vocabularyCount);
+  const multipleChoiceCounts = allocateCountByWordWeight(allocationItems, suggestedTotals.multipleChoiceCount);
+  const shortAnswerCounts = allocateCountByWordWeight(allocationItems, suggestedTotals.shortAnswerCount);
+
+  return Object.fromEntries(chapters.map((chapter) => [
+    chapter.id,
+    {
+      included: true,
+      vocabularyCount: String(vocabularyCounts[chapter.id] ?? 0),
+      multipleChoiceCount: String(multipleChoiceCounts[chapter.id] ?? 0),
+      shortAnswerCount: String(shortAnswerCounts[chapter.id] ?? 0)
+    }
+  ]));
+}
+
+function getChoiceDraftKey(index: number) {
+  return `choice${getChoiceLabel(index)}`;
+}
+
 async function fetchBooks() {
   const response = await fetch("/api/books", { cache: "no-store" });
   if (!response.ok) {
@@ -355,6 +431,28 @@ async function fetchBooks() {
 
   const payload = (await response.json()) as BooksResponse;
   return payload.books;
+}
+
+async function fetchCurrentUser() {
+  const response = await fetch("/api/me", { cache: "no-store" });
+  const payload = (await response.json().catch(() => ({}))) as CurrentUserResponse;
+
+  if (!response.ok || !payload.user) {
+    throw new Error(payload.error || "Could not load current user.");
+  }
+
+  return payload;
+}
+
+async function fetchBook(bookId: string) {
+  const response = await fetch(`/api/books/${bookId}`, { cache: "no-store" });
+  const payload = (await response.json()) as BookResponse;
+
+  if (!response.ok || !payload.book) {
+    throw new Error(payload.error || "Could not load book.");
+  }
+
+  return payload.book;
 }
 
 async function fetchSourceFiles(bookId: string) {
@@ -570,6 +668,7 @@ export function BookWorkspace() {
   const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(false);
   const [isBookMetadataOpen, setIsBookMetadataOpen] = useState(false);
   const [isGenerationModalOpen, setIsGenerationModalOpen] = useState(false);
+  const [renamingGenerationRunId, setRenamingGenerationRunId] = useState<string | null>(null);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [showSingleChapterExport, setShowSingleChapterExport] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
@@ -601,7 +700,6 @@ export function BookWorkspace() {
   const [studySetsByChapterId, setStudySetsByChapterId] = useState<Record<string, StudySetSummary[]>>({});
   const [selectedStudySetIdByChapterId, setSelectedStudySetIdByChapterId] = useState<Record<string, string>>({});
   const [studyItemsByStudySetId, setStudyItemsByStudySetId] = useState<Record<string, StudyItems>>({});
-  const [studySetDraftById, setStudySetDraftById] = useState<Record<string, { title: string; status: string }>>({});
   const [generationRuns, setGenerationRuns] = useState<GenerationRunSummary[]>([]);
   const [generationRunDraftById, setGenerationRunDraftById] = useState<Record<string, string>>({});
   const [editingStudyItemId, setEditingStudyItemId] = useState<string | null>(null);
@@ -626,7 +724,6 @@ export function BookWorkspace() {
   const [isSavingBookMetadata, setIsSavingBookMetadata] = useState(false);
   const [savingStudyItemId, setSavingStudyItemId] = useState<string | null>(null);
   const [isSavingNewStudyItem, setIsSavingNewStudyItem] = useState(false);
-  const [savingStudySetId, setSavingStudySetId] = useState<string | null>(null);
   const [savingGenerationRunId, setSavingGenerationRunId] = useState<string | null>(null);
   const [movingStudyItemId, setMovingStudyItemId] = useState<string | null>(null);
   const [generatingChapterId, setGeneratingChapterId] = useState<string | null>(null);
@@ -635,8 +732,9 @@ export function BookWorkspace() {
   const [generationLog, setGenerationLog] = useState<GenerationLogEntry[]>([]);
   const [generationPlansByChapterId, setGenerationPlansByChapterId] = useState<Record<string, GenerationPlanDraft>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState("");
-  const [isStatusToastClosing, setIsStatusToastClosing] = useState(false);
+  const [statusToasts, setStatusToasts] = useState<StatusToast[]>([]);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [currentUserIsAdmin, setCurrentUserIsAdmin] = useState(false);
 
   const activeBook = useMemo(
     () => books.find((book) => book.id === activeBookId) || books[0] || null,
@@ -682,11 +780,15 @@ export function BookWorkspace() {
     () => chapters.find((chapter) => chapter.id === selectedChapterId) || chapters[0] || null,
     [chapters, selectedChapterId]
   );
+  const selectedChapterDetail = selectedChapter ? chapterDetailById[selectedChapter.id] || null : null;
   const selectedChapterEdit = selectedChapter ? chapterEditById[selectedChapter.id] : null;
   const activeGenerationRun = activeBook?.activeGenerationRunId
     ? generationRuns.find((run) => run.id === activeBook.activeGenerationRunId) || null
     : null;
   const generatingRun = generationRuns.find((run) => run.status === "generating") || null;
+  const renamingGenerationRun = renamingGenerationRunId
+    ? generationRuns.find((run) => run.id === renamingGenerationRunId) || null
+    : null;
   const selectedChapterStudySets = selectedChapter ? studySetsByChapterId[selectedChapter.id] || [] : [];
   const selectedStudySetId = selectedChapter
     ? selectedStudySetIdByChapterId[selectedChapter.id] || selectedChapterStudySets[0]?.id || null
@@ -700,7 +802,38 @@ export function BookWorkspace() {
   const selectedChapterWordCount = selectedChapterEdit
     ? selectedChapterEdit.textContent.trim().split(/\s+/).filter(Boolean).length
     : 0;
+  const selectedChapterHasUnsavedChanges = Boolean(
+    selectedChapterDetail &&
+    selectedChapterEdit &&
+    (
+      Number(selectedChapterEdit.chapterNumber) !== selectedChapterDetail.chapterNumber ||
+      selectedChapterEdit.title !== (selectedChapterDetail.title || "") ||
+      selectedChapterEdit.textContent !== selectedChapterDetail.textContent
+    )
+  );
   const t = (english: string, korean: string) => uiLanguage === "ko" ? korean : english;
+  const currentUserLabel = currentUser?.displayName || currentUser?.email || t("Preferences", "설정");
+  const currentUserMeta = currentUser
+    ? `${currentUser.role === "admin" ? t("Admin", "관리자") : t("Member", "회원")} · ${uiLanguage === "ko" ? "KO" : "EN"} · ${themeMode === "dark" ? t("Dark", "다크") : t("Light", "라이트")}`
+    : `${uiLanguage === "ko" ? "KO" : "EN"} · ${themeMode === "dark" ? t("Dark", "다크") : t("Light", "라이트")}`;
+  function setStatusMessage(message: string) {
+    const trimmed = message.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setStatusToasts((current) => [...current, { id, message: trimmed, closing: false }].slice(-4));
+
+    window.setTimeout(() => {
+      setStatusToasts((current) => current.map((toast) => toast.id === id ? { ...toast, closing: true } : toast));
+    }, 3900);
+
+    window.setTimeout(() => {
+      setStatusToasts((current) => current.filter((toast) => toast.id !== id));
+    }, 4500);
+  }
+
   const formatUiStatus = (value: string) => {
     const normalized = value.toLowerCase();
     const koreanLabels: Record<string, string> = {
@@ -760,6 +893,7 @@ export function BookWorkspace() {
     window.localStorage.setItem("topreading-ui-language", uiLanguage);
   }, [uiLanguage]);
 
+  const suggestedGenerationPlans = useMemo(() => buildAllocatedGenerationPlans(chapters), [chapters]);
   const generationTotals = useMemo(() => chapters.reduce(
     (totals, chapter) => {
       const draft = generationPlansByChapterId[chapter.id];
@@ -767,35 +901,78 @@ export function BookWorkspace() {
         return totals;
       }
 
-      const fallback = deriveGenerationPlan(chapter.wordCount);
+      const fallback = suggestedGenerationPlans[chapter.id];
 
       return {
-        vocabularyCount: totals.vocabularyCount + Math.max(0, Number(draft?.vocabularyCount ?? fallback.vocabularyCount) || 0),
-        multipleChoiceCount: totals.multipleChoiceCount + Math.max(0, Number(draft?.multipleChoiceCount ?? fallback.multipleChoiceCount) || 0),
-        shortAnswerCount: totals.shortAnswerCount + Math.max(0, Number(draft?.shortAnswerCount ?? fallback.shortAnswerCount) || 0)
+        vocabularyCount: totals.vocabularyCount + Math.max(0, Number(draft?.vocabularyCount ?? fallback?.vocabularyCount) || 0),
+        multipleChoiceCount: totals.multipleChoiceCount + Math.max(0, Number(draft?.multipleChoiceCount ?? fallback?.multipleChoiceCount) || 0),
+        shortAnswerCount: totals.shortAnswerCount + Math.max(0, Number(draft?.shortAnswerCount ?? fallback?.shortAnswerCount) || 0)
       };
     },
     { vocabularyCount: 0, multipleChoiceCount: 0, shortAnswerCount: 0 }
-  ), [chapters, generationPlansByChapterId]);
+  ), [chapters, generationPlansByChapterId, suggestedGenerationPlans]);
   const includedGenerationChapterCount = useMemo(() => chapters.filter((chapter) => {
     const draft = generationPlansByChapterId[chapter.id];
     if (draft && !draft.included) {
       return false;
     }
 
-    const fallback = deriveGenerationPlan(chapter.wordCount);
-    const vocabularyCount = Math.max(0, Number(draft?.vocabularyCount ?? fallback.vocabularyCount) || 0);
-    const multipleChoiceCount = Math.max(0, Number(draft?.multipleChoiceCount ?? fallback.multipleChoiceCount) || 0);
-    const shortAnswerCount = Math.max(0, Number(draft?.shortAnswerCount ?? fallback.shortAnswerCount) || 0);
+    const fallback = suggestedGenerationPlans[chapter.id];
+    const vocabularyCount = Math.max(0, Number(draft?.vocabularyCount ?? fallback?.vocabularyCount) || 0);
+    const multipleChoiceCount = Math.max(0, Number(draft?.multipleChoiceCount ?? fallback?.multipleChoiceCount) || 0);
+    const shortAnswerCount = Math.max(0, Number(draft?.shortAnswerCount ?? fallback?.shortAnswerCount) || 0);
     return vocabularyCount + multipleChoiceCount + shortAnswerCount > 0;
-  }).length, [chapters, generationPlansByChapterId]);
+  }).length, [chapters, generationPlansByChapterId, suggestedGenerationPlans]);
+  const generationSliderLimits = useMemo(() => {
+    const suggestedTotals = Object.values(suggestedGenerationPlans).reduce(
+      (totals, chapter) => {
+        return {
+          vocabularyCount: totals.vocabularyCount + Math.max(0, Number(chapter.vocabularyCount) || 0),
+          multipleChoiceCount: totals.multipleChoiceCount + Math.max(0, Number(chapter.multipleChoiceCount) || 0),
+          shortAnswerCount: totals.shortAnswerCount + Math.max(0, Number(chapter.shortAnswerCount) || 0)
+        };
+      },
+      { vocabularyCount: 0, multipleChoiceCount: 0, shortAnswerCount: 0 }
+    );
+
+    return {
+      vocabularyCount: Math.max(20, generationTotals.vocabularyCount, suggestedTotals.vocabularyCount * 2),
+      multipleChoiceCount: Math.max(20, generationTotals.multipleChoiceCount, suggestedTotals.multipleChoiceCount * 2),
+      shortAnswerCount: Math.max(10, generationTotals.shortAnswerCount, suggestedTotals.shortAnswerCount * 2)
+    };
+  }, [generationTotals, suggestedGenerationPlans]);
+  const generationTotalControls: Array<{
+    field: GenerationCountField;
+    label: string;
+    value: number;
+    max: number;
+  }> = [
+    {
+      field: "multipleChoiceCount",
+      label: t("Multiple Choice", "객관식"),
+      value: generationTotals.multipleChoiceCount,
+      max: generationSliderLimits.multipleChoiceCount
+    },
+    {
+      field: "shortAnswerCount",
+      label: t("Short Answer", "단답형"),
+      value: generationTotals.shortAnswerCount,
+      max: generationSliderLimits.shortAnswerCount
+    },
+    {
+      field: "vocabularyCount",
+      label: t("Vocabulary", "단어"),
+      value: generationTotals.vocabularyCount,
+      max: generationSliderLimits.vocabularyCount
+    }
+  ];
 
   const pdfExportOptions: Array<{ type: PdfExportType; label: string; description: string }> = [
-    { type: "multiple-choice", label: t("MCQs", "객관식 문제"), description: t("Multiple-choice questions without answers.", "정답이 표시되지 않은 객관식 문제입니다.") },
-    { type: "multiple-choice-concise-key", label: t("MCQ Concise Key", "객관식 간단 답지"), description: t("Question numbers with answer letters only.", "문제 번호와 정답 선택지만 표시합니다.") },
-    { type: "multiple-choice-key", label: t("MCQ Detailed Key", "객관식 상세 답지"), description: t("Questions with choices, answers, and explanations.", "선택지, 정답, 해설을 함께 표시합니다.") },
-    { type: "short-answer", label: t("Short Answer", "단답형 문제"), description: t("Short-answer prompts with writing lines.", "답안을 적을 줄이 있는 단답형 문제입니다.") },
-    { type: "short-answer-key", label: t("Short Answer Key", "단답형 답지"), description: t("Short-answer prompts with suggested answers.", "예시 답안이 포함된 단답형 답지입니다.") },
+    { type: "multiple-choice", label: t("Questions", "문제"), description: t("Multiple-choice questions without answers.", "정답이 표시되지 않은 객관식 문제입니다.") },
+    { type: "multiple-choice-concise-key", label: t("Answer Key", "답지"), description: t("Question numbers with answer letters only.", "문제 번호와 정답 선택지만 표시합니다.") },
+    { type: "multiple-choice-key", label: t("Questions + Answers", "문제 + 답지"), description: t("Questions with choices, answers, and explanations.", "선택지, 정답, 해설을 함께 표시합니다.") },
+    { type: "short-answer", label: t("Questions", "문제"), description: t("Short-answer prompts with writing lines.", "답안을 적을 줄이 있는 단답형 문제입니다.") },
+    { type: "short-answer-key", label: t("Questions + Answers", "문제 + 답지"), description: t("Short-answer prompts with suggested answers.", "예시 답안이 포함된 단답형 답지입니다.") },
     { type: "vocabulary-list", label: t("Vocabulary List", "단어 목록"), description: t("Words with English and Korean meanings.", "영어와 한국어 뜻이 포함된 단어 목록입니다.") },
     { type: "vocabulary-quiz", label: t("Vocabulary Quiz", "단어 퀴즈"), description: t("Words with blank answer lines.", "답을 적을 빈칸이 있는 단어 퀴즈입니다.") }
   ];
@@ -816,8 +993,6 @@ export function BookWorkspace() {
       options: pdfExportOptions.filter((option) => option.type.startsWith("vocabulary"))
     }
   ];
-  const studySetStatuses = ["draft", "ready", "reviewed", "archived", "failed"];
-
   useEffect(() => {
     setBookMetadataEdit({
       title: activeBook?.title || "",
@@ -836,20 +1011,36 @@ export function BookWorkspace() {
           return;
         }
 
-        const suggested = deriveGenerationPlan(chapter.wordCount);
-        next[chapter.id] = {
+        next[chapter.id] = suggestedGenerationPlans[chapter.id] || {
           included: true,
-          vocabularyCount: String(suggested.vocabularyCount),
-          multipleChoiceCount: String(suggested.multipleChoiceCount),
-          shortAnswerCount: String(suggested.shortAnswerCount)
+          vocabularyCount: "0",
+          multipleChoiceCount: "0",
+          shortAnswerCount: "0"
         };
       });
       return next;
     });
-  }, [chapters]);
+  }, [chapters, suggestedGenerationPlans]);
 
   useEffect(() => {
     let isMounted = true;
+
+    fetchCurrentUser()
+      .then((payload) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setCurrentUser(payload.user);
+        setCurrentUserIsAdmin(payload.isAdmin);
+      })
+      .catch((error) => {
+        if (isMounted) {
+          setCurrentUser(null);
+          setCurrentUserIsAdmin(false);
+          setStatusMessage(error instanceof Error ? error.message : "Could not load current user.");
+        }
+      });
 
     fetchBooks()
       .then((loadedBooks) => {
@@ -888,26 +1079,29 @@ export function BookWorkspace() {
 
     let isMounted = true;
     setIsLoadingSources(true);
+    setSourceFiles([]);
+    setChapters([]);
+    setStudySetCount(0);
+    setGenerationRuns([]);
+    setParsedDocumentsBySource({});
+    setSplitPreviewByParsedDocument({});
+    setParsedDocumentDetailById({});
+    setParsedPagesByDocumentId({});
+    setActiveParsedToolByDocumentId({});
+    setTextSearchByParsedDocument({});
+    setManualMarkersByParsedDocument({});
+    setPageStartsByParsedDocument({});
+    setChapterDetailById({});
+    setChapterEditById({});
+    setStudySetsByChapterId({});
+    setSelectedStudySetIdByChapterId({});
+    setStudyItemsByStudySetId({});
+    setSelectedChapterId(null);
 
     fetchSourceFiles(activeBook.id)
       .then((loadedSourceFiles) => {
         if (isMounted) {
           setSourceFiles(loadedSourceFiles);
-          setParsedDocumentsBySource({});
-          setSplitPreviewByParsedDocument({});
-          setParsedDocumentDetailById({});
-          setParsedPagesByDocumentId({});
-          setActiveParsedToolByDocumentId({});
-          setTextSearchByParsedDocument({});
-          setManualMarkersByParsedDocument({});
-          setPageStartsByParsedDocument({});
-          setChapterDetailById({});
-          setChapterEditById({});
-          setStudySetsByChapterId({});
-          setSelectedStudySetIdByChapterId({});
-          setStudyItemsByStudySetId({});
-          setGenerationRuns([]);
-          setSelectedChapterId(null);
           loadedSourceFiles.forEach((sourceFile) => {
             fetchParsedDocuments(activeBook.id, sourceFile.id)
               .then((parsedDocuments) => {
@@ -971,14 +1165,25 @@ export function BookWorkspace() {
       });
 
     fetchGenerationRuns(activeBook.id)
-      .then((loadedRuns) => {
-        if (isMounted) {
-          setGenerationRuns(loadedRuns);
+      .then(async (loadedRuns) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setGenerationRuns(loadedRuns);
+        try {
+          const refreshedBook = await fetchBook(activeBook.id);
+          if (isMounted) {
+            updateBookInState(refreshedBook);
+          }
+        } catch {
+          // Keep the loaded run list even if the follow-up book refresh fails.
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (isMounted) {
           setGenerationRuns([]);
+          setStatusMessage(error instanceof Error ? error.message : "Could not load generation history.");
         }
       });
 
@@ -988,7 +1193,7 @@ export function BookWorkspace() {
   }, [activeBook?.id]);
 
   useEffect(() => {
-    if ((activeWorkspaceTab === "export" || activeWorkspaceTab === "study-sets") && selectedChapter) {
+    if ((activeWorkspaceTab === "export" || activeWorkspaceTab === "review") && selectedChapter) {
       void loadStudySets(selectedChapter);
     }
   }, [activeWorkspaceTab, selectedChapter?.id, activeBook?.activeGenerationRunId]);
@@ -1027,7 +1232,7 @@ export function BookWorkspace() {
           setSelectedStudySetIdByChapterId({});
           setStudyItemsByStudySetId({});
           await refreshActiveBookStats(activeBook.id);
-          if ((activeWorkspaceTab === "study-sets" || activeWorkspaceTab === "export") && selectedChapter) {
+          if ((activeWorkspaceTab === "review" || activeWorkspaceTab === "export") && selectedChapter) {
             await loadStudySets(selectedChapter, activeBook.activeGenerationRunId);
           }
         }
@@ -1049,41 +1254,6 @@ export function BookWorkspace() {
   }, [activeBook?.id, activeBook?.activeGenerationRunId, activeWorkspaceTab, generatingRun?.id, selectedChapter?.id]);
 
   useEffect(() => {
-    if (!selectedStudySet) {
-      return;
-    }
-
-    setStudySetDraftById((current) => ({
-      ...current,
-      [selectedStudySet.id]: current[selectedStudySet.id] || {
-        title: selectedStudySet.title,
-        status: selectedStudySet.status
-      }
-    }));
-  }, [selectedStudySet?.id, selectedStudySet?.title, selectedStudySet?.status]);
-
-  useEffect(() => {
-    if (!statusMessage) {
-      return;
-    }
-
-    setIsStatusToastClosing(false);
-
-    const fadeTimeoutId = window.setTimeout(() => {
-      setIsStatusToastClosing(true);
-    }, 8400);
-    const clearTimeoutId = window.setTimeout(() => {
-      setStatusMessage("");
-      setIsStatusToastClosing(false);
-    }, 9000);
-
-    return () => {
-      window.clearTimeout(fadeTimeoutId);
-      window.clearTimeout(clearTimeoutId);
-    };
-  }, [statusMessage]);
-
-  useEffect(() => {
     if (!activeBook) {
       if (activeWorkspaceTab !== "source") {
         setActiveWorkspaceTab("source");
@@ -1096,7 +1266,7 @@ export function BookWorkspace() {
       return;
     }
 
-    if ((activeWorkspaceTab === "study-sets" || activeWorkspaceTab === "export") && !hasStudySets) {
+    if ((activeWorkspaceTab === "sets" || activeWorkspaceTab === "review" || activeWorkspaceTab === "export") && !hasStudySets) {
       setActiveWorkspaceTab(hasChapters ? "generate" : "source");
     }
   }, [activeBook, activeWorkspaceTab, hasChapters, hasStudySets]);
@@ -1187,8 +1357,9 @@ export function BookWorkspace() {
 
     try {
       setGenerationRuns(await fetchGenerationRuns(bookId));
-    } catch {
+    } catch (error) {
       setGenerationRuns([]);
+      setStatusMessage(error instanceof Error ? error.message : "Could not load generation history.");
     }
   }
 
@@ -1250,7 +1421,7 @@ export function BookWorkspace() {
     setStudyItemsByStudySetId({});
     setStatusMessage(generationRunId ? "Active generation run selected." : "Using latest study sets across all runs.");
 
-    if ((activeWorkspaceTab === "study-sets" || activeWorkspaceTab === "export") && selectedChapter) {
+    if ((activeWorkspaceTab === "review" || activeWorkspaceTab === "export") && selectedChapter) {
       void loadStudySets(selectedChapter, generationRunId);
     }
   }
@@ -2015,7 +2186,7 @@ export function BookWorkspace() {
       setStudyItemsByStudySetId({});
       await refreshGenerationRuns(activeBook.id);
       await refreshActiveBookStats(activeBook.id);
-      if ((activeWorkspaceTab === "study-sets" || activeWorkspaceTab === "export") && selectedChapter) {
+      if ((activeWorkspaceTab === "review" || activeWorkspaceTab === "export") && selectedChapter) {
         await loadStudySets(selectedChapter, generationRun.id);
       }
     }
@@ -2051,58 +2222,6 @@ export function BookWorkspace() {
     setGenerationRuns((current) => current.map((run) => run.id === payload.generationRun?.id ? payload.generationRun : run));
     setGenerationLog(payload.generationRun.log);
     setStatusMessage("Cancellation requested.");
-  }
-
-  async function handleDeleteStudySet(chapter: ChapterSummary, studySet: StudySetSummary) {
-    if (!activeBook || !window.confirm(`Delete study set "${studySet.title}"? Generated items in this set will also be removed.`)) {
-      return;
-    }
-
-    setDeletingId(studySet.id);
-    setStatusMessage("");
-
-    const response = await fetch(`/api/books/${activeBook.id}/study-sets/${studySet.id}`, {
-      method: "DELETE"
-    });
-
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      setStatusMessage(payload.error || "Could not delete study set.");
-      setDeletingId(null);
-      return;
-    }
-
-    const remaining = (studySetsByChapterId[chapter.id] || []).filter((item) => item.id !== studySet.id);
-    setStudySetsByChapterId((current) => ({
-      ...current,
-      [chapter.id]: remaining
-    }));
-    setSelectedStudySetIdByChapterId((current) => {
-      const next = { ...current };
-      if (next[chapter.id] === studySet.id) {
-        if (remaining[0]?.id) {
-          next[chapter.id] = remaining[0].id;
-        } else {
-          delete next[chapter.id];
-        }
-      }
-      return next;
-    });
-    setStudyItemsByStudySetId((current) => {
-      const next = { ...current };
-      Object.keys(next).forEach((key) => {
-        if (key.startsWith(`${studySet.id}:`)) {
-          delete next[key];
-        }
-      });
-      return next;
-    });
-    if (remaining[0]?.id) {
-      await loadStudyItems(remaining[0].id, chapter.id);
-    }
-    setStudySetCount((current) => Math.max(0, current - 1));
-    setStatusMessage("Study set deleted.");
-    setDeletingId(null);
   }
 
   async function handleDeleteGenerationRun(run: GenerationRunSummary) {
@@ -2144,6 +2263,14 @@ export function BookWorkspace() {
     }));
   }
 
+  function openGenerationRunRenameModal(run: GenerationRunSummary) {
+    setGenerationRunDraftById((current) => ({
+      ...current,
+      [run.id]: current[run.id] ?? run.name
+    }));
+    setRenamingGenerationRunId(run.id);
+  }
+
   async function handleSaveGenerationRunName(run: GenerationRunSummary) {
     if (!activeBook) {
       return;
@@ -2182,70 +2309,9 @@ export function BookWorkspace() {
       ...current,
       [payload.generationRun!.id]: payload.generationRun!.name
     }));
+    setRenamingGenerationRunId(null);
     setStatusMessage("Generation run renamed.");
     setSavingGenerationRunId(null);
-  }
-
-  function updateStudySetDraft(studySetId: string, updates: Partial<{ title: string; status: string }>) {
-    const studySet = Object.values(studySetsByChapterId).flat().find((item) => item.id === studySetId);
-    setStudySetDraftById((current) => ({
-      ...current,
-      [studySetId]: {
-        title: current[studySetId]?.title || studySet?.title || "",
-        status: current[studySetId]?.status || studySet?.status || "ready",
-        ...updates
-      }
-    }));
-  }
-
-  async function handleSaveStudySet(studySet: StudySetSummary) {
-    if (!activeBook) {
-      return;
-    }
-
-    const draft = studySetDraftById[studySet.id] || { title: studySet.title, status: studySet.status };
-    const title = draft.title.trim();
-    if (!title) {
-      setStatusMessage("Study set name cannot be blank.");
-      return;
-    }
-
-    setSavingStudySetId(studySet.id);
-    setStatusMessage("");
-
-    const response = await fetch(`/api/books/${activeBook.id}/study-sets/${studySet.id}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        title,
-        status: draft.status
-      })
-    });
-    const payload = (await response.json().catch(() => ({}))) as { studySet?: StudySetSummary; error?: string };
-
-    if (!response.ok || !payload.studySet) {
-      setStatusMessage(payload.error || "Could not save study set.");
-      setSavingStudySetId(null);
-      return;
-    }
-
-    const updated = payload.studySet;
-    const chapterKey = selectedChapter?.id || updated.chapterId || "";
-    setStudySetsByChapterId((current) => ({
-      ...current,
-      [chapterKey]: (current[chapterKey] || []).map((item) => item.id === updated.id ? updated : item)
-    }));
-    setStudySetDraftById((current) => ({
-      ...current,
-      [updated.id]: {
-        title: updated.title,
-        status: updated.status
-      }
-    }));
-    setStatusMessage("Study set saved.");
-    setSavingStudySetId(null);
   }
 
   function handleExportStudySet(type: PdfExportType, format: ExportFileFormat) {
@@ -2301,7 +2367,10 @@ export function BookWorkspace() {
         ...current,
         [item.id]: {
           questionText: question.questionText,
-          choices: question.choices.join("\n"),
+          choiceA: question.choices[0] || "",
+          choiceB: question.choices[1] || "",
+          choiceC: question.choices[2] || "",
+          choiceD: question.choices[3] || "",
           correctChoiceIndex: String(question.correctChoiceIndex),
           explanation: question.explanation || "",
           status: question.status
@@ -2345,7 +2414,7 @@ export function BookWorkspace() {
     if (kind === "multiple-choice") {
       return {
         questionText: draft.questionText || "",
-        choices: (draft.choices || "").split(/\r?\n/).map((choice) => choice.trim()).filter(Boolean),
+        choices: [draft.choiceA, draft.choiceB, draft.choiceC, draft.choiceD].map((choice) => (choice || "").trim()),
         correctChoiceIndex: Number(draft.correctChoiceIndex || 0),
         explanation: draft.explanation || null,
         status: draft.status || "draft"
@@ -2373,7 +2442,10 @@ export function BookWorkspace() {
     if (kind === "multiple-choice") {
       return {
         questionText: "",
-        choices: "",
+        choiceA: "",
+        choiceB: "",
+        choiceC: "",
+        choiceD: "",
         correctChoiceIndex: "0",
         explanation: "",
         status: "reviewed"
@@ -2423,12 +2495,12 @@ export function BookWorkspace() {
 
   function getGenerationPlanPayload(chapter: ChapterSummary) {
     const draft = generationPlansByChapterId[chapter.id];
-    const fallback = deriveGenerationPlan(chapter.wordCount);
+    const fallback = suggestedGenerationPlans[chapter.id];
 
     return {
-      vocabularyCount: Math.max(0, Number(draft?.vocabularyCount ?? fallback.vocabularyCount) || 0),
-      multipleChoiceCount: Math.max(0, Number(draft?.multipleChoiceCount ?? fallback.multipleChoiceCount) || 0),
-      shortAnswerCount: Math.max(0, Number(draft?.shortAnswerCount ?? fallback.shortAnswerCount) || 0)
+      vocabularyCount: Math.max(0, Number(draft?.vocabularyCount ?? fallback?.vocabularyCount) || 0),
+      multipleChoiceCount: Math.max(0, Number(draft?.multipleChoiceCount ?? fallback?.multipleChoiceCount) || 0),
+      shortAnswerCount: Math.max(0, Number(draft?.shortAnswerCount ?? fallback?.shortAnswerCount) || 0)
     };
   }
 
@@ -2442,7 +2514,7 @@ export function BookWorkspace() {
     return plan.vocabularyCount + plan.multipleChoiceCount + plan.shortAnswerCount > 0;
   }
 
-  function updateGenerationPlan(chapterId: string, field: keyof Omit<GenerationPlanDraft, "included">, value: string) {
+  function updateGenerationPlan(chapterId: string, field: GenerationCountField, value: string) {
     setGenerationPlansByChapterId((current) => ({
       ...current,
       [chapterId]: {
@@ -2455,31 +2527,52 @@ export function BookWorkspace() {
     }));
   }
 
+  function applyGenerationTotal(field: GenerationCountField, totalValue: string | number) {
+    const total = Math.max(0, Math.round(Number(totalValue) || 0));
+
+    setGenerationPlansByChapterId((current) => {
+      const includedChapters = chapters.filter((chapter) => current[chapter.id]?.included !== false);
+      const allocatedCounts = allocateCountByWordWeight(
+        includedChapters.map((chapter) => ({ id: chapter.id, wordCount: chapter.wordCount })),
+        total
+      );
+
+      if (includedChapters.length === 0) {
+        return current;
+      }
+
+      const next = { ...current };
+      chapters.forEach((chapter) => {
+        const suggested = suggestedGenerationPlans[chapter.id];
+        const existing = current[chapter.id];
+        next[chapter.id] = {
+          included: existing?.included ?? true,
+          vocabularyCount: existing?.vocabularyCount ?? suggested?.vocabularyCount ?? "0",
+          multipleChoiceCount: existing?.multipleChoiceCount ?? suggested?.multipleChoiceCount ?? "0",
+          shortAnswerCount: existing?.shortAnswerCount ?? suggested?.shortAnswerCount ?? "0",
+          [field]: existing?.included === false ? (existing[field] ?? "0") : String(allocatedCounts[chapter.id] ?? 0)
+        };
+      });
+
+      return next;
+    });
+  }
+
   function toggleGenerationChapter(chapter: ChapterSummary, included: boolean) {
-    const suggested = deriveGenerationPlan(chapter.wordCount);
+    const suggested = suggestedGenerationPlans[chapter.id];
     setGenerationPlansByChapterId((current) => ({
       ...current,
       [chapter.id]: {
         included,
-        vocabularyCount: current[chapter.id]?.vocabularyCount || String(suggested.vocabularyCount),
-        multipleChoiceCount: current[chapter.id]?.multipleChoiceCount || String(suggested.multipleChoiceCount),
-        shortAnswerCount: current[chapter.id]?.shortAnswerCount || String(suggested.shortAnswerCount)
+        vocabularyCount: current[chapter.id]?.vocabularyCount || suggested?.vocabularyCount || "0",
+        multipleChoiceCount: current[chapter.id]?.multipleChoiceCount || suggested?.multipleChoiceCount || "0",
+        shortAnswerCount: current[chapter.id]?.shortAnswerCount || suggested?.shortAnswerCount || "0"
       }
     }));
   }
 
   function resetGenerationPlans() {
-    const next: Record<string, GenerationPlanDraft> = {};
-    chapters.forEach((chapter) => {
-      const suggested = deriveGenerationPlan(chapter.wordCount);
-      next[chapter.id] = {
-        included: true,
-        vocabularyCount: String(suggested.vocabularyCount),
-        multipleChoiceCount: String(suggested.multipleChoiceCount),
-        shortAnswerCount: String(suggested.shortAnswerCount)
-      };
-    });
-    setGenerationPlansByChapterId(next);
+    setGenerationPlansByChapterId(suggestedGenerationPlans);
   }
 
   async function handleSaveStudyItem(kind: StudyItemKind, itemId: string) {
@@ -2633,7 +2726,7 @@ export function BookWorkspace() {
           aria-label={t("Move up", "위로 이동")}
           onClick={() => handleMoveStudyItem(kind, itemId, "up")}
         >
-          ↑
+          <UiIcon name="arrowUp" />
         </button>
         <button
           type="button"
@@ -2642,7 +2735,7 @@ export function BookWorkspace() {
           aria-label={t("Move down", "아래로 이동")}
           onClick={() => handleMoveStudyItem(kind, itemId, "down")}
         >
-          ↓
+          <UiIcon name="arrowDown" />
         </button>
       </span>
     );
@@ -2658,85 +2751,113 @@ export function BookWorkspace() {
         <div className="study-item-edit-form">
           {kind === "vocabulary" ? (
             <>
-              <input
-                aria-label={t("Word", "단어")}
-                placeholder={t("Word", "단어")}
-                value={newStudyItemDraft.term || ""}
-                onChange={(event) => updateNewStudyItemDraft({ term: event.target.value })}
-              />
-              <textarea
-                aria-label={t("Definition", "뜻")}
-                placeholder={t("English definition | Korean definition", "영어 뜻 | 한국어 뜻")}
-                rows={3}
-                value={newStudyItemDraft.definition || ""}
-                onChange={(event) => updateNewStudyItemDraft({ definition: event.target.value })}
-              />
-              <textarea
-                aria-label={t("Example sentence", "예문")}
-                placeholder={t("Example sentence", "예문")}
-                rows={3}
-                value={newStudyItemDraft.contextSentence || ""}
-                onChange={(event) => updateNewStudyItemDraft({ contextSentence: event.target.value })}
-              />
+              <label>
+                {t("Word", "단어")}
+                <input
+                  placeholder={t("Word", "단어")}
+                  value={newStudyItemDraft.term || ""}
+                  onChange={(event) => updateNewStudyItemDraft({ term: event.target.value })}
+                />
+              </label>
+              <label>
+                {t("Definition", "뜻")}
+                <textarea
+                  placeholder={t("English definition | Korean definition", "영어 뜻 | 한국어 뜻")}
+                  rows={3}
+                  value={newStudyItemDraft.definition || ""}
+                  onChange={(event) => updateNewStudyItemDraft({ definition: event.target.value })}
+                />
+              </label>
+              <label>
+                {t("Example sentence", "예문")}
+                <textarea
+                  placeholder={t("Example sentence", "예문")}
+                  rows={3}
+                  value={newStudyItemDraft.contextSentence || ""}
+                  onChange={(event) => updateNewStudyItemDraft({ contextSentence: event.target.value })}
+                />
+              </label>
             </>
           ) : kind === "multiple-choice" ? (
             <>
-              <textarea
-                aria-label={t("Question", "문제")}
-                placeholder={t("Question", "문제")}
-                rows={3}
-                value={newStudyItemDraft.questionText || ""}
-                onChange={(event) => updateNewStudyItemDraft({ questionText: event.target.value })}
-              />
-              <textarea
-                aria-label={t("Choices", "선택지")}
-                placeholder={t("Choices, one per line", "선택지를 한 줄에 하나씩 입력")}
-                rows={5}
-                value={newStudyItemDraft.choices || ""}
-                onChange={(event) => updateNewStudyItemDraft({ choices: event.target.value })}
-              />
-              <select
-                aria-label={t("Correct choice index", "정답 번호")}
-                value={newStudyItemDraft.correctChoiceIndex || "0"}
-                onChange={(event) => updateNewStudyItemDraft({ correctChoiceIndex: event.target.value })}
-              >
-                {[0, 1, 2, 3].map((index) => (
-                  <option key={index} value={String(index)}>
-                    {t(`Correct answer: ${getChoiceLabel(index)}`, `정답: ${getChoiceLabel(index)}`)}
-                  </option>
-                ))}
-              </select>
-              <textarea
-                aria-label={t("Explanation", "해설")}
-                placeholder={t("Explanation", "해설")}
-                rows={3}
-                value={newStudyItemDraft.explanation || ""}
-                onChange={(event) => updateNewStudyItemDraft({ explanation: event.target.value })}
-              />
+              <label>
+                {t("Question", "문제")}
+                <textarea
+                  placeholder={t("Question", "문제")}
+                  rows={3}
+                  value={newStudyItemDraft.questionText || ""}
+                  onChange={(event) => updateNewStudyItemDraft({ questionText: event.target.value })}
+                />
+              </label>
+              <label>
+                {t("Choices", "선택지")}
+                <div className="mcq-choice-field-grid">
+                  {[0, 1, 2, 3].map((index) => {
+                    const choiceKey = getChoiceDraftKey(index);
+                    return (
+                      <label className="mcq-choice-field" key={choiceKey}>
+                        <span>{getChoiceLabel(index)}</span>
+                        <input
+                          value={newStudyItemDraft[choiceKey] || ""}
+                          onChange={(event) => updateNewStudyItemDraft({ [choiceKey]: event.target.value })}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </label>
+              <label>
+                {t("Correct answer", "정답")}
+                <select
+                  value={newStudyItemDraft.correctChoiceIndex || "0"}
+                  onChange={(event) => updateNewStudyItemDraft({ correctChoiceIndex: event.target.value })}
+                >
+                  {[0, 1, 2, 3].map((index) => (
+                    <option key={index} value={String(index)}>
+                      {getChoiceLabel(index)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t("Explanation", "해설")}
+                <textarea
+                  placeholder={t("Explanation", "해설")}
+                  rows={3}
+                  value={newStudyItemDraft.explanation || ""}
+                  onChange={(event) => updateNewStudyItemDraft({ explanation: event.target.value })}
+                />
+              </label>
             </>
           ) : (
             <>
-              <textarea
-                aria-label={t("Question", "문제")}
-                placeholder={t("Question", "문제")}
-                rows={3}
-                value={newStudyItemDraft.questionText || ""}
-                onChange={(event) => updateNewStudyItemDraft({ questionText: event.target.value })}
-              />
-              <textarea
-                aria-label={t("Suggested answer", "예시 답안")}
-                placeholder={t("Suggested answer", "예시 답안")}
-                rows={4}
-                value={newStudyItemDraft.suggestedAnswer || ""}
-                onChange={(event) => updateNewStudyItemDraft({ suggestedAnswer: event.target.value })}
-              />
-              <textarea
-                aria-label={t("Rubric", "채점 기준")}
-                placeholder={t("Rubric", "채점 기준")}
-                rows={4}
-                value={newStudyItemDraft.rubric || ""}
-                onChange={(event) => updateNewStudyItemDraft({ rubric: event.target.value })}
-              />
+              <label>
+                {t("Question", "문제")}
+                <textarea
+                  placeholder={t("Question", "문제")}
+                  rows={3}
+                  value={newStudyItemDraft.questionText || ""}
+                  onChange={(event) => updateNewStudyItemDraft({ questionText: event.target.value })}
+                />
+              </label>
+              <label>
+                {t("Suggested answer", "예시 답안")}
+                <textarea
+                  placeholder={t("Suggested answer", "예시 답안")}
+                  rows={4}
+                  value={newStudyItemDraft.suggestedAnswer || ""}
+                  onChange={(event) => updateNewStudyItemDraft({ suggestedAnswer: event.target.value })}
+                />
+              </label>
+              <label>
+                {t("Rubric", "채점 기준")}
+                <textarea
+                  placeholder={t("Rubric", "채점 기준")}
+                  rows={4}
+                  value={newStudyItemDraft.rubric || ""}
+                  onChange={(event) => updateNewStudyItemDraft({ rubric: event.target.value })}
+                />
+              </label>
             </>
           )}
         </div>
@@ -2769,11 +2890,11 @@ export function BookWorkspace() {
           <button
             className="collapse-sidebar-button"
             type="button"
-            aria-label={isLibraryCollapsed ? t("Expand library sidebar", "도서 목록 펼치기") : t("Collapse library sidebar", "도서 목록 접기")}
-            onClick={() => setIsLibraryCollapsed((current) => !current)}
-          >
-            {isLibraryCollapsed ? ">" : "<"}
-          </button>
+          aria-label={isLibraryCollapsed ? t("Expand library sidebar", "도서 목록 펼치기") : t("Collapse library sidebar", "도서 목록 접기")}
+          onClick={() => setIsLibraryCollapsed((current) => !current)}
+        >
+          <UiIcon name={isLibraryCollapsed ? "arrowRight" : "arrowLeft"} />
+        </button>
         </div>
 
         {!isLibraryCollapsed ? (
@@ -2796,8 +2917,8 @@ export function BookWorkspace() {
               <select value={bookSortMode} onChange={(event) => setBookSortMode(event.target.value as BookSortMode)}>
                 <option value="newest">{t("Newest", "최신순")}</option>
                 <option value="oldest">{t("Oldest", "오래된순")}</option>
-                <option value="az">{t("A -> Z", "가나다순")}</option>
-                <option value="za">{t("Z -> A", "가나다 역순")}</option>
+                <option value="az">{t("A to Z", "가나다순")}</option>
+                <option value="za">{t("Z to A", "가나다 역순")}</option>
               </select>
             </label>
 
@@ -2825,7 +2946,7 @@ export function BookWorkspace() {
                     aria-label={book.pinnedAt ? t("Unpin book", "고정 해제") : t("Pin book", "고정")}
                     onClick={() => void handleToggleBookPin(book)}
                   >
-                    {book.pinnedAt ? "★" : "☆"}
+                    <UiIcon name={book.pinnedAt ? "starFilled" : "star"} />
                   </button>
                 </div>
               ))}
@@ -2836,6 +2957,12 @@ export function BookWorkspace() {
         <div className="library-user-menu">
           {isUserMenuOpen ? (
             <div className="library-user-popover" role="menu" aria-label={t("User preferences", "사용자 설정")}>
+              {currentUser ? (
+                <div className="preference-user-summary">
+                  <strong>{currentUser.displayName || currentUser.email}</strong>
+                  <small>{currentUser.email}</small>
+                </div>
+              ) : null}
               <button
                 className="preference-row"
                 type="button"
@@ -2847,7 +2974,6 @@ export function BookWorkspace() {
                 </span>
                 <span>
                   <strong>{themeMode === "dark" ? t("Light Mode", "라이트 모드") : t("Dark Mode", "다크 모드")}</strong>
-                  <small>{t("Adjust the workspace appearance.", "작업 화면의 색상을 변경합니다.")}</small>
                 </span>
               </button>
               <button
@@ -2861,18 +2987,18 @@ export function BookWorkspace() {
                 </span>
                 <span>
                   <strong>{uiLanguage === "ko" ? "English" : "한국어"}</strong>
-                  <small>{t("Change the interface language.", "화면 언어를 변경합니다.")}</small>
                 </span>
               </button>
+              {currentUserIsAdmin ? (
               <a className="preference-row" href="/admin" role="menuitem">
                 <span className="preference-icon">
                   <UiIcon name="settings" />
                 </span>
                 <span>
                   <strong>{t("Admin", "관리자")}</strong>
-                  <small>{t("Manage users and app parameters.", "사용자와 앱 설정을 관리합니다.")}</small>
                 </span>
               </a>
+              ) : null}
             </div>
           ) : null}
           <button
@@ -2889,10 +3015,12 @@ export function BookWorkspace() {
             {!isLibraryCollapsed ? (
               <>
                 <span className="user-menu-copy">
-                  <strong>{t("Preferences", "설정")}</strong>
-                  <small>{uiLanguage === "ko" ? "KO" : "EN"} · {themeMode === "dark" ? t("Dark", "다크") : t("Light", "라이트")}</small>
+                  <strong>{currentUserLabel}</strong>
+                  <small>{currentUserMeta}</small>
                 </span>
-                <span className="user-menu-caret">{isUserMenuOpen ? "v" : "^"}</span>
+                <span className="user-menu-caret">
+                  <UiIcon name={isUserMenuOpen ? "chevronDown" : "chevronUp"} />
+                </span>
               </>
             ) : null}
           </button>
@@ -2902,7 +3030,6 @@ export function BookWorkspace() {
       <section className="workspace">
         <header className="workspace-header">
           <div className="workspace-title-block">
-            <p className="eyebrow">{t("Book Workspace", "책 작업 공간")}</p>
             <h2>{activeBook?.title || t("Create a book to begin", "책을 만들어 시작하세요")}</h2>
             {activeBook ? (
               <p className="workspace-subtitle">
@@ -2954,18 +3081,27 @@ export function BookWorkspace() {
                 {t("Generate", "생성")}
               </button>
               <button
-                className={activeWorkspaceTab === "study-sets" ? "active" : ""}
+                className={activeWorkspaceTab === "sets" ? "active" : ""}
                 type="button"
                 disabled={!activeBook || !hasStudySets}
-                title={!activeBook ? t("Create or select a book first.", "먼저 책을 만들거나 선택하세요.") : !hasStudySets ? t("Generate at least one study set first.", "먼저 학습 세트를 하나 이상 생성하세요.") : t("Review generated study sets.", "생성된 학습 세트를 검토합니다.")}
+                title={!activeBook ? t("Create or select a book first.", "먼저 책을 만들거나 선택하세요.") : !hasStudySets ? t("Generate at least one study set first.", "먼저 학습 세트를 하나 이상 생성하세요.") : t("Manage generated study sets.", "생성된 학습 세트를 관리합니다.")}
+                onClick={() => setActiveWorkspaceTab("sets")}
+              >
+                {t("Sets", "세트")}
+              </button>
+              <button
+                className={activeWorkspaceTab === "review" ? "active" : ""}
+                type="button"
+                disabled={!activeBook || !hasStudySets}
+                title={!activeBook ? t("Create or select a book first.", "먼저 책을 만들거나 선택하세요.") : !hasStudySets ? t("Generate at least one study set first.", "먼저 학습 세트를 하나 이상 생성하세요.") : t("Review and edit generated items.", "생성된 항목을 검토하고 수정합니다.")}
                 onClick={() => {
-                  setActiveWorkspaceTab("study-sets");
+                  setActiveWorkspaceTab("review");
                   if (selectedChapter) {
                     void loadStudySets(selectedChapter);
                   }
                 }}
               >
-                {t("Study Sets", "학습 세트")}
+                {t("Review", "검토")}
               </button>
               <button
                 className={activeWorkspaceTab === "export" ? "active" : ""}
@@ -3082,6 +3218,40 @@ export function BookWorkspace() {
                 </article>
               </div>
 
+              <section className="generation-global-controls" aria-label={t("Whole book item targets", "책 전체 문항 목표")}>
+                <div>
+                  <strong>{t("Whole-book targets", "책 전체 목표")}</strong>
+                  <p className="muted-text">
+                    {t(
+                      "Adjust totals here, then fine-tune individual chapters below.",
+                      "여기에서 전체 개수를 조정한 뒤 아래에서 챕터별 값을 세부 조정하세요."
+                    )}
+                  </p>
+                </div>
+                <div className="generation-global-slider-list">
+                  {generationTotalControls.map((control) => (
+                    <label className="generation-global-slider" key={control.field}>
+                      <span>{control.label}</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max={control.max}
+                        value={control.value}
+                        disabled={isGeneratingBook || includedGenerationChapterCount === 0}
+                        onChange={(event) => applyGenerationTotal(control.field, event.target.value)}
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        value={control.value}
+                        disabled={isGeneratingBook || includedGenerationChapterCount === 0}
+                        onChange={(event) => applyGenerationTotal(control.field, event.target.value)}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </section>
+
               <div className="generation-modal-toolbar">
                 <button type="button" disabled={isGeneratingBook} onClick={resetGenerationPlans}>
                   {t("Reset Suggestions", "추천값 초기화")}
@@ -3098,12 +3268,11 @@ export function BookWorkspace() {
                   <div>{t("Vocabulary", "단어")}</div>
                 </div>
                 {chapters.map((chapter) => {
-                  const suggested = deriveGenerationPlan(chapter.wordCount);
-                  const draft = generationPlansByChapterId[chapter.id] || {
+                  const draft = generationPlansByChapterId[chapter.id] || suggestedGenerationPlans[chapter.id] || {
                     included: true,
-                    vocabularyCount: String(suggested.vocabularyCount),
-                    multipleChoiceCount: String(suggested.multipleChoiceCount),
-                    shortAnswerCount: String(suggested.shortAnswerCount)
+                    vocabularyCount: "0",
+                    multipleChoiceCount: "0",
+                    shortAnswerCount: "0"
                   };
 
                   return (
@@ -3153,9 +3322,55 @@ export function BookWorkspace() {
           </div>
         ) : null}
 
-        {statusMessage ? (
-          <div className={`status-toast ${isStatusToastClosing ? "closing" : ""}`} role="status" aria-live="polite">
-            {statusMessage}
+        {renamingGenerationRun ? (
+          <div className="modal-backdrop" role="presentation">
+            <section className="rename-run-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-run-dialog-title">
+              <div className="dialog-header">
+                <div>
+                  <p className="eyebrow">{t("Generation history", "생성 기록")}</p>
+                  <h3 id="rename-run-dialog-title">{t("Rename version", "버전 이름 변경")}</h3>
+                </div>
+              </div>
+              <label className="rename-run-field">
+                {t("Name", "이름")}
+                <input
+                  autoFocus
+                  value={generationRunDraftById[renamingGenerationRun.id] ?? renamingGenerationRun.name}
+                  onChange={(event) => updateGenerationRunDraft(renamingGenerationRun.id, event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleSaveGenerationRunName(renamingGenerationRun);
+                    }
+                  }}
+                />
+              </label>
+              <div className="dialog-actions">
+                <button
+                  type="button"
+                  disabled={
+                    savingGenerationRunId === renamingGenerationRun.id ||
+                    (generationRunDraftById[renamingGenerationRun.id] ?? renamingGenerationRun.name).trim() === renamingGenerationRun.name
+                  }
+                  onClick={() => void handleSaveGenerationRunName(renamingGenerationRun)}
+                >
+                  {savingGenerationRunId === renamingGenerationRun.id ? t("Saving...", "저장 중...") : t("Save", "저장")}
+                </button>
+                <button type="button" onClick={() => setRenamingGenerationRunId(null)}>
+                  {t("Cancel", "취소")}
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {statusToasts.length ? (
+          <div className="status-toast-stack" aria-live="polite" aria-atomic="false">
+            {statusToasts.map((toast) => (
+              <div className={`status-toast ${toast.closing ? "closing" : ""}`} role="status" key={toast.id}>
+                {toast.message}
+              </div>
+            ))}
           </div>
         ) : null}
 
@@ -3499,30 +3714,6 @@ export function BookWorkspace() {
                   ))}
                 </div>
 
-                <div className="generation-summary">
-                  <p>
-                    {t(
-                      `${includedGenerationChapterCount} of ${chapters.length} chapter${chapters.length === 1 ? "" : "s"} selected. Use Configure Generation to choose chapters and adjust item counts before the run.`,
-                      `전체 ${chapters.length}개 챕터 중 ${includedGenerationChapterCount}개가 선택되었습니다. 생성 설정에서 챕터와 문항 수를 조정할 수 있습니다.`
-                    )}
-                  </p>
-                  <div className="inline-actions">
-                    {generatingRun ? (
-                      <button
-                        type="button"
-                        className="danger-button"
-                        disabled={cancellingGenerationRunId === generatingRun.id}
-                        onClick={handleCancelGenerationRun}
-                      >
-                        {cancellingGenerationRunId === generatingRun.id ? t("Cancelling...", "취소 중...") : t("Cancel Run", "실행 취소")}
-                      </button>
-                    ) : null}
-                    <button type="button" disabled={isGeneratingBook} onClick={openGenerationModal}>
-                      {t("Configure", "설정")}
-                    </button>
-                  </div>
-                </div>
-
                 <div className="generation-total-strip" aria-label={t("Whole book generation totals", "책 전체 생성 총량")}>
                   <article>
                     <span>{t("Multiple Choice", "객관식")}</span>
@@ -3543,26 +3734,6 @@ export function BookWorkspace() {
                     <strong>{t("Generation History", "생성 기록")}</strong>
                     <span>{generationRuns.length}</span>
                   </div>
-                  {generationRuns.length > 0 ? (
-                    <div className="active-run-selector">
-                      <label htmlFor="active-generation-run">{t("Active version", "활성 버전")}</label>
-                      <select
-                        id="active-generation-run"
-                        value={activeBook?.activeGenerationRunId || ""}
-                        onChange={(event) => void handleSelectActiveGenerationRun(event.target.value || null)}
-                      >
-                        <option value="">{t("Latest study sets across all runs", "모든 실행에서 가장 최신 학습 세트 사용")}</option>
-                        {generationRuns.map((run) => (
-                          <option key={run.id} value={run.id}>
-                            {run.name} ({formatUiStatus(run.status)})
-                          </option>
-                        ))}
-                      </select>
-                      <p>
-                        {t("Study Sets and whole-book exports use this version.", "학습 세트와 책 전체 내보내기는 이 버전을 사용합니다.")}
-                      </p>
-                    </div>
-                  ) : null}
                   {generationRuns.length === 0 ? (
                     <div className="empty-state">
                       <strong>{t("No generation runs yet", "아직 생성 기록이 없습니다")}</strong>
@@ -3574,27 +3745,6 @@ export function BookWorkspace() {
                         <article className="generation-history-card" key={run.id}>
                           <div>
                             <strong>{run.name}{activeBook?.activeGenerationRunId === run.id ? ` · ${t("Active", "활성")}` : ""}</strong>
-                            <div className="generation-run-name-editor">
-                              <label htmlFor={`generation-run-name-${run.id}`}>{t("Name", "이름")}</label>
-                              <input
-                                id={`generation-run-name-${run.id}`}
-                                value={generationRunDraftById[run.id] ?? run.name}
-                                onChange={(event) => updateGenerationRunDraft(run.id, event.target.value)}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter") {
-                                    event.preventDefault();
-                                    void handleSaveGenerationRunName(run);
-                                  }
-                                }}
-                              />
-                              <button
-                                type="button"
-                                disabled={savingGenerationRunId === run.id || (generationRunDraftById[run.id] ?? run.name).trim() === run.name}
-                                onClick={() => void handleSaveGenerationRunName(run)}
-                              >
-                                {savingGenerationRunId === run.id ? t("Saving...", "저장 중...") : t("Save", "저장")}
-                              </button>
-                            </div>
                             <p>
                               {formatDateTime(run.startedAt)} · {formatUiStatus(run.status)}
                               {run.finishedAt ? ` · ${t("finished", "완료")} ${formatDateTime(run.finishedAt)}` : ""}
@@ -3604,22 +3754,8 @@ export function BookWorkspace() {
                             </p>
                             {run.errorMessage ? <p className="generation-error-text">{run.errorMessage}</p> : null}
                           </div>
-                          <div className="generation-history-actions">
-                            <button
-                              type="button"
-                              disabled={activeBook?.activeGenerationRunId === run.id}
-                              onClick={() => void handleSelectActiveGenerationRun(run.id)}
-                            >
-                              {activeBook?.activeGenerationRunId === run.id ? t("Active", "활성") : t("Use Run", "이 실행 사용")}
-                            </button>
-                            <button
-                              className="danger-button"
-                              type="button"
-                              disabled={run.status === "generating" || deletingId === run.id}
-                              onClick={() => handleDeleteGenerationRun(run)}
-                            >
-                              {deletingId === run.id ? t("Deleting...", "삭제 중...") : t("Delete Run", "실행 삭제")}
-                            </button>
+                          <div className="generation-history-status">
+                            <span>{activeBook?.activeGenerationRunId === run.id ? t("Active set", "활성 세트") : formatUiStatus(run.status)}</span>
                           </div>
                         </article>
                       ))}
@@ -3627,6 +3763,75 @@ export function BookWorkspace() {
                   )}
                 </section>
 
+              </div>
+            )}
+          </section>
+          ) : null}
+
+          {activeWorkspaceTab === "sets" ? (
+          <section className="sets-panel">
+            <div className="panel-title-row">
+              <div>
+                <h3>{t("Study sets", "학습 세트")}</h3>
+                <p className="muted-text">
+                  {t("Choose the active version, rename sets, or remove generated material you no longer need.", "활성 버전을 선택하고, 세트 이름을 바꾸거나 필요 없는 생성 자료를 삭제합니다.")}
+                </p>
+              </div>
+            </div>
+
+            {generationRuns.length === 0 ? (
+              <div className="empty-state">
+                <strong>{t("No study sets yet", "아직 학습 세트가 없습니다")}</strong>
+                <p>{t("Generate a set before managing versions.", "버전을 관리하려면 먼저 학습 세트를 생성하세요.")}</p>
+              </div>
+            ) : (
+              <div className="set-version-list">
+                {generationRuns.map((run) => {
+                  const isActiveRun = activeBook?.activeGenerationRunId === run.id;
+                  const canUseRun = run.status !== "generating" && run.status !== "failed";
+                  return (
+                    <article className={`set-version-card ${isActiveRun ? "active" : ""}`} key={run.id}>
+                      <div className="set-version-main">
+                        <div>
+                          <p className="step-label">{isActiveRun ? t("Active set", "활성 세트") : t("Set", "세트")}</p>
+                          <h4>{run.name}</h4>
+                        </div>
+                        <div className="study-set-meta-row">
+                          <span>{formatUiStatus(run.status)}</span>
+                          <span>{formatDateTime(run.startedAt)}</span>
+                          {run.finishedAt ? <span>{t("Finished", "완료")} {formatDateTime(run.finishedAt)}</span> : null}
+                        </div>
+                        <p className="muted-text">
+                          {t(`${run.chapterCount} chapters`, `챕터 ${run.chapterCount}개`)} · {t(`${run.multipleChoiceCount} MCQ`, `객관식 ${run.multipleChoiceCount}개`)} · {t(`${run.shortAnswerCount} short answer`, `단답형 ${run.shortAnswerCount}개`)} · {t(`${run.vocabularyCount} vocab`, `단어 ${run.vocabularyCount}개`)}
+                        </p>
+                        {run.errorMessage ? <p className="generation-error-text">{run.errorMessage}</p> : null}
+                      </div>
+                      <div className="set-version-actions">
+                        <button
+                          type="button"
+                          onClick={() => openGenerationRunRenameModal(run)}
+                        >
+                          {t("Rename", "이름 변경")}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!canUseRun || isActiveRun}
+                          onClick={() => void handleSelectActiveGenerationRun(run.id)}
+                        >
+                          {isActiveRun ? t("Active", "활성") : t("Use Set", "이 세트 사용")}
+                        </button>
+                        <button
+                          className="danger-button"
+                          type="button"
+                          disabled={run.status === "generating" || deletingId === run.id}
+                          onClick={() => handleDeleteGenerationRun(run)}
+                        >
+                          {deletingId === run.id ? t("Deleting...", "삭제 중...") : t("Delete", "삭제")}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             )}
           </section>
@@ -3727,7 +3932,6 @@ export function BookWorkspace() {
                           </strong>
                           <span>{t(`${chapter.wordCount.toLocaleString()} words`, `${chapter.wordCount.toLocaleString()}단어`)}</span>
                         </div>
-                        <p>{chapter.preview}</p>
                       </button>
                     ))}
                   </div>
@@ -3822,12 +4026,12 @@ export function BookWorkspace() {
           </section>
           ) : null}
 
-          {activeWorkspaceTab === "chapters" || activeWorkspaceTab === "study-sets" ? (
+          {activeWorkspaceTab === "chapters" || activeWorkspaceTab === "review" ? (
           <section className="chapter-panel">
             <div className="panel-title-row">
               <div>
-                <h3>{activeWorkspaceTab === "study-sets" ? t("Review items", "항목 검토") : t("Chapter editor", "챕터 편집")}</h3>
-                {activeWorkspaceTab === "study-sets" && activeGenerationRun ? (
+                <h3>{activeWorkspaceTab === "review" ? t("Review items", "항목 검토") : t("Chapter editor", "챕터 편집")}</h3>
+                {activeWorkspaceTab === "review" && activeGenerationRun ? (
                   <p className="muted-text">{t("Version:", "버전:")} {activeGenerationRun.name}</p>
                 ) : null}
               </div>
@@ -3864,7 +4068,6 @@ export function BookWorkspace() {
                         </strong>
                         <span>{t(`${chapter.wordCount.toLocaleString()} words`, `${chapter.wordCount.toLocaleString()}단어`)}</span>
                       </div>
-                      <p>{chapter.preview}</p>
                     </button>
                   ))}
                 </div>
@@ -3874,13 +4077,12 @@ export function BookWorkspace() {
                     <p className="muted-text">{t("Select a chapter to continue.", "계속하려면 챕터를 선택하세요.")}</p>
                   ) : loadingChapterId === selectedChapter.id ? (
                     <p className="muted-text">{t("Loading chapter...", "챕터를 불러오는 중...")}</p>
-                  ) : activeWorkspaceTab === "study-sets" ? (
+                  ) : activeWorkspaceTab === "review" ? (
                     <>
                       <div className="study-set-panel">
                         <div className="study-set-header">
                           <div>
-                            <p className="step-label">{t("Version", "버전")}</p>
-                            <h4>{selectedStudySet?.title || t("No study set yet", "아직 학습 세트가 없습니다")}</h4>
+                            <p className="step-label">{t("Selected set", "선택된 세트")}</p>
                             {selectedStudySet ? (
                               <div className="study-set-meta-row">
                                 <span>{formatUiStatus(selectedStudySet.status)}</span>
@@ -3892,7 +4094,7 @@ export function BookWorkspace() {
                           <div className="study-set-controls">
                             {loadingStudySetsChapterId === selectedChapter.id ? (
                               <span>{t("Loading...", "불러오는 중...")}</span>
-                            ) : selectedChapterStudySets.length ? (
+                            ) : selectedChapterStudySets.length > 1 ? (
                               <select
                                 value={selectedStudySetId || ""}
                                 onChange={(event) => void handleSelectStudySet(selectedChapter.id, event.target.value)}
@@ -3903,54 +4105,11 @@ export function BookWorkspace() {
                                   </option>
                                 ))}
                               </select>
-                            ) : null}
-                            {selectedStudySet ? (
-                              <button
-                                className="danger-button"
-                                type="button"
-                                disabled={deletingId === selectedStudySet.id}
-                                onClick={() => handleDeleteStudySet(selectedChapter, selectedStudySet)}
-                              >
-                                {deletingId === selectedStudySet.id ? t("Deleting...", "삭제 중...") : t("Delete", "삭제")}
-                              </button>
+                            ) : selectedStudySet ? (
+                              <p className="muted-text">{t("Using active version", "활성 버전 사용 중")}</p>
                             ) : null}
                           </div>
                         </div>
-
-                        {selectedStudySet ? (
-                          <details className="study-set-edit-details">
-                            <summary>{t("Rename and status", "이름 및 상태")}</summary>
-                            <div className="study-set-edit-panel">
-                              <label>
-                                {t("Rename", "이름 변경")}
-                                <input
-                                  value={studySetDraftById[selectedStudySet.id]?.title || selectedStudySet.title}
-                                  onChange={(event) => updateStudySetDraft(selectedStudySet.id, { title: event.target.value })}
-                                />
-                              </label>
-                              <label>
-                                {t("Status", "상태")}
-                                <select
-                                  value={studySetDraftById[selectedStudySet.id]?.status || selectedStudySet.status}
-                                  onChange={(event) => updateStudySetDraft(selectedStudySet.id, { status: event.target.value })}
-                                >
-                                  {studySetStatuses.map((status) => (
-                                    <option key={status} value={status}>
-                                      {formatUiStatus(status)}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                              <button
-                                type="button"
-                                disabled={savingStudySetId === selectedStudySet.id}
-                                onClick={() => handleSaveStudySet(selectedStudySet)}
-                              >
-                                {savingStudySetId === selectedStudySet.id ? t("Saving...", "저장 중...") : t("Save", "저장")}
-                              </button>
-                            </div>
-                          </details>
-                        ) : null}
 
                         {!selectedStudySet ? (
                           <p className="muted-text">{t("Generate a study set to review vocabulary and questions.", "단어와 문제를 검토하려면 학습 세트를 생성하세요.")}</p>
@@ -4010,9 +4169,18 @@ export function BookWorkspace() {
                                 <article className="study-item-card" key={item.id}>
                                   {editingStudyItemId === item.id ? (
                                     <div className="study-item-edit-form">
-                                      <input value={studyItemDraftById[item.id]?.term || ""} onChange={(event) => updateStudyItemDraft(item.id, { term: event.target.value })} />
-                                      <textarea rows={3} value={studyItemDraftById[item.id]?.definition || ""} onChange={(event) => updateStudyItemDraft(item.id, { definition: event.target.value })} />
-                                      <textarea rows={3} value={studyItemDraftById[item.id]?.contextSentence || ""} onChange={(event) => updateStudyItemDraft(item.id, { contextSentence: event.target.value })} />
+                                      <label>
+                                        {t("Word", "단어")}
+                                        <input value={studyItemDraftById[item.id]?.term || ""} onChange={(event) => updateStudyItemDraft(item.id, { term: event.target.value })} />
+                                      </label>
+                                      <label>
+                                        {t("Definition", "뜻")}
+                                        <textarea rows={3} value={studyItemDraftById[item.id]?.definition || ""} onChange={(event) => updateStudyItemDraft(item.id, { definition: event.target.value })} />
+                                      </label>
+                                      <label>
+                                        {t("Example sentence", "예문")}
+                                        <textarea rows={3} value={studyItemDraftById[item.id]?.contextSentence || ""} onChange={(event) => updateStudyItemDraft(item.id, { contextSentence: event.target.value })} />
+                                      </label>
                                     </div>
                                   ) : (
                                     <>
@@ -4049,10 +4217,38 @@ export function BookWorkspace() {
                                 <article className="study-item-card" key={item.id}>
                                   {editingStudyItemId === item.id ? (
                                     <div className="study-item-edit-form">
-                                      <textarea rows={3} value={studyItemDraftById[item.id]?.questionText || ""} onChange={(event) => updateStudyItemDraft(item.id, { questionText: event.target.value })} />
-                                      <textarea rows={5} value={studyItemDraftById[item.id]?.choices || ""} onChange={(event) => updateStudyItemDraft(item.id, { choices: event.target.value })} />
-                                      <input type="number" min="0" value={studyItemDraftById[item.id]?.correctChoiceIndex || "0"} onChange={(event) => updateStudyItemDraft(item.id, { correctChoiceIndex: event.target.value })} />
-                                      <textarea rows={3} value={studyItemDraftById[item.id]?.explanation || ""} onChange={(event) => updateStudyItemDraft(item.id, { explanation: event.target.value })} />
+                                      <label>
+                                        {t("Question", "문제")}
+                                        <textarea rows={3} value={studyItemDraftById[item.id]?.questionText || ""} onChange={(event) => updateStudyItemDraft(item.id, { questionText: event.target.value })} />
+                                      </label>
+                                      <label>
+                                        {t("Choices", "선택지")}
+                                        <div className="mcq-choice-field-grid">
+                                          {[0, 1, 2, 3].map((choiceIndex) => {
+                                            const choiceKey = getChoiceDraftKey(choiceIndex);
+                                            return (
+                                              <label className="mcq-choice-field" key={choiceKey}>
+                                                <span>{getChoiceLabel(choiceIndex)}</span>
+                                                <input value={studyItemDraftById[item.id]?.[choiceKey] || ""} onChange={(event) => updateStudyItemDraft(item.id, { [choiceKey]: event.target.value })} />
+                                              </label>
+                                            );
+                                          })}
+                                        </div>
+                                      </label>
+                                      <label>
+                                        {t("Correct answer", "정답")}
+                                        <select value={studyItemDraftById[item.id]?.correctChoiceIndex || "0"} onChange={(event) => updateStudyItemDraft(item.id, { correctChoiceIndex: event.target.value })}>
+                                          {[0, 1, 2, 3].map((choiceIndex) => (
+                                            <option key={choiceIndex} value={String(choiceIndex)}>
+                                              {getChoiceLabel(choiceIndex)}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </label>
+                                      <label>
+                                        {t("Explanation", "해설")}
+                                        <textarea rows={3} value={studyItemDraftById[item.id]?.explanation || ""} onChange={(event) => updateStudyItemDraft(item.id, { explanation: event.target.value })} />
+                                      </label>
                                     </div>
                                   ) : (
                                     <>
@@ -4068,7 +4264,7 @@ export function BookWorkspace() {
                                           </div>
                                         ))}
                                       </div>
-                                      {item.explanation ? <small>{item.explanation}</small> : null}
+                                      {item.explanation ? <small className="multiple-choice-explanation">{item.explanation}</small> : null}
                                     </>
                                   )}
                                   <div className="study-item-actions">
@@ -4095,9 +4291,18 @@ export function BookWorkspace() {
                                 <article className="study-item-card" key={item.id}>
                                   {editingStudyItemId === item.id ? (
                                     <div className="study-item-edit-form">
-                                      <textarea rows={3} value={studyItemDraftById[item.id]?.questionText || ""} onChange={(event) => updateStudyItemDraft(item.id, { questionText: event.target.value })} />
-                                      <textarea rows={4} value={studyItemDraftById[item.id]?.suggestedAnswer || ""} onChange={(event) => updateStudyItemDraft(item.id, { suggestedAnswer: event.target.value })} />
-                                      <textarea rows={4} value={studyItemDraftById[item.id]?.rubric || ""} onChange={(event) => updateStudyItemDraft(item.id, { rubric: event.target.value })} />
+                                      <label>
+                                        {t("Question", "문제")}
+                                        <textarea rows={3} value={studyItemDraftById[item.id]?.questionText || ""} onChange={(event) => updateStudyItemDraft(item.id, { questionText: event.target.value })} />
+                                      </label>
+                                      <label>
+                                        {t("Suggested answer", "예시 답안")}
+                                        <textarea rows={4} value={studyItemDraftById[item.id]?.suggestedAnswer || ""} onChange={(event) => updateStudyItemDraft(item.id, { suggestedAnswer: event.target.value })} />
+                                      </label>
+                                      <label>
+                                        {t("Rubric", "채점 기준")}
+                                        <textarea rows={4} value={studyItemDraftById[item.id]?.rubric || ""} onChange={(event) => updateStudyItemDraft(item.id, { rubric: event.target.value })} />
+                                      </label>
                                     </div>
                                   ) : (
                                     <>
@@ -4139,43 +4344,55 @@ export function BookWorkspace() {
                     </div>
                   ) : (
                     <>
-                      <div className="chapter-editor-header">
-                        <div>
-                          <h4>{t("Chapter", "챕터")} {selectedChapter.chapterNumber}</h4>
+                      <div className="chapter-document-editor">
+                        <div className="chapter-editor-header">
+                          <div>
+                            <p className="step-label">{t("Editing", "편집 중")}</p>
+                            <h4>{t("Chapter", "챕터")} {selectedChapter.chapterNumber}{selectedChapter.title ? `: ${selectedChapter.title}` : ""}</h4>
+                          </div>
+                          <div className="chapter-editor-status">
+                            <span>{t(`${selectedChapterWordCount.toLocaleString()} words`, `${selectedChapterWordCount.toLocaleString()}단어`)}</span>
+                            {savingChapterId === selectedChapter.id || selectedChapterHasUnsavedChanges ? (
+                              <strong className={selectedChapterHasUnsavedChanges ? "unsaved" : "saved"}>
+                                {savingChapterId === selectedChapter.id
+                                  ? t("Saving...", "저장 중...")
+                                  : t("Unsaved changes", "저장되지 않은 변경")}
+                              </strong>
+                            ) : null}
+                          </div>
                         </div>
-                        <span>{t(`${selectedChapterWordCount.toLocaleString()} words`, `${selectedChapterWordCount.toLocaleString()}단어`)}</span>
-                      </div>
 
-                      <div className="chapter-form-grid">
-                        <label>
-                          {t("Number", "번호")}
-                          <input
-                            min="1"
-                            type="number"
-                            value={selectedChapterEdit.chapterNumber}
-                            onChange={(event) => handleChapterEdit(selectedChapter.id, { chapterNumber: event.target.value })}
+                        <div className="chapter-form-grid">
+                          <label>
+                            {t("Number", "번호")}
+                            <input
+                              min="1"
+                              type="number"
+                              value={selectedChapterEdit.chapterNumber}
+                              onChange={(event) => handleChapterEdit(selectedChapter.id, { chapterNumber: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            {t("Title", "제목")}
+                            <input
+                              value={selectedChapterEdit.title}
+                              onChange={(event) => handleChapterEdit(selectedChapter.id, { title: event.target.value })}
+                              placeholder={`${t("Chapter", "챕터")} ${selectedChapter.chapterNumber}`}
+                            />
+                          </label>
+                        </div>
+
+                        <label className="chapter-text-field">
+                          <span>{t("Chapter text", "챕터 텍스트")}</span>
+                          <textarea
+                            rows={22}
+                            value={selectedChapterEdit.textContent}
+                            onChange={(event) => handleChapterEdit(selectedChapter.id, { textContent: event.target.value })}
                           />
                         </label>
-                        <label>
-                          {t("Title", "제목")}
-                          <input
-                            value={selectedChapterEdit.title}
-                            onChange={(event) => handleChapterEdit(selectedChapter.id, { title: event.target.value })}
-                            placeholder={`${t("Chapter", "챕터")} ${selectedChapter.chapterNumber}`}
-                          />
-                        </label>
                       </div>
 
-                      <label className="chapter-text-field">
-                        {t("Chapter text", "챕터 텍스트")}
-                        <textarea
-                          rows={22}
-                          value={selectedChapterEdit.textContent}
-                          onChange={(event) => handleChapterEdit(selectedChapter.id, { textContent: event.target.value })}
-                        />
-                      </label>
-
-                      <div className="button-group editor-actions">
+                      <div className="button-group editor-actions chapter-editor-actions">
                         <button
                           type="button"
                           disabled={savingChapterId === selectedChapter.id}

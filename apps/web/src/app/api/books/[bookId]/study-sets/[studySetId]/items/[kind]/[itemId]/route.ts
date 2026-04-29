@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireActiveUser } from "@/lib/auth";
 import { getStudySetForBook } from "@/lib/study-sets";
 import { deleteStudyItem, listStudyItems, moveStudyItem, normalizeStudyItemKind, summarizeStudyItems, updateStudyItem } from "@/lib/study-items";
 
@@ -30,6 +31,10 @@ function parseChapterId(request: Request, fallback?: string | null) {
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, studySetId, kind: kindValue, itemId } = await context.params;
   const authorized = await getAuthorizedContext(bookId, studySetId, kindValue);
 
@@ -69,6 +74,10 @@ export async function PATCH(request: Request, context: RouteContext) {
 }
 
 export async function DELETE(_request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(_request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, studySetId, kind: kindValue, itemId } = await context.params;
   const authorized = await getAuthorizedContext(bookId, studySetId, kindValue);
 

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireActiveUser } from "@/lib/auth";
 import { getBook } from "@/lib/books";
 import { getChapter } from "@/lib/chapters";
 import { getGenerationRun } from "@/lib/generation-runs";
@@ -25,6 +26,10 @@ function parsePlan(body: unknown) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, chapterId } = await context.params;
   const book = await getBook(bookId);
   const chapter = book ? await getChapter(chapterId) : null;

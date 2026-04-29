@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireActiveUser } from "@/lib/auth";
 import { getBook, updateBookActiveGenerationRun } from "@/lib/books";
 import { deleteGenerationRun, getGenerationRun, summarizeGenerationRun, updateGenerationRun } from "@/lib/generation-runs";
 
@@ -18,6 +19,10 @@ async function getAuthorizedRun(bookId: string, generationRunId: string) {
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, generationRunId } = await context.params;
   const run = await getAuthorizedRun(bookId, generationRunId);
 
@@ -52,6 +57,10 @@ export async function PATCH(request: Request, context: RouteContext) {
 }
 
 export async function DELETE(_request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(_request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, generationRunId } = await context.params;
   const run = await getAuthorizedRun(bookId, generationRunId);
 

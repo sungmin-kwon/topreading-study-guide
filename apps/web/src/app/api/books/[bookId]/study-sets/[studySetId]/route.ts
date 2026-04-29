@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireActiveUser } from "@/lib/auth";
 import { deleteStudySet, getStudySetForBook, serializeStudySetDetail, summarizeStudySet, updateStudySet } from "@/lib/study-sets";
 
 export const runtime = "nodejs";
@@ -11,6 +12,10 @@ type RouteContext = {
 };
 
 export async function GET(_request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(_request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, studySetId } = await context.params;
   const studySet = await getStudySetForBook(bookId, studySetId);
 
@@ -22,6 +27,10 @@ export async function GET(_request: Request, context: RouteContext) {
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, studySetId } = await context.params;
   const existing = await getStudySetForBook(bookId, studySetId);
 
@@ -60,6 +69,10 @@ export async function PATCH(request: Request, context: RouteContext) {
 }
 
 export async function DELETE(_request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(_request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, studySetId } = await context.params;
   const studySet = await getStudySetForBook(bookId, studySetId);
 

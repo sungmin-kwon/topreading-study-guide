@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
+import { requireActiveUser } from "@/lib/auth";
 import { getBook } from "@/lib/books";
 import { getChapter } from "@/lib/chapters";
 import { getGeneratingRunForBook, getGenerationRun, summarizeGenerationRun, updateGenerationRun, type GenerationLogEntry } from "@/lib/generation-runs";
 import { generateOpenAIChapterItems, type OpenAIUsageSummary } from "@/lib/openai-generator";
-import { appendStudyItems, summarizeStudyItems } from "@/lib/study-items";
+import { appendStudyItems, rebalanceStudySetMultipleChoiceAnswers, summarizeStudyItems } from "@/lib/study-items";
 import { createStudySet, deleteStudySet, deleteStudySetsForRun, updateStudySet } from "@/lib/study-sets";
 
 export const runtime = "nodejs";
@@ -130,20 +131,16 @@ function formatUsageLine(summary: RunUsageSummary) {
   return `Run usage: model=${summary.model || "unknown"}, input=${summary.inputTokens.toLocaleString()} tokens (cached=${summary.cachedInputTokens.toLocaleString()}), output=${summary.outputTokens.toLocaleString()} tokens (reasoning=${summary.reasoningTokens.toLocaleString()}), total=${summary.totalTokens.toLocaleString()} tokens${summary.estimatedCostUsd === null ? "" : `, estimated cost=$${summary.estimatedCostUsd.toFixed(4)}`}.`;
 }
 
-function mergeGeneratedItems(target: Record<string, unknown[]>, source: Record<string, unknown>) {
-  for (const key of ["vocabularyItems", "multipleChoiceQuestions", "shortAnswerQuestions"]) {
-    const existing = target[key] || [];
-    const incoming = Array.isArray(source[key]) ? source[key] as unknown[] : [];
-    target[key] = [...existing, ...incoming];
-  }
-}
-
 async function isCancellationRequested(generationRunId: string) {
   const latest = await getGenerationRun(generationRunId);
   return latest?.status === "cancelled";
 }
 
 export async function POST(_request: Request, context: RouteContext) {
+  if (!(await requireActiveUser(_request.headers))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { bookId, generationRunId } = await context.params;
   const book = await getBook(bookId);
   const generationRun = book ? await getGenerationRun(generationRunId) : null;
@@ -217,16 +214,13 @@ export async function POST(_request: Request, context: RouteContext) {
   });
 
   try {
-    const generatedCollections: Record<string, unknown[]> = {
-      vocabularyItems: [],
-      multipleChoiceQuestions: [],
-      shortAnswerQuestions: []
-    };
     const rawChapters: unknown[] = [];
     let completedChapters = 0;
 
     const finishCancelled = async (message: string) => {
       const finalUsage = finalizeUsage(usageSummary);
+      const finalItems = await rebalanceStudySetMultipleChoiceAnswers(runStudySet.id);
+      const generatedCollections = summarizeStudyItems(finalItems);
       runLog = [
         ...runLog,
         logEntry("warn", message),
@@ -289,10 +283,9 @@ export async function POST(_request: Request, context: RouteContext) {
       });
 
       const result = await generateOpenAIChapterItems(book, chapter, chapterConfig.plan);
-      const items = await appendStudyItems(runStudySet.id, result.generatedItems, { chapterId: chapter.id });
+      await appendStudyItems(runStudySet.id, result.generatedItems, { chapterId: chapter.id });
       completedChapters = index + 1;
       addUsage(usageSummary, result.usage, result.model);
-      mergeGeneratedItems(generatedCollections, summarizeStudyItems(items) as unknown as Record<string, unknown>);
       rawChapters.push({
         chapterId: chapter.id,
         chapterNumber: chapter.chapterNumber,
@@ -326,6 +319,8 @@ export async function POST(_request: Request, context: RouteContext) {
     }
 
     const finalUsage = finalizeUsage(usageSummary);
+    const finalItems = await rebalanceStudySetMultipleChoiceAnswers(runStudySet.id);
+    const generatedCollections = summarizeStudyItems(finalItems);
     await updateStudySet({
       studySetId: runStudySet.id,
       status: "ready",

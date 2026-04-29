@@ -26,6 +26,32 @@ Current behavior:
 
 Future refinement: if generation moves to a background worker, cancellation could become more immediate by wiring an abort signal into the worker/request lifecycle.
 
+### Global Generation Sliders
+
+The generation planner now supports whole-book targets for multiple-choice questions, short-answer questions, and vocabulary items.
+
+Current behavior:
+
+- Default totals are derived from total book word count.
+- The app distributes totals across selected chapters by word-count weight.
+- Users can adjust whole-book totals with sliders/number inputs.
+- Users can still fine-tune individual chapter counts before starting generation.
+- The shared allocation helper lives in `packages/core`.
+
+Future refinement: add a clearly labeled "minimum one per selected chapter" mode for teachers who want every chapter represented, even when a chapter is very short.
+
+### Generation Run Rename Modal
+
+Generation run names can now be edited from the Generate tab through a compact rename modal instead of inline fields in every history card.
+
+### Sets And Review Split
+
+Generated versions now have a dedicated Sets tab for renaming, deletion, and active-version selection. The Review tab is focused on chapter-by-chapter item editing.
+
+### App-Level Active User Guard
+
+The app now has a current-user endpoint and an active-user guard across the main `/api/books/**` routes. Cloudflare Access or a trusted proxy can authenticate the email, while the app-level `users` table controls active/disabled status and admin/member role.
+
 ## Import Folder / Append Chapter Files
 
 The legacy app could import a folder of `.txt` chapter files and append chapters to an existing book.
@@ -92,26 +118,14 @@ Possible shape:
 
 This should not require a major database redesign because the item tables already have `sort_order`.
 
-## Global Generation Sliders
-
-The current generation planner suggests item counts per chapter and allows per-chapter adjustment. A future book-level control could let users choose a total number of MCQs, short-answer questions, and vocabulary items for the whole book.
-
-Implementation notes:
-
-- Keep the allocation logic in a shared helper under `packages/core`.
-- Distribute totals by chapter word count with minimums/maximums.
-- Preserve manual chapter overrides after the global slider changes.
-- Show the final whole-book totals before generation begins.
-
 ## User And Admin Hardening
 
 The current admin page is a first-pass private deployment tool. It works well enough for a home server, but a more complete user system would need:
 
-- Clear separation between Cloudflare Access authentication and app-level authorization.
 - Per-user ownership/audit fields on books, generation runs, and edits.
-- A stronger disabled-user path that blocks normal app actions, not just admin access.
 - Safer admin settings editing, including restart-required indicators.
 - Optional activity log for user changes and `.env.local` changes.
+- A friendly "access pending" screen when a Cloudflare-authenticated email is not yet an active app user.
 
 Cloudflare Access should remain the preferred login layer for the near term.
 
