@@ -25,6 +25,10 @@ function unauthorized(message: string) {
 }
 
 export function middleware(request: NextRequest) {
+  if (request.nextUrl.pathname === "/signed-out") {
+    return NextResponse.next();
+  }
+
   const authMode = String(process.env.AUTH_MODE || "off").trim().toLowerCase();
 
   if (!authMode || authMode === "off") {

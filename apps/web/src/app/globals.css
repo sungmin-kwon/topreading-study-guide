@@ -604,6 +604,69 @@ button {
   padding: 10px 12px;
 }
 
+.auth-landing {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--sidebar) 72%, transparent), transparent 45%),
+    var(--paper);
+  color: var(--ink);
+  padding: 24px;
+}
+
+.auth-landing-panel {
+  display: grid;
+  gap: 16px;
+  width: min(480px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 22px;
+}
+
+.auth-landing-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.auth-landing-brand h1,
+.auth-landing-brand p,
+.auth-landing-panel p {
+  margin: 0;
+}
+
+.auth-landing-brand h1 {
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.auth-landing-panel > p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.auth-landing-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.auth-landing-actions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 700;
+  padding: 9px 13px;
+  text-decoration: none;
+}
+
 .admin-section-header {
   display: flex;
   align-items: flex-start;
@@ -1025,7 +1088,18 @@ button {
   padding: 18px;
 }
 
+.split-panel,
+.export-panel.flat-panel {
+  display: grid;
+  gap: 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
 .source-panel h3,
+.split-panel h3,
 .generate-panel h3,
 .chapter-panel h3,
 .export-panel h3 {

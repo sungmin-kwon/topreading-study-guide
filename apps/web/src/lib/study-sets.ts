@@ -226,7 +226,7 @@ function dedupeStudySets(rows: StudySet[]) {
 
 async function studySetHasItemsForChapter(studySetId: string, chapterId: string) {
   const items = await listStudyItems(studySetId, { chapterId });
-  return items.vocabulary.length > 0 || items.multipleChoice.length > 0 || items.shortAnswer.length > 0;
+  return items.summaries.length > 0 || items.vocabulary.length > 0 || items.multipleChoice.length > 0 || items.shortAnswer.length > 0;
 }
 
 async function filterStudySetsWithChapterItems(rows: StudySet[], chapterId: string) {

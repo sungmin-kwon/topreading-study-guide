@@ -147,6 +147,17 @@ export const shortAnswerQuestions = sqliteTable("short_answer_questions", {
   updatedAt: text("updated_at").notNull()
 });
 
+export const chapterSummaries = sqliteTable("chapter_summaries", {
+  id: text("id").primaryKey(),
+  studySetId: text("study_set_id").notNull().references(() => studySets.id, { onDelete: "cascade" }),
+  chapterId: text("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+  summaryText: text("summary_text").notNull(),
+  status: text("status").notNull().default("draft"),
+  sortOrder: integer("sort_order").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+});
+
 export type Book = typeof books.$inferSelect;
 export type NewBook = typeof books.$inferInsert;
 export type User = typeof users.$inferSelect;
@@ -169,3 +180,5 @@ export type MultipleChoiceQuestion = typeof multipleChoiceQuestions.$inferSelect
 export type NewMultipleChoiceQuestion = typeof multipleChoiceQuestions.$inferInsert;
 export type ShortAnswerQuestion = typeof shortAnswerQuestions.$inferSelect;
 export type NewShortAnswerQuestion = typeof shortAnswerQuestions.$inferInsert;
+export type ChapterSummaryItem = typeof chapterSummaries.$inferSelect;
+export type NewChapterSummaryItem = typeof chapterSummaries.$inferInsert;

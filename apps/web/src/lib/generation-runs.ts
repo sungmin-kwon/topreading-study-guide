@@ -246,7 +246,7 @@ export async function summarizeGenerationRun(run: GenerationRun, index = 0) {
         generatedChapterIds.add(studySet.chapterId);
       }
       const items = await listStudyItems(studySet.id);
-      for (const item of [...items.vocabulary, ...items.multipleChoice, ...items.shortAnswer]) {
+      for (const item of [...items.summaries, ...items.vocabulary, ...items.multipleChoice, ...items.shortAnswer]) {
         if (item.chapterId) {
           generatedChapterIds.add(item.chapterId);
         }

@@ -12,6 +12,7 @@ import { getLatestStudySetForChapter, getStudySetForBook, getStudySetForChapterI
 const execFileAsync = promisify(execFile);
 
 export type PdfExportType =
+  | "chapter-summaries"
   | "vocabulary-list"
   | "vocabulary-quiz"
   | "multiple-choice"
@@ -34,6 +35,7 @@ type PdfPayloadItem = {
 };
 
 const exportLabels: Record<PdfExportType, string> = {
+  "chapter-summaries": "Chapter Summaries",
   "vocabulary-list": "Vocabulary List",
   "vocabulary-quiz": "Vocabulary Quiz",
   "multiple-choice": "Multiple Choice",
@@ -90,6 +92,7 @@ function formatChapterLabel(chapterNumber: number, chapterTitle: string) {
 function normalizeExportType(value: string | null): PdfExportType | null {
   if (
     value === "vocabulary-list"
+    || value === "chapter-summaries"
     || value === "vocabulary-quiz"
     || value === "multiple-choice"
     || value === "multiple-choice-concise-key"
@@ -122,6 +125,15 @@ function buildVocabularyItems(items: Awaited<ReturnType<typeof listStudyItems>>,
     ];
     return listItems;
   });
+}
+
+function buildChapterSummaryItems(items: Awaited<ReturnType<typeof listStudyItems>>): PdfPayloadItem[] {
+  return items.summaries.map((item) => ({
+    text: item.summaryText,
+    gap: 8,
+    block_start: true,
+    block_end: true
+  }));
 }
 
 function buildMultipleChoiceItems(items: Awaited<ReturnType<typeof listStudyItems>>, includeAnswers: boolean, startNumber = 1): PdfPayloadItem[] {
@@ -221,6 +233,9 @@ function buildPayload(input: {
 }
 
 function buildItemsForType(items: Awaited<ReturnType<typeof listStudyItems>>, type: PdfExportType, startNumber = 1) {
+  if (type === "chapter-summaries") {
+    return buildChapterSummaryItems(items);
+  }
   if (type === "vocabulary-list" || type === "vocabulary-quiz") {
     return buildVocabularyItems(items, type, startNumber);
   }
@@ -234,6 +249,9 @@ function buildItemsForType(items: Awaited<ReturnType<typeof listStudyItems>>, ty
 }
 
 function countItemsForType(items: Awaited<ReturnType<typeof listStudyItems>>, type: PdfExportType) {
+  if (type === "chapter-summaries") {
+    return items.summaries.length;
+  }
   if (type === "vocabulary-list" || type === "vocabulary-quiz") {
     return items.vocabulary.length;
   }

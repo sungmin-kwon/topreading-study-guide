@@ -4,7 +4,7 @@ import { getBook } from "@/lib/books";
 import { getChapter } from "@/lib/chapters";
 import { getGeneratingRunForBook, getGenerationRun, summarizeGenerationRun, updateGenerationRun, type GenerationLogEntry } from "@/lib/generation-runs";
 import { generateOpenAIChapterItems, type OpenAIUsageSummary } from "@/lib/openai-generator";
-import { appendStudyItems, rebalanceStudySetMultipleChoiceAnswers, summarizeStudyItems } from "@/lib/study-items";
+import { appendStudyItems, rebalanceStudySetMultipleChoiceAnswers, summarizeStudyItems, type StudyItemsInput } from "@/lib/study-items";
 import { createStudySet, deleteStudySet, deleteStudySetsForRun, updateStudySet } from "@/lib/study-sets";
 
 export const runtime = "nodejs";
@@ -71,6 +71,64 @@ function logEntry(level: GenerationLogEntry["level"], message: string): Generati
     timestamp: nowIso(),
     level,
     message
+  };
+}
+
+function normalizeVocabularyTerm(value: unknown) {
+  return String(value || "")
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[’‘]/g, "'")
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function vocabularyTermKeys(value: unknown) {
+  const normalized = normalizeVocabularyTerm(value);
+  if (!normalized) {
+    return [];
+  }
+
+  const keys = new Set([normalized]);
+  const words = normalized.split(" ");
+  const lastWord = words[words.length - 1];
+  if (
+    words.length === 1
+    && normalized.length > 4
+    && normalized.endsWith("s")
+    && !/(ss|us|is)$/.test(lastWord)
+  ) {
+    keys.add(normalized.slice(0, -1));
+  }
+
+  return [...keys];
+}
+
+function filterDuplicateVocabularyItems(input: StudyItemsInput, seenVocabularyTerms: Set<string>) {
+  const skippedTerms: string[] = [];
+  const vocabularyItems = (input.vocabularyItems || []).filter((item) => {
+    const keys = vocabularyTermKeys(item.term);
+    if (!keys.length) {
+      return false;
+    }
+
+    if (keys.some((key) => seenVocabularyTerms.has(key))) {
+      skippedTerms.push(String(item.term || "").trim() || "untitled term");
+      return false;
+    }
+
+    keys.forEach((key) => seenVocabularyTerms.add(key));
+    return true;
+  });
+
+  return {
+    generatedItems: {
+      ...input,
+      vocabularyItems
+    },
+    skippedTerms
   };
 }
 
@@ -216,6 +274,8 @@ export async function POST(_request: Request, context: RouteContext) {
   try {
     const rawChapters: unknown[] = [];
     let completedChapters = 0;
+    let skippedDuplicateVocabularyCount = 0;
+    const seenVocabularyTerms = new Set<string>();
 
     const finishCancelled = async (message: string) => {
       const finalUsage = finalizeUsage(usageSummary);
@@ -237,6 +297,7 @@ export async function POST(_request: Request, context: RouteContext) {
           chapters: rawChapters,
           ...generatedCollections,
           cancelled: true,
+          skippedDuplicateVocabularyCount,
           usage: finalUsage
         }
       });
@@ -283,7 +344,9 @@ export async function POST(_request: Request, context: RouteContext) {
       });
 
       const result = await generateOpenAIChapterItems(book, chapter, chapterConfig.plan);
-      await appendStudyItems(runStudySet.id, result.generatedItems, { chapterId: chapter.id });
+      const deduplicated = filterDuplicateVocabularyItems(result.generatedItems, seenVocabularyTerms);
+      skippedDuplicateVocabularyCount += deduplicated.skippedTerms.length;
+      await appendStudyItems(runStudySet.id, deduplicated.generatedItems, { chapterId: chapter.id });
       completedChapters = index + 1;
       addUsage(usageSummary, result.usage, result.model);
       rawChapters.push({
@@ -293,12 +356,16 @@ export async function POST(_request: Request, context: RouteContext) {
         wordCount: chapter.wordCount,
         plan: result.plan,
         output: result.rawOutput,
+        skippedDuplicateVocabularyTerms: deduplicated.skippedTerms,
         usage: result.usage
       });
 
       runLog = [
         ...runLog,
-        logEntry("success", `Done Chapter ${chapter.chapterNumber}: ${result.generatedItems.vocabularyItems?.length || 0} vocab, ${result.generatedItems.multipleChoiceQuestions?.length || 0} MCQ, ${result.generatedItems.shortAnswerQuestions?.length || 0} short answer.`)
+        ...(deduplicated.skippedTerms.length
+          ? [logEntry("info", `Skipped ${deduplicated.skippedTerms.length} duplicate vocab term${deduplicated.skippedTerms.length === 1 ? "" : "s"} in Chapter ${chapter.chapterNumber}: ${deduplicated.skippedTerms.slice(0, 8).join(", ")}${deduplicated.skippedTerms.length > 8 ? ", ..." : ""}.`)]
+          : []),
+        logEntry("success", `Done Chapter ${chapter.chapterNumber}: ${deduplicated.generatedItems.vocabularyItems?.length || 0} vocab, ${deduplicated.generatedItems.multipleChoiceQuestions?.length || 0} MCQ, ${deduplicated.generatedItems.shortAnswerQuestions?.length || 0} short answer.`)
       ];
 
       if (await isCancellationRequested(generationRun.id)) {
@@ -329,11 +396,15 @@ export async function POST(_request: Request, context: RouteContext) {
         bookTitle: book.title,
         chapters: rawChapters,
         ...generatedCollections,
+        skippedDuplicateVocabularyCount,
         usage: finalUsage
       }
     });
     runLog = [
       ...runLog,
+      ...(skippedDuplicateVocabularyCount
+        ? [logEntry("info", `Skipped ${skippedDuplicateVocabularyCount} duplicate vocabulary term${skippedDuplicateVocabularyCount === 1 ? "" : "s"} across this run.`)]
+        : []),
       logEntry("info", formatUsageLine(finalUsage)),
       logEntry("success", "Generation complete. Review results in Study Sets.")
     ];

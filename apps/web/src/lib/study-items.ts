@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
+  chapterSummaries,
   multipleChoiceQuestions,
   shortAnswerQuestions,
   vocabularyItems,
+  type ChapterSummaryItem,
   type MultipleChoiceQuestion,
   type ShortAnswerQuestion,
   type VocabularyItem
@@ -45,7 +47,15 @@ export type ShortAnswerQuestionInput = {
   sortOrder?: unknown;
 };
 
+export type ChapterSummaryInput = {
+  chapterId?: unknown;
+  summaryText?: unknown;
+  status?: unknown;
+  sortOrder?: unknown;
+};
+
 export type StudyItemsInput = {
+  chapterSummaries?: ChapterSummaryInput[];
   vocabularyItems?: VocabularyItemInput[];
   multipleChoiceQuestions?: MultipleChoiceQuestionInput[];
   shortAnswerQuestions?: ShortAnswerQuestionInput[];
@@ -195,7 +205,30 @@ function normalizeShortAnswerInput(studySetId: string, item: ShortAnswerQuestion
   };
 }
 
+function normalizeChapterSummaryInput(studySetId: string, item: ChapterSummaryInput, index: number, options?: StudyItemsOptions) {
+  const summaryText = asString(item.summaryText);
+
+  if (!summaryText) {
+    throw new Error("Chapter summaries need summary text.");
+  }
+
+  const timestamp = nowIso();
+  return {
+    id: randomUUID(),
+    studySetId,
+    chapterId: normalizeChapterId(item, options),
+    summaryText,
+    status: normalizeStatus(item.status),
+    sortOrder: asPositiveInteger(item.sortOrder, index + 1),
+    createdAt: timestamp,
+    updatedAt: timestamp
+  };
+}
+
 export async function listStudyItems(studySetId: string, options: StudyItemsOptions = {}) {
+  const whereSummary = options.chapterId
+    ? and(eq(chapterSummaries.studySetId, studySetId), eq(chapterSummaries.chapterId, options.chapterId))
+    : eq(chapterSummaries.studySetId, studySetId);
   const whereVocabulary = options.chapterId
     ? and(eq(vocabularyItems.studySetId, studySetId), eq(vocabularyItems.chapterId, options.chapterId))
     : eq(vocabularyItems.studySetId, studySetId);
@@ -206,20 +239,26 @@ export async function listStudyItems(studySetId: string, options: StudyItemsOpti
     ? and(eq(shortAnswerQuestions.studySetId, studySetId), eq(shortAnswerQuestions.chapterId, options.chapterId))
     : eq(shortAnswerQuestions.studySetId, studySetId);
 
-  const [vocabulary, multipleChoice, shortAnswer] = await Promise.all([
+  const [summaries, vocabulary, multipleChoice, shortAnswer] = await Promise.all([
+    db.select().from(chapterSummaries).where(whereSummary).orderBy(asc(chapterSummaries.chapterId), asc(chapterSummaries.sortOrder)),
     db.select().from(vocabularyItems).where(whereVocabulary).orderBy(asc(vocabularyItems.chapterId), asc(vocabularyItems.sortOrder)),
     db.select().from(multipleChoiceQuestions).where(whereMultipleChoice).orderBy(asc(multipleChoiceQuestions.chapterId), asc(multipleChoiceQuestions.sortOrder)),
     db.select().from(shortAnswerQuestions).where(whereShortAnswer).orderBy(asc(shortAnswerQuestions.chapterId), asc(shortAnswerQuestions.sortOrder))
   ]);
 
-  return { vocabulary, multipleChoice, shortAnswer };
+  return { summaries, vocabulary, multipleChoice, shortAnswer };
 }
 
 export async function appendStudyItems(studySetId: string, input: StudyItemsInput, options: StudyItemsOptions = {}) {
   const existing = await listStudyItems(studySetId, options);
+  const summaries = (input.chapterSummaries || []).map((item, index) => normalizeChapterSummaryInput(studySetId, item, existing.summaries.length + index, options));
   const vocabulary = (input.vocabularyItems || []).map((item, index) => normalizeVocabularyInput(studySetId, item, existing.vocabulary.length + index, options));
   const multipleChoice = (input.multipleChoiceQuestions || []).map((item, index) => normalizeMultipleChoiceInput(studySetId, item, existing.multipleChoice.length + index, options));
   const shortAnswer = (input.shortAnswerQuestions || []).map((item, index) => normalizeShortAnswerInput(studySetId, item, existing.shortAnswer.length + index, options));
+
+  if (summaries.length) {
+    await db.insert(chapterSummaries).values(summaries);
+  }
 
   if (vocabulary.length) {
     await db.insert(vocabularyItems).values(vocabulary);
@@ -237,6 +276,9 @@ export async function appendStudyItems(studySetId: string, input: StudyItemsInpu
 }
 
 export async function replaceStudyItems(studySetId: string, input: StudyItemsInput, options: StudyItemsOptions = {}) {
+  const summaryWhere = options.chapterId
+    ? and(eq(chapterSummaries.studySetId, studySetId), eq(chapterSummaries.chapterId, options.chapterId))
+    : eq(chapterSummaries.studySetId, studySetId);
   const vocabularyWhere = options.chapterId
     ? and(eq(vocabularyItems.studySetId, studySetId), eq(vocabularyItems.chapterId, options.chapterId))
     : eq(vocabularyItems.studySetId, studySetId);
@@ -247,6 +289,7 @@ export async function replaceStudyItems(studySetId: string, input: StudyItemsInp
     ? and(eq(shortAnswerQuestions.studySetId, studySetId), eq(shortAnswerQuestions.chapterId, options.chapterId))
     : eq(shortAnswerQuestions.studySetId, studySetId);
 
+  await db.delete(chapterSummaries).where(summaryWhere);
   await db.delete(vocabularyItems).where(vocabularyWhere);
   await db.delete(multipleChoiceQuestions).where(multipleChoiceWhere);
   await db.delete(shortAnswerQuestions).where(shortAnswerWhere);
@@ -255,6 +298,7 @@ export async function replaceStudyItems(studySetId: string, input: StudyItemsInp
 }
 
 export async function clearStudyItems(studySetId: string) {
+  await db.delete(chapterSummaries).where(eq(chapterSummaries.studySetId, studySetId));
   await db.delete(vocabularyItems).where(eq(vocabularyItems.studySetId, studySetId));
   await db.delete(multipleChoiceQuestions).where(eq(multipleChoiceQuestions.studySetId, studySetId));
   await db.delete(shortAnswerQuestions).where(eq(shortAnswerQuestions.studySetId, studySetId));
@@ -488,8 +532,22 @@ export function summarizeShortAnswerQuestion(item: ShortAnswerQuestion) {
   };
 }
 
+export function summarizeChapterSummary(item: ChapterSummaryItem) {
+  return {
+    id: item.id,
+    studySetId: item.studySetId,
+    chapterId: item.chapterId,
+    summaryText: item.summaryText,
+    status: item.status,
+    sortOrder: item.sortOrder,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt
+  };
+}
+
 export function summarizeStudyItems(items: Awaited<ReturnType<typeof listStudyItems>>) {
   return {
+    chapterSummaries: items.summaries.map(summarizeChapterSummary),
     vocabularyItems: items.vocabulary.map(summarizeVocabularyItem),
     multipleChoiceQuestions: items.multipleChoice.map(summarizeMultipleChoiceQuestion),
     shortAnswerQuestions: items.shortAnswer.map(summarizeShortAnswerQuestion)

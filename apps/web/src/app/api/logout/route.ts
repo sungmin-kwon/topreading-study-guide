@@ -2,13 +2,21 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
+function redirectTo(location: string) {
+  return new NextResponse(null, {
+    status: 302,
+    headers: {
+      Location: location
+    }
+  });
+}
+
+export async function GET() {
   const authMode = String(process.env.AUTH_MODE || "off").trim().toLowerCase();
-  const url = new URL(request.url);
 
   if (authMode === "cloudflare_access") {
-    return NextResponse.redirect(new URL("/cdn-cgi/access/logout", url.origin));
+    return redirectTo("/cdn-cgi/access/logout?redirect_url=%2Fsigned-out");
   }
 
-  return NextResponse.redirect(new URL("/", url.origin));
+  return redirectTo("/signed-out");
 }

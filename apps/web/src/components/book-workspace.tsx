@@ -197,6 +197,13 @@ type ShortAnswerQuestion = {
 };
 
 type StudyItems = {
+  chapterSummaries: Array<{
+    id: string;
+    chapterId: string | null;
+    summaryText: string;
+    status: string;
+    sortOrder: number;
+  }>;
   vocabularyItems: VocabularyItem[];
   multipleChoiceQuestions: MultipleChoiceQuestion[];
   shortAnswerQuestions: ShortAnswerQuestion[];
@@ -296,6 +303,7 @@ type ExportFileFormat = "pdf" | "docx";
 type ThemeMode = "light" | "dark";
 type UiLanguage = "en" | "ko";
 type PdfExportType =
+  | "chapter-summaries"
   | "vocabulary-list"
   | "vocabulary-quiz"
   | "multiple-choice"
@@ -565,7 +573,7 @@ async function fetchStudyItems(bookId: string, studySetId: string, chapterId?: s
   }
 
   const payload = (await response.json()) as StudyItemsResponse;
-  return payload.items || { vocabularyItems: [], multipleChoiceQuestions: [], shortAnswerQuestions: [] };
+  return payload.items || { chapterSummaries: [], vocabularyItems: [], multipleChoiceQuestions: [], shortAnswerQuestions: [] };
 }
 
 function studyItemsCacheKey(studySetId: string, chapterId?: string | null) {
@@ -998,6 +1006,7 @@ export function BookWorkspace() {
   ];
 
   const pdfExportOptions: Array<{ type: PdfExportType; label: string; description: string }> = [
+    { type: "chapter-summaries", label: t("Summaries", "요약"), description: t("Chapter-by-chapter teacher summaries.", "챕터별 교사용 요약입니다.") },
     { type: "multiple-choice", label: t("Questions", "문제"), description: t("Multiple-choice questions without answers.", "정답이 표시되지 않은 객관식 문제입니다.") },
     { type: "multiple-choice-concise-key", label: t("Answer Key", "답지"), description: t("Question numbers with answer letters only.", "문제 번호와 정답 선택지만 표시합니다.") },
     { type: "multiple-choice-key", label: t("Questions + Answers", "문제 + 답지"), description: t("Questions with choices, answers, and explanations.", "선택지, 정답, 해설을 함께 표시합니다.") },
@@ -1007,6 +1016,11 @@ export function BookWorkspace() {
     { type: "vocabulary-quiz", label: t("Vocabulary Quiz", "단어 퀴즈"), description: t("Words with blank answer lines.", "답을 적을 빈칸이 있는 단어 퀴즈입니다.") }
   ];
   const exportOptionGroups = [
+    {
+      title: t("Summaries", "요약"),
+      description: t("Chapter summaries for teacher preparation.", "수업 준비를 위한 챕터 요약입니다."),
+      options: pdfExportOptions.filter((option) => option.type === "chapter-summaries")
+    },
     {
       title: t("Multiple Choice", "객관식"),
       description: t("Student handouts plus concise or detailed answer keys.", "학생용 문제지와 간단/상세 답지를 내보냅니다."),
@@ -1328,7 +1342,7 @@ export function BookWorkspace() {
     setBooks((current) => [payload.book as BookSummary, ...current]);
     setActiveBookId(payload.book.id);
     setActiveWorkspaceTab("source");
-    setStatusMessage("Book created. Use Edit Details to add author or reading level.");
+    setStatusMessage("Book created. Use Edit Book Info to add author or reading level.");
     setIsCreating(false);
   }
 
@@ -2591,14 +2605,14 @@ export function BookWorkspace() {
 
   function buildAppendStudyItemsPayload(kind: StudyItemKind, item: ReturnType<typeof buildStudyItemPayload>) {
     if (kind === "vocabulary") {
-      return { vocabularyItems: [item], multipleChoiceQuestions: [], shortAnswerQuestions: [] };
+      return { chapterSummaries: [], vocabularyItems: [item], multipleChoiceQuestions: [], shortAnswerQuestions: [] };
     }
 
     if (kind === "multiple-choice") {
-      return { vocabularyItems: [], multipleChoiceQuestions: [item], shortAnswerQuestions: [] };
+      return { chapterSummaries: [], vocabularyItems: [], multipleChoiceQuestions: [item], shortAnswerQuestions: [] };
     }
 
-    return { vocabularyItems: [], multipleChoiceQuestions: [], shortAnswerQuestions: [item] };
+    return { chapterSummaries: [], vocabularyItems: [], multipleChoiceQuestions: [], shortAnswerQuestions: [item] };
   }
 
   function getGenerationPlanPayload(chapter: ChapterSummary) {
@@ -2992,7 +3006,7 @@ export function BookWorkspace() {
             <span className="brand-mark">TR</span>
             <div>
               <h1>TopReading</h1>
-              <p>{t("Study Guide Studio", "학습지 제작 도구")}</p>
+              <p>{t("Study Guide Creator", "학습지 제작 도구")}</p>
             </div>
           </div>
           <button
@@ -3045,7 +3059,6 @@ export function BookWorkspace() {
                     onClick={() => setActiveBookId(book.id)}
                   >
                     <span className="book-row-title">{book.title}</span>
-                    {book.author ? <span className="book-row-meta">{book.author}</span> : null}
                   </button>
                   <button
                     className={`book-pin-button ${book.pinnedAt ? "pinned" : ""}`}
@@ -3165,7 +3178,7 @@ export function BookWorkspace() {
           <div className="workspace-header-actions">
             {activeBook ? (
               <button type="button" onClick={() => setIsBookMetadataOpen(true)}>
-                {t("Edit Details", "책 정보 수정")}
+                {t("Edit Book Info", "책 정보 수정")}
               </button>
             ) : null}
             <div className="workspace-tabs" role="tablist" aria-label={t("Book workspace sections", "책 작업 섹션")}>
@@ -3235,7 +3248,7 @@ export function BookWorkspace() {
                 title={!activeBook ? t("Create or select a book first.", "먼저 책을 만들거나 선택하세요.") : !hasStudySets ? t("Generate at least one study set before exporting.", "내보내기 전에 학습 세트를 하나 이상 생성하세요.") : t("Export generated study material.", "생성된 학습 자료를 내보냅니다.")}
                 onClick={() => setActiveWorkspaceTab("export")}
               >
-                {t("Export", "내보내기")}
+                {t("Export", "출력")}
               </button>
             </div>
           </div>
@@ -3502,7 +3515,7 @@ export function BookWorkspace() {
         <div className="workspace-scroll">
         <div className="workspace-stack">
           {activeWorkspaceTab === "source" || activeWorkspaceTab === "split" ? (
-          <section className="source-panel">
+          <section className={activeWorkspaceTab === "split" ? "split-panel" : "source-panel"}>
             <div className="panel-title-row">
               <h3>{activeWorkspaceTab === "split" ? t("Split text", "텍스트 분할") : t("Files", "파일")}</h3>
             </div>
@@ -4037,7 +4050,7 @@ export function BookWorkspace() {
           ) : null}
 
           {activeWorkspaceTab === "export" ? (
-          <section className="export-panel">
+          <section className="export-panel flat-panel">
             <div className="panel-title-row">
               <div>
                 <h3>{t("Export files", "파일 내보내기")}</h3>

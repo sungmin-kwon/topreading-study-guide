@@ -81,6 +81,7 @@ type RawStudyGuidePayload = {
   chapter_number?: unknown;
   chapter_title?: unknown;
   word_count?: unknown;
+  chapter_summary?: unknown;
   vocabulary_items?: RawVocabularyItem[];
   multiple_choice_questions?: RawMultipleChoiceQuestion[];
   short_answer_questions?: RawShortAnswerQuestion[];
@@ -96,6 +97,7 @@ const studyGuideSchema = {
     chapter_number: { type: "number" },
     chapter_title: { type: "string" },
     word_count: { type: "number" },
+    chapter_summary: { type: "string" },
     vocabulary_items: {
       type: "array",
       items: {
@@ -154,6 +156,7 @@ const studyGuideSchema = {
     "chapter_number",
     "chapter_title",
     "word_count",
+    "chapter_summary",
     "vocabulary_items",
     "multiple_choice_questions",
     "short_answer_questions"
@@ -270,6 +273,7 @@ Requirements:
 - Chapter number: ${chapter.chapterNumber}
 - Chapter title: ${chapter.title || ""}
 - Generate exactly ${plan.vocabularyCount} vocabulary entries, ${plan.multipleChoiceCount} multiple-choice questions, and ${plan.shortAnswerCount} short-answer questions.
+- Also write one chapter_summary in 3-5 concise sentences.
 - Base every item only on the provided chapter text.
 - Do not quote long copyrighted passages.
 
@@ -295,6 +299,11 @@ Short-answer requirements:
 - Questions should be concise and classroom-ready.
 - Suggested answers should be 1-2 sentences.
 - Rubrics should be short and useful for grading.
+
+Chapter summary requirements:
+- Summarize the chapter's main events, characters, and important changes.
+- Write plainly for a teacher who may not have read the book before.
+- Do not mention AI, prompts, generation, or study guide construction.
 
 Chapter text:
 """
@@ -416,6 +425,14 @@ async function fetchWithRetry(url: string, init: RequestInit) {
 }
 
 function normalizeGeneratedItems(rawPayload: RawStudyGuidePayload, plan: GenerationPlan): StudyItemsInput {
+  const chapterSummary = asString(rawPayload.chapter_summary);
+  const chapterSummaries = chapterSummary
+    ? [{
+      summaryText: chapterSummary,
+      status: "draft",
+      sortOrder: 1
+    }]
+    : [];
   const vocabularyItems = (Array.isArray(rawPayload.vocabulary_items) ? rawPayload.vocabulary_items : [])
     .slice(0, plan.vocabularyCount)
     .map((item, index) => {
@@ -466,6 +483,7 @@ function normalizeGeneratedItems(rawPayload: RawStudyGuidePayload, plan: Generat
     }));
 
   return {
+    chapterSummaries,
     vocabularyItems,
     multipleChoiceQuestions,
     shortAnswerQuestions

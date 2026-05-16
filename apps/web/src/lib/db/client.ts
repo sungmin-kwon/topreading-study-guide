@@ -196,6 +196,22 @@ sqlite.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_short_answer_questions_study_set_id ON short_answer_questions(study_set_id);
+
+  CREATE TABLE IF NOT EXISTS chapter_summaries (
+    id TEXT PRIMARY KEY,
+    study_set_id TEXT NOT NULL,
+    chapter_id TEXT,
+    summary_text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    sort_order INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (study_set_id) REFERENCES study_sets(id) ON DELETE CASCADE,
+    FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_chapter_summaries_study_set_id ON chapter_summaries(study_set_id);
+  CREATE INDEX IF NOT EXISTS idx_chapter_summaries_chapter_id ON chapter_summaries(chapter_id);
 `);
 
 const bookColumns = (sqlite.prepare("PRAGMA table_info(books)").all() as Array<{ name: string }>).map((column) => column.name);
@@ -424,6 +440,8 @@ sqlite.exec(`
   CREATE INDEX IF NOT EXISTS idx_multiple_choice_questions_chapter_id ON multiple_choice_questions(chapter_id);
   CREATE INDEX IF NOT EXISTS idx_short_answer_questions_study_set_id ON short_answer_questions(study_set_id);
   CREATE INDEX IF NOT EXISTS idx_short_answer_questions_chapter_id ON short_answer_questions(chapter_id);
+  CREATE INDEX IF NOT EXISTS idx_chapter_summaries_study_set_id ON chapter_summaries(study_set_id);
+  CREATE INDEX IF NOT EXISTS idx_chapter_summaries_chapter_id ON chapter_summaries(chapter_id);
 `);
 
 export const db = drizzle(sqlite, { schema });

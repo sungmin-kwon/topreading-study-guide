@@ -16,6 +16,7 @@ function parseItemsBody(body: unknown) {
   const value = body && typeof body === "object" ? body as Record<string, unknown> : {};
 
   return {
+    chapterSummaries: Array.isArray(value.chapterSummaries) ? value.chapterSummaries : [],
     vocabularyItems: Array.isArray(value.vocabularyItems) ? value.vocabularyItems : [],
     multipleChoiceQuestions: Array.isArray(value.multipleChoiceQuestions) ? value.multipleChoiceQuestions : [],
     shortAnswerQuestions: Array.isArray(value.shortAnswerQuestions) ? value.shortAnswerQuestions : []
