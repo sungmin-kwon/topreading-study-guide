@@ -79,6 +79,7 @@ export function AdminConsole() {
   const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [message, setMessage] = useState("");
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
 
   const visibleSettings = useMemo(
     () => settings.map((setting) => ({
@@ -163,6 +164,7 @@ export function AdminConsole() {
       }
     }));
     setNewUserDraft({ email: "", displayName: "", role: "member", status: "active", notes: "" });
+    setExpandedUserId(payload.user.id);
     setMessage("User created.");
     setIsCreatingUser(false);
   }
@@ -186,6 +188,15 @@ export function AdminConsole() {
     }
 
     setUsers((current) => current.map((item) => item.id === payload.user!.id ? payload.user! : item));
+    setUserDrafts((current) => ({
+      ...current,
+      [payload.user!.id]: {
+        displayName: payload.user!.displayName || "",
+        role: payload.user!.role,
+        status: payload.user!.status,
+        notes: payload.user!.notes || ""
+      }
+    }));
     setMessage("User saved.");
     setSavingId(null);
   }
@@ -299,8 +310,9 @@ export function AdminConsole() {
           <div className="admin-user-list">
             {users.map((user) => {
               const draft = userDrafts[user.id] || {};
+              const isExpanded = expandedUserId === user.id;
               return (
-                <article className="admin-user-row" key={user.id}>
+                <article className={`admin-user-row ${isExpanded ? "expanded" : ""}`} key={user.id}>
                   <div className="admin-user-summary">
                     <div>
                       <strong>{user.displayName || user.email}</strong>
@@ -310,64 +322,75 @@ export function AdminConsole() {
                       <span className={`status-pill ${user.status}`}>{formatStatus(user.status)}</span>
                       <span className="role-pill">{formatStatus(user.role)}</span>
                     </div>
-                  </div>
-                  <div className="admin-user-fields">
-                    <label>
-                      Name
-                      <input
-                        placeholder="Display name"
-                        value={String(draft.displayName ?? "")}
-                        onChange={(event) => setUserDrafts((current) => ({
-                          ...current,
-                          [user.id]: { ...(current[user.id] || {}), displayName: event.target.value }
-                        }))}
-                      />
-                    </label>
-                    <label>
-                      Role
-                      <select
-                        value={String(draft.role ?? user.role)}
-                        onChange={(event) => setUserDrafts((current) => ({
-                          ...current,
-                          [user.id]: { ...(current[user.id] || {}), role: event.target.value }
-                        }))}
-                      >
-                        <option value="member">Member</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                    </label>
-                    <label>
-                      Status
-                      <select
-                        value={String(draft.status ?? user.status)}
-                        onChange={(event) => setUserDrafts((current) => ({
-                          ...current,
-                          [user.id]: { ...(current[user.id] || {}), status: event.target.value }
-                        }))}
-                      >
-                        <option value="active">Active</option>
-                        <option value="disabled">Disabled</option>
-                      </select>
-                    </label>
-                    <label className="admin-notes-field">
-                      Notes
-                      <textarea
-                        placeholder="Notes"
-                        rows={2}
-                        value={String(draft.notes ?? "")}
-                        onChange={(event) => setUserDrafts((current) => ({
-                          ...current,
-                          [user.id]: { ...(current[user.id] || {}), notes: event.target.value }
-                        }))}
-                      />
-                    </label>
-                  </div>
-                  <div className="admin-user-footer">
-                    <small>Last seen: {formatDateTime(user.lastSeenAt)}</small>
-                    <button type="button" disabled={savingId === user.id} onClick={() => handleSaveUser(user)}>
-                      {savingId === user.id ? "Saving..." : "Save"}
+                    <small className="admin-user-last-seen">Last seen: {formatDateTime(user.lastSeenAt)}</small>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedUserId((current) => current === user.id ? null : user.id)}
+                    >
+                      {isExpanded ? "Close" : "Edit"}
                     </button>
                   </div>
+                  {isExpanded ? (
+                    <>
+                      <div className="admin-user-fields">
+                        <label>
+                          Name
+                          <input
+                            placeholder="Display name"
+                            value={String(draft.displayName ?? "")}
+                            onChange={(event) => setUserDrafts((current) => ({
+                              ...current,
+                              [user.id]: { ...(current[user.id] || {}), displayName: event.target.value }
+                            }))}
+                          />
+                        </label>
+                        <label>
+                          Role
+                          <select
+                            value={String(draft.role ?? user.role)}
+                            onChange={(event) => setUserDrafts((current) => ({
+                              ...current,
+                              [user.id]: { ...(current[user.id] || {}), role: event.target.value }
+                            }))}
+                          >
+                            <option value="member">Member</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </label>
+                        <label>
+                          Status
+                          <select
+                            value={String(draft.status ?? user.status)}
+                            onChange={(event) => setUserDrafts((current) => ({
+                              ...current,
+                              [user.id]: { ...(current[user.id] || {}), status: event.target.value }
+                            }))}
+                          >
+                            <option value="active">Active</option>
+                            <option value="disabled">Disabled</option>
+                          </select>
+                        </label>
+                        <label className="admin-notes-field">
+                          Notes
+                          <textarea
+                            placeholder="Notes"
+                            rows={3}
+                            value={String(draft.notes ?? "")}
+                            onChange={(event) => setUserDrafts((current) => ({
+                              ...current,
+                              [user.id]: { ...(current[user.id] || {}), notes: event.target.value }
+                            }))}
+                          />
+                        </label>
+                      </div>
+                      <div className="admin-user-footer">
+                        <small>Created: {formatDateTime(user.createdAt)}</small>
+                        <button type="button" disabled={savingId === user.id} onClick={() => handleSaveUser(user)}>
+                          {savingId === user.id ? "Saving..." : "Save Changes"}
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
                 </article>
               );
             })}

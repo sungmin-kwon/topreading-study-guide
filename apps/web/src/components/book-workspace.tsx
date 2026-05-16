@@ -284,7 +284,13 @@ type ParsedPagesResponse = {
 };
 
 type ParsedDocumentTool = "preview" | "inspect" | "pages";
-type WorkspaceTab = "source" | "chapters" | "generate" | "sets" | "review" | "export";
+
+type PageMarkerDraft = {
+  chapterNumber: string;
+  pageNumber: string;
+  title: string;
+};
+type WorkspaceTab = "source" | "split" | "chapters" | "generate" | "sets" | "review" | "export";
 type StudySetView = "vocabulary" | "multiple-choice" | "short-answer";
 type ExportFileFormat = "pdf" | "docx";
 type ThemeMode = "light" | "dark";
@@ -306,7 +312,7 @@ type GenerationPlanDraft = {
 };
 type GenerationCountField = keyof Omit<GenerationPlanDraft, "included">;
 
-type UiIconName = "arrowDown" | "arrowLeft" | "arrowRight" | "arrowUp" | "check" | "chevronDown" | "chevronUp" | "fileDocx" | "filePdf" | "globe" | "moon" | "settings" | "star" | "starFilled" | "sun" | "user";
+type UiIconName = "arrowDown" | "arrowLeft" | "arrowRight" | "arrowUp" | "check" | "chevronDown" | "chevronUp" | "fileDocx" | "filePdf" | "globe" | "logOut" | "moon" | "plus" | "settings" | "star" | "starFilled" | "sun" | "trash" | "user";
 
 function UiIcon({ name }: { name: UiIconName }) {
   const paths: Record<UiIconName, ReactNode> = {
@@ -363,7 +369,21 @@ function UiIcon({ name }: { name: UiIconName }) {
         <path d="M12 3a14 14 0 0 0 0 18" />
       </>
     ),
+    logOut: (
+      <>
+        <path d="M10 17l5-5-5-5" />
+        <path d="M15 12H3" />
+        <path d="M21 19V5a2 2 0 0 0-2-2h-6" />
+        <path d="M13 21h6a2 2 0 0 0 2-2" />
+      </>
+    ),
     moon: <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5Z" />,
+    plus: (
+      <>
+        <path d="M12 5v14" />
+        <path d="M5 12h14" />
+      </>
+    ),
     settings: (
       <>
         <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
@@ -383,6 +403,15 @@ function UiIcon({ name }: { name: UiIconName }) {
         <path d="M20 12h2" />
         <path d="m6.34 17.66-1.41 1.41" />
         <path d="m19.07 4.93-1.41 1.41" />
+      </>
+    ),
+    trash: (
+      <>
+        <path d="M4 7h16" />
+        <path d="M10 11v6" />
+        <path d="M14 11v6" />
+        <path d="M6 7l1 14h10l1-14" />
+        <path d="M9 7V4h6v3" />
       </>
     ),
     user: (
@@ -683,7 +712,7 @@ export function BookWorkspace() {
   const [activeParsedToolByDocumentId, setActiveParsedToolByDocumentId] = useState<Record<string, ParsedDocumentTool>>({});
   const [textSearchByParsedDocument, setTextSearchByParsedDocument] = useState<Record<string, string>>({});
   const [manualMarkersByParsedDocument, setManualMarkersByParsedDocument] = useState<Record<string, string>>({});
-  const [pageStartsByParsedDocument, setPageStartsByParsedDocument] = useState<Record<string, string>>({});
+  const [pageMarkersByParsedDocument, setPageMarkersByParsedDocument] = useState<Record<string, PageMarkerDraft[]>>({});
   const [chapters, setChapters] = useState<ChapterSummary[]>([]);
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   const [chapterDetailById, setChapterDetailById] = useState<Record<string, ChapterDetail>>({});
@@ -858,6 +887,7 @@ export function BookWorkspace() {
     : [];
   const hasChapters = chapters.length > 0;
   const hasStudySets = studySetCount > 0;
+  const hasSourceFiles = sourceFiles.length > 0;
 
   useEffect(() => {
     const storedTheme = window.localStorage.getItem("topreading-theme");
@@ -1090,7 +1120,7 @@ export function BookWorkspace() {
     setActiveParsedToolByDocumentId({});
     setTextSearchByParsedDocument({});
     setManualMarkersByParsedDocument({});
-    setPageStartsByParsedDocument({});
+    setPageMarkersByParsedDocument({});
     setChapterDetailById({});
     setChapterEditById({});
     setStudySetsByChapterId({});
@@ -1261,6 +1291,11 @@ export function BookWorkspace() {
       return;
     }
 
+    if (activeWorkspaceTab === "split" && !hasSourceFiles) {
+      setActiveWorkspaceTab("source");
+      return;
+    }
+
     if ((activeWorkspaceTab === "chapters" || activeWorkspaceTab === "generate") && !hasChapters) {
       setActiveWorkspaceTab("source");
       return;
@@ -1269,7 +1304,7 @@ export function BookWorkspace() {
     if ((activeWorkspaceTab === "sets" || activeWorkspaceTab === "review" || activeWorkspaceTab === "export") && !hasStudySets) {
       setActiveWorkspaceTab(hasChapters ? "generate" : "source");
     }
-  }, [activeBook, activeWorkspaceTab, hasChapters, hasStudySets]);
+  }, [activeBook, activeWorkspaceTab, hasChapters, hasSourceFiles, hasStudySets]);
 
   async function handleCreateBook() {
     setIsCreating(true);
@@ -1567,6 +1602,70 @@ export function BookWorkspace() {
       .filter((item) => Number.isInteger(item.pageNumber) && item.pageNumber > 0);
   }
 
+  function getPageMarkerRows(parsedDocumentId: string) {
+    return pageMarkersByParsedDocument[parsedDocumentId] || [{
+      chapterNumber: "1",
+      pageNumber: "",
+      title: "Chapter 1"
+    }];
+  }
+
+  function buildPageStartsText(parsedDocumentId: string) {
+    return getPageMarkerRows(parsedDocumentId)
+      .map((row) => {
+        const pageNumber = row.pageNumber.trim();
+        if (!pageNumber) {
+          return "";
+        }
+
+        const chapterTitle = row.title.trim() || `Chapter ${row.chapterNumber.trim() || ""}`.trim();
+        return chapterTitle ? `${pageNumber} | ${chapterTitle}` : pageNumber;
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  function handleUpdatePageMarker(parsedDocumentId: string, index: number, field: keyof PageMarkerDraft, value: string) {
+    setPageMarkersByParsedDocument((current) => {
+      const rows = current[parsedDocumentId] || getPageMarkerRows(parsedDocumentId);
+      return {
+        ...current,
+        [parsedDocumentId]: rows.map((row, rowIndex) => (
+          rowIndex === index ? { ...row, [field]: value } : row
+        ))
+      };
+    });
+  }
+
+  function handleAddPageMarker(parsedDocumentId: string) {
+    setPageMarkersByParsedDocument((current) => {
+      const rows = current[parsedDocumentId] || getPageMarkerRows(parsedDocumentId);
+      const nextChapterNumber = String(rows.length + 1);
+      return {
+        ...current,
+        [parsedDocumentId]: [
+          ...rows,
+          {
+            chapterNumber: nextChapterNumber,
+            pageNumber: "",
+            title: `Chapter ${nextChapterNumber}`
+          }
+        ]
+      };
+    });
+  }
+
+  function handleRemovePageMarker(parsedDocumentId: string, index: number) {
+    setPageMarkersByParsedDocument((current) => {
+      const rows = current[parsedDocumentId] || getPageMarkerRows(parsedDocumentId);
+      const nextRows = rows.filter((_, rowIndex) => rowIndex !== index);
+      return {
+        ...current,
+        [parsedDocumentId]: nextRows.length ? nextRows : getPageMarkerRows(parsedDocumentId)
+      };
+    });
+  }
+
   async function handleCreateChapters(parsedDocument: ParsedDocument, markersText = "", pageStartsText = "") {
     if (!activeBook) {
       return;
@@ -1637,6 +1736,10 @@ export function BookWorkspace() {
       ...current,
       [parsedDocument.id]: payload.pages as ParsedPageSummary[]
     }));
+    setPageMarkersByParsedDocument((current) => current[parsedDocument.id] ? current : {
+      ...current,
+      [parsedDocument.id]: getPageMarkerRows(parsedDocument.id)
+    });
     setActiveParsedToolByDocumentId((current) => ({
       ...current,
       [parsedDocument.id]: "pages"
@@ -1822,6 +1925,11 @@ export function BookWorkspace() {
       return next;
     });
     setParsedPagesByDocumentId((current) => {
+      const next = { ...current };
+      delete next[parsedDocument.id];
+      return next;
+    });
+    setPageMarkersByParsedDocument((current) => {
       const next = { ...current };
       delete next[parsedDocument.id];
       return next;
@@ -2989,6 +3097,14 @@ export function BookWorkspace() {
                   <strong>{uiLanguage === "ko" ? "English" : "한국어"}</strong>
                 </span>
               </button>
+              <a className="preference-row preference-row-danger" href="/api/logout" role="menuitem">
+                <span className="preference-icon">
+                  <UiIcon name="logOut" />
+                </span>
+                <span>
+                  <strong>{t("Log out", "로그아웃")}</strong>
+                </span>
+              </a>
               {currentUserIsAdmin ? (
               <a className="preference-row" href="/admin" role="menuitem">
                 <span className="preference-icon">
@@ -3061,6 +3177,15 @@ export function BookWorkspace() {
                 onClick={() => setActiveWorkspaceTab("source")}
               >
                 {t("Source", "원본")}
+              </button>
+              <button
+                className={activeWorkspaceTab === "split" ? "active" : ""}
+                type="button"
+                disabled={!activeBook || !hasSourceFiles}
+                title={!activeBook ? t("Create or select a book first.", "먼저 책을 만들거나 선택하세요.") : !hasSourceFiles ? t("Upload a source file first.", "먼저 원본 파일을 업로드하세요.") : t("Split extracted text into chapters.", "추출된 텍스트를 챕터로 나눕니다.")}
+                onClick={() => setActiveWorkspaceTab("split")}
+              >
+                {t("Split", "분할")}
               </button>
               <button
                 className={activeWorkspaceTab === "chapters" ? "active" : ""}
@@ -3376,12 +3501,13 @@ export function BookWorkspace() {
 
         <div className="workspace-scroll">
         <div className="workspace-stack">
-          {activeWorkspaceTab === "source" ? (
+          {activeWorkspaceTab === "source" || activeWorkspaceTab === "split" ? (
           <section className="source-panel">
             <div className="panel-title-row">
-              <h3>{t("Files", "파일")}</h3>
+              <h3>{activeWorkspaceTab === "split" ? t("Split text", "텍스트 분할") : t("Files", "파일")}</h3>
             </div>
 
+            {activeWorkspaceTab === "source" ? (
             <form className="upload-form" onSubmit={handleSourceUpload}>
               <label className="file-picker">
                 <span className="file-picker-button">{t("Browse...", "파일 선택...")}</span>
@@ -3399,117 +3525,80 @@ export function BookWorkspace() {
                 {isUploading ? t("Uploading...", "업로드 중...") : t("Upload Source", "원본 업로드")}
               </button>
             </form>
+            ) : null}
 
             <div className="source-list">
               {isLoadingSources ? <p className="muted-text">{t("Loading source files...", "원본 파일을 불러오는 중...")}</p> : null}
               {!isLoadingSources && activeBook && sourceFiles.length === 0 ? (
                 <div className="empty-state">
-                  <strong>{t("No source files yet", "아직 원본 파일이 없습니다")}</strong>
-                  <p>{t("Upload a PDF, EPUB, or TXT file to begin extracting book text.", "책 텍스트를 추출하려면 PDF, EPUB 또는 TXT 파일을 업로드하세요.")}</p>
+                  <strong>{activeWorkspaceTab === "split" ? t("No source files to split", "분할할 원본 파일이 없습니다") : t("No source files yet", "아직 원본 파일이 없습니다")}</strong>
+                  <p>{activeWorkspaceTab === "split" ? t("Upload a source file and extract text before splitting chapters.", "챕터를 나누기 전에 원본 파일을 업로드하고 텍스트를 추출하세요.") : t("Upload a PDF, EPUB, or TXT file to begin extracting book text.", "책 텍스트를 추출하려면 PDF, EPUB 또는 TXT 파일을 업로드하세요.")}</p>
                 </div>
               ) : null}
               {sourceFiles.map((sourceFile) => (
                 <article className="source-card" key={sourceFile.id}>
-                  <div className="source-card-header">
-                    <div>
-                      <h4>{sourceFile.originalFilename}</h4>
-                      <div className="source-meta-row">
-                        <span>{formatBytes(sourceFile.byteSize)}</span>
-                        <span>{sourceFile.uploadStatus}</span>
-                        <span>{sourceFile.originalFilename.split(".").pop()?.toUpperCase() || "FILE"}</span>
+                  {activeWorkspaceTab === "source" ? (
+                  <div className="source-file-module">
+                    <div className="source-card-header">
+                      <div>
+                        <span className="module-label">{t("Uploaded file", "업로드된 파일")}</span>
+                        <h4>{sourceFile.originalFilename}</h4>
+                        <div className="source-meta-row">
+                          <span>{formatBytes(sourceFile.byteSize)}</span>
+                          <span>{sourceFile.originalFilename.split(".").pop()?.toUpperCase() || "FILE"}</span>
+                        </div>
                       </div>
+                      {activeWorkspaceTab === "source" ? (
+                      <div className="button-group">
+                        <button
+                          className="danger-button"
+                          type="button"
+                          disabled={deletingId === sourceFile.id}
+                          onClick={() => handleDeleteSourceFile(sourceFile)}
+                        >
+                          {deletingId === sourceFile.id ? t("Deleting...", "삭제 중...") : t("Delete File", "파일 삭제")}
+                        </button>
+                      </div>
+                      ) : null}
                     </div>
-                    <div className="button-group">
-                      <button
-                        type="button"
-                        disabled={extractingSourceId === sourceFile.id}
-                        onClick={() => handleExtractSource(sourceFile)}
-                      >
-                        {extractingSourceId === sourceFile.id ? t("Extracting...", "추출 중...") : t("Extract Text", "텍스트 추출")}
-                      </button>
-                      <button
-                        className="danger-button"
-                        type="button"
-                        disabled={deletingId === sourceFile.id}
-                        onClick={() => handleDeleteSourceFile(sourceFile)}
-                      >
-                        {deletingId === sourceFile.id ? t("Deleting...", "삭제 중...") : t("Delete Source", "원본 삭제")}
-                      </button>
-                    </div>
-                  </div>
 
-                  <p className="source-path">{sourceFile.storedPath}</p>
+                    <p className="source-path">{sourceFile.storedPath}</p>
+                  </div>
+                  ) : null}
 
                   <div className="source-row-main">
                     <div className="parsed-list">
                       {(parsedDocumentsBySource[sourceFile.id] || []).length === 0 ? (
                         <div className="source-next-step">
-                          <strong>{t("Text not extracted yet", "아직 텍스트가 추출되지 않았습니다")}</strong>
-                          <p>{t("Run extraction to create searchable source text before splitting chapters.", "챕터를 나누기 전에 검색 가능한 원본 텍스트를 추출하세요.")}</p>
+                          <strong>{activeWorkspaceTab === "source" ? t("Text extractor", "텍스트 추출") : t("Text not extracted yet", "아직 텍스트가 추출되지 않았습니다")}</strong>
+                          <p>{activeWorkspaceTab === "split" ? t("Go back to Source and run text extraction before splitting chapters.", "챕터를 나누기 전에 원본 탭으로 돌아가 텍스트 추출을 실행하세요.") : t("Run extraction to create searchable source text before splitting chapters.", "챕터를 나누기 전에 검색 가능한 원본 텍스트를 추출하세요.")}</p>
+                          {activeWorkspaceTab === "source" ? (
+                            <div className="button-group source-next-step-actions">
+                              <button
+                                type="button"
+                                disabled={extractingSourceId === sourceFile.id}
+                                onClick={() => handleExtractSource(sourceFile)}
+                              >
+                                {extractingSourceId === sourceFile.id ? t("Extracting...", "추출 중...") : t("Extract Text", "텍스트 추출")}
+                              </button>
+                            </div>
+                          ) : null}
                         </div>
                       ) : null}
                       {(parsedDocumentsBySource[sourceFile.id] || []).map((parsedDocument) => {
                         const activeParsedTool = activeParsedToolByDocumentId[parsedDocument.id];
+                        const pageMarkerRows = getPageMarkerRows(parsedDocument.id);
 
                         return (
-                        <article className="parsed-row" key={parsedDocument.id}>
+                        <article className={`parsed-row ${activeWorkspaceTab === "split" ? "split-workflow-row" : ""}`} key={parsedDocument.id}>
+                          {activeWorkspaceTab === "source" ? (
                           <div className="parsed-row-header">
                             <div>
-                              <strong>{t("Extracted Text", "추출된 텍스트")}</strong>
+                              <span className="module-label">{t("Extracted text", "추출된 텍스트")}</span>
                               <span>
                                 {t(`${parsedDocument.pageCount} pages`, `${parsedDocument.pageCount}쪽`)} · {t(`${parsedDocument.wordCount.toLocaleString()} words`, `${parsedDocument.wordCount.toLocaleString()}단어`)} · {parsedDocument.parserName}
                               </span>
                             </div>
-                          </div>
-                          <div className="parsed-action-bar">
-                            <div className="button-group parsed-primary-actions">
-                              <button
-                                type="button"
-                                disabled={splittingParsedDocumentId === parsedDocument.id}
-                                onClick={() => handleCreateChapters(parsedDocument)}
-                              >
-                                {splittingParsedDocumentId === parsedDocument.id ? t("Creating...", "생성 중...") : t("Create chapters", "챕터 생성")}
-                              </button>
-                            </div>
-                            <div className="parsed-secondary-actions">
-                              <div className="button-group parsed-tool-actions" aria-label={t("Text tools", "텍스트 도구")}>
-                                <button
-                                  className={activeParsedTool === "preview" ? "active-tool-button" : ""}
-                                  type="button"
-                                  disabled={previewingParsedDocumentId === parsedDocument.id}
-                                  onClick={() => handlePreviewSplit(parsedDocument)}
-                                >
-                                  {previewingParsedDocumentId === parsedDocument.id
-                                    ? t("Previewing...", "미리보기 중...")
-                                    : activeParsedTool === "preview"
-                                      ? t("Hide preview", "미리보기 숨기기")
-                                      : t("Preview", "미리보기")}
-                                </button>
-                                <button
-                                  className={activeParsedTool === "inspect" ? "active-tool-button" : ""}
-                                  type="button"
-                                  disabled={loadingTextParsedDocumentId === parsedDocument.id}
-                                  onClick={() => handleLoadParsedText(parsedDocument)}
-                                >
-                                  {loadingTextParsedDocumentId === parsedDocument.id
-                                    ? t("Loading...", "불러오는 중...")
-                                    : activeParsedTool === "inspect"
-                                      ? t("Hide text", "텍스트 숨기기")
-                                      : t("Inspect", "검사")}
-                                </button>
-                                <button
-                                  className={activeParsedTool === "pages" ? "active-tool-button" : ""}
-                                  type="button"
-                                  disabled={loadingPagesParsedDocumentId === parsedDocument.id}
-                                  onClick={() => handleLoadPages(parsedDocument)}
-                                >
-                                  {loadingPagesParsedDocumentId === parsedDocument.id
-                                    ? t("Loading...", "불러오는 중...")
-                                    : activeParsedTool === "pages"
-                                      ? t("Hide pages", "페이지 숨기기")
-                                      : t("Pages", "페이지")}
-                                </button>
-                              </div>
                               <div className="button-group parsed-danger-actions">
                                 <button
                                   className="danger-button"
@@ -3517,18 +3606,79 @@ export function BookWorkspace() {
                                   disabled={deletingId === parsedDocument.id}
                                   onClick={() => handleDeleteParsedDocument(sourceFile, parsedDocument)}
                                 >
-                                  {deletingId === parsedDocument.id ? t("Deleting...", "삭제 중...") : t("Delete text", "텍스트 삭제")}
+                                  {deletingId === parsedDocument.id ? t("Deleting...", "삭제 중...") : t("Delete Text", "텍스트 삭제")}
                                 </button>
                               </div>
+                          </div>
+                          ) : null}
+                          {activeWorkspaceTab === "split" ? (
+                          <div className="split-method-section">
+                            <div className="split-method-header">
+                              <div>
+                                <div className="split-text-meta">
+                                  <span className="module-label">{t("Extracted text", "추출된 텍스트")}</span>
+                                  <span>
+                                    {t(`${parsedDocument.pageCount} pages`, `${parsedDocument.pageCount}쪽`)} · {t(`${parsedDocument.wordCount.toLocaleString()} words`, `${parsedDocument.wordCount.toLocaleString()}단어`)} · {parsedDocument.parserName}
+                                  </span>
+                                </div>
+                                <strong>{t("Choose a splitting method", "분할 방식 선택")}</strong>
+                              </div>
+                            </div>
+                            <div className="split-mode-grid" aria-label={t("Split methods", "분할 방식")}>
+                              <button
+                                className={`split-mode-card ${activeParsedTool === "preview" ? "active" : ""}`}
+                                type="button"
+                                disabled={previewingParsedDocumentId === parsedDocument.id}
+                                onClick={() => handlePreviewSplit(parsedDocument)}
+                              >
+                                <span className="split-mode-card-label">{activeParsedTool === "preview" ? t("Selected", "선택됨") : t("Recommended", "추천")}</span>
+                                <strong>{t("Heading detection", "제목 감지")}</strong>
+                                <span>
+                                  {previewingParsedDocumentId === parsedDocument.id
+                                    ? t("Checking chapter headings...", "챕터 제목을 확인하는 중...")
+                                    : t("Detect chapter headings, review candidates, then create chapters.", "챕터 제목 후보를 감지하고 검토한 뒤 챕터를 만듭니다.")}
+                                </span>
+                              </button>
+                              <button
+                                className={`split-mode-card ${activeParsedTool === "inspect" ? "active" : ""}`}
+                                type="button"
+                                disabled={loadingTextParsedDocumentId === parsedDocument.id}
+                                onClick={() => handleLoadParsedText(parsedDocument)}
+                              >
+                                <span className="split-mode-card-label">{activeParsedTool === "inspect" ? t("Selected", "선택됨") : t("Manual", "수동")}</span>
+                                <strong>{t("Text starts", "텍스트 시작점")}</strong>
+                                <span>
+                                  {loadingTextParsedDocumentId === parsedDocument.id
+                                    ? t("Loading extracted text...", "추출 텍스트를 불러오는 중...")
+                                    : t("Search the book text and paste exact phrases where chapters begin.", "책 텍스트를 검색하고 챕터가 시작되는 정확한 문구를 붙여 넣습니다.")}
+                                </span>
+                              </button>
+                              <button
+                                className={`split-mode-card ${activeParsedTool === "pages" ? "active" : ""}`}
+                                type="button"
+                                disabled={loadingPagesParsedDocumentId === parsedDocument.id}
+                                onClick={() => handleLoadPages(parsedDocument)}
+                              >
+                                <span className="split-mode-card-label">{activeParsedTool === "pages" ? t("Selected", "선택됨") : t("Manual", "수동")}</span>
+                                <strong>{t("Page starts", "페이지 시작점")}</strong>
+                                <span>
+                                  {loadingPagesParsedDocumentId === parsedDocument.id
+                                    ? t("Loading page previews...", "페이지 미리보기를 불러오는 중...")
+                                    : t("Enter each chapter's starting page using a structured table.", "구조화된 표에 각 챕터의 시작 페이지를 입력합니다.")}
+                                </span>
+                              </button>
                             </div>
                           </div>
-                          <p>{parsedDocument.preview || t("No preview available.", "미리보기가 없습니다.")}</p>
-                          {activeParsedTool === "inspect" && parsedDocumentDetailById[parsedDocument.id] ? (
+                          ) : null}
+                          {activeWorkspaceTab === "source" ? (
+                            <p>{parsedDocument.preview || t("No preview available.", "미리보기가 없습니다.")}</p>
+                          ) : null}
+                          {activeWorkspaceTab === "split" && activeParsedTool === "inspect" && parsedDocumentDetailById[parsedDocument.id] ? (
                             <div className="text-inspector">
                               <div className="tool-panel-header">
                                 <div>
-                                  <strong>{t("Inspect extracted text", "추출된 텍스트 검사")}</strong>
-                                  <span>{t("Search the full parse or create chapters from exact text markers.", "전체 추출 텍스트를 검색하거나 정확한 텍스트 표시로 챕터를 만들 수 있습니다.")}</span>
+                                  <strong>{t("Text marker split", "텍스트 표시 분할")}</strong>
+                                  <span>{t("Search the full text and paste one chapter-start phrase per line.", "전체 텍스트를 검색하고 챕터 시작 문구를 한 줄에 하나씩 붙여 넣으세요.")}</span>
                                 </div>
                                 <button type="button" onClick={() => handleCloseParsedTool(parsedDocument.id)}>{t("Close", "닫기")}</button>
                               </div>
@@ -3545,7 +3695,7 @@ export function BookWorkspace() {
                                   />
                                 </label>
                                 <label>
-                                  {t("Manual chapter markers", "수동 챕터 표시")}
+                                  {t("Chapter start phrases", "챕터 시작 문구")}
                                   <textarea
                                     rows={5}
                                     value={manualMarkersByParsedDocument[parsedDocument.id] || ""}
@@ -3570,33 +3720,73 @@ export function BookWorkspace() {
                                   disabled={!manualMarkersByParsedDocument[parsedDocument.id]?.trim() || splittingParsedDocumentId === parsedDocument.id}
                                   onClick={() => handleCreateChapters(parsedDocument, manualMarkersByParsedDocument[parsedDocument.id] || "")}
                                 >
-                                  {splittingParsedDocumentId === parsedDocument.id ? t("Creating...", "생성 중...") : t("Create From Markers", "표시로 챕터 생성")}
+                                  {splittingParsedDocumentId === parsedDocument.id ? t("Creating...", "생성 중...") : t("Create Chapters from Text Starts", "텍스트 시작점으로 챕터 생성")}
                                 </button>
                               </div>
                             </div>
                           ) : null}
-                          {activeParsedTool === "pages" && parsedPagesByDocumentId[parsedDocument.id] ? (
+                          {activeWorkspaceTab === "split" && activeParsedTool === "pages" && parsedPagesByDocumentId[parsedDocument.id] ? (
                             <div className="page-splitter">
                               <div className="tool-panel-header">
                                 <div>
-                                  <strong>{t("Page-based split", "페이지 기준 분할")}</strong>
+                                  <strong>{t("Page start split", "페이지 시작점 분할")}</strong>
                                   <span>{t(`${parsedPagesByDocumentId[parsedDocument.id].length} extracted pages available`, `추출된 페이지 ${parsedPagesByDocumentId[parsedDocument.id].length}개 사용 가능`)}</span>
                                 </div>
                                 <button type="button" onClick={() => handleCloseParsedTool(parsedDocument.id)}>{t("Close", "닫기")}</button>
                               </div>
                               <div className="inspector-grid">
-                                <label>
-                                  {t("Chapter start pages", "챕터 시작 페이지")}
-                                  <textarea
-                                    rows={6}
-                                    value={pageStartsByParsedDocument[parsedDocument.id] || ""}
-                                    onChange={(event) => setPageStartsByParsedDocument((current) => ({
-                                      ...current,
-                                      [parsedDocument.id]: event.target.value
-                                    }))}
-                                    placeholder={"One start page per line.\nExample: 12 | Chapter I"}
-                                  />
-                                </label>
+                                <div className="page-marker-editor">
+                                  <div className="page-marker-editor-header">
+                                    <strong>{t("Chapter start list", "챕터 시작 목록")}</strong>
+                                    <button className="compact-icon-command" type="button" onClick={() => handleAddPageMarker(parsedDocument.id)}>
+                                      <UiIcon name="plus" />
+                                      {t("Add Chapter", "챕터 추가")}
+                                    </button>
+                                  </div>
+                                  <div className="page-marker-table" role="table" aria-label={t("Chapter start list", "챕터 시작 목록")}>
+                                    <div className="page-marker-table-head" role="row">
+                                      <span>{t("Chapter", "챕터")}</span>
+                                      <span>{t("Start page", "시작 페이지")}</span>
+                                      <span>{t("Title", "제목")}</span>
+                                      <span>{t("Action", "작업")}</span>
+                                    </div>
+                                    {pageMarkerRows.map((row, index) => (
+                                      <div className="page-marker-row" role="row" key={`${parsedDocument.id}-${index}`}>
+                                        <label aria-label={t("Chapter", "챕터")}>
+                                          <input
+                                            inputMode="numeric"
+                                            value={row.chapterNumber}
+                                            onChange={(event) => handleUpdatePageMarker(parsedDocument.id, index, "chapterNumber", event.target.value)}
+                                          />
+                                        </label>
+                                        <label aria-label={t("Start page", "시작 페이지")}>
+                                          <input
+                                            inputMode="numeric"
+                                            value={row.pageNumber}
+                                            onChange={(event) => handleUpdatePageMarker(parsedDocument.id, index, "pageNumber", event.target.value)}
+                                            placeholder={index === 0 ? "1" : ""}
+                                          />
+                                        </label>
+                                        <label aria-label={t("Title", "제목")}>
+                                          <input
+                                            value={row.title}
+                                            onChange={(event) => handleUpdatePageMarker(parsedDocument.id, index, "title", event.target.value)}
+                                          />
+                                        </label>
+                                        <button
+                                          className="icon-only-button danger-icon-button"
+                                          type="button"
+                                          disabled={pageMarkerRows.length === 1}
+                                          onClick={() => handleRemovePageMarker(parsedDocument.id, index)}
+                                          title={t("Remove chapter row", "챕터 행 삭제")}
+                                        >
+                                          <UiIcon name="trash" />
+                                          <span className="sr-only">{t("Remove chapter row", "챕터 행 삭제")}</span>
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
                                 <div className="page-preview-list">
                                   {parsedPagesByDocumentId[parsedDocument.id].length === 0 ? (
                                     <p className="muted-text">{t("No page rows found. Delete this extracted text and run Extract Text again.", "페이지 행을 찾을 수 없습니다. 이 추출 텍스트를 삭제한 뒤 텍스트 추출을 다시 실행하세요.")}</p>
@@ -3613,21 +3803,21 @@ export function BookWorkspace() {
                               <div className="button-group inspector-actions">
                                 <button
                                   type="button"
-                                  disabled={!pageStartsByParsedDocument[parsedDocument.id]?.trim() || splittingParsedDocumentId === parsedDocument.id}
-                                  onClick={() => handleCreateChapters(parsedDocument, "", pageStartsByParsedDocument[parsedDocument.id] || "")}
+                                  disabled={!buildPageStartsText(parsedDocument.id) || splittingParsedDocumentId === parsedDocument.id}
+                                  onClick={() => handleCreateChapters(parsedDocument, "", buildPageStartsText(parsedDocument.id))}
                                 >
-                                  {splittingParsedDocumentId === parsedDocument.id ? t("Creating...", "생성 중...") : t("Create From Pages", "페이지로 챕터 생성")}
+                                  {splittingParsedDocumentId === parsedDocument.id ? t("Creating...", "생성 중...") : t("Create Chapters from Page Starts", "페이지 시작점으로 챕터 생성")}
                                 </button>
                               </div>
                             </div>
                           ) : null}
-                          {activeParsedTool === "preview" && splitPreviewByParsedDocument[parsedDocument.id] ? (
+                          {activeWorkspaceTab === "split" && activeParsedTool === "preview" && splitPreviewByParsedDocument[parsedDocument.id] ? (
                             <div className="split-preview">
                               <div className="tool-panel-header">
                                 <div>
                                   <strong>
                                     {splitPreviewByParsedDocument[parsedDocument.id].strategy === "heading"
-                                      ? t("Heading split preview", "제목 기준 분할 미리보기")
+                                      ? t("Heading detection", "제목 감지")
                                       : t("Single-chapter fallback", "단일 챕터 대체 방식")}
                                   </strong>
                                   <span>
@@ -3654,6 +3844,15 @@ export function BookWorkspace() {
                                     <p>{candidate.context}</p>
                                   </article>
                                 ))}
+                              </div>
+                              <div className="button-group inspector-actions">
+                                <button
+                                  type="button"
+                                  disabled={splittingParsedDocumentId === parsedDocument.id}
+                                  onClick={() => handleCreateChapters(parsedDocument)}
+                                >
+                                  {splittingParsedDocumentId === parsedDocument.id ? t("Creating...", "생성 중...") : t("Create Chapters from Headings", "제목으로 챕터 생성")}
+                                </button>
                               </div>
                             </div>
                           ) : null}
@@ -4042,7 +4241,7 @@ export function BookWorkspace() {
                   disabled={chapters.length === 0 || deletingId === "chapters"}
                   onClick={handleClearChapters}
                 >
-                  {deletingId === "chapters" ? t("Clearing...", "삭제 중...") : t("Clear Chapters", "챕터 모두 삭제")}
+                  {deletingId === "chapters" ? t("Clearing...", "삭제 중...") : t("Clear All Chapters", "모든 챕터 삭제")}
                 </button>
               ) : null}
             </div>
