@@ -101,10 +101,30 @@ PYTHON
 
 The command intentionally stops if the staging directory already exists; inspect it instead of overwriting it. The capacity check is needed before running a production build alongside the current application. No dependencies are installed and no services are restarted by this preparation step.
 
-After confirming capacity and backup availability:
+The user's Ubuntu host reported 6.3 GiB available memory, 421 GiB free disk space and Docker 29.3.0. This is sufficient for the initial native-app/PostgreSQL rehearsal.
 
-1. Copy the baseline into staging, start a separate PostgreSQL instance and perform the verified import/application migrations below. Use separate credentials and copied upload/export directories.
-2. Build and run the staging app on a different port. Leave its OpenAI key unset while checking login, reading, editing and export, so this rehearsal cannot make paid generation calls.
+Prepare the staged database and build with the checked-in helper:
+
+```bash
+(
+  set -e
+  cd /home/sungmin-kwon/topreading-staging
+  git pull --ff-only
+  python3 scripts/setup-ubuntu-staging.py \
+    --baseline /home/sungmin-kwon/topreading-study-guide/backups/migration-baseline-xuWh81Xw/topreading-backup-20261023_113708
+)
+```
+
+The helper verifies and copies the backup, installs a staging Python environment and npm dependencies, and starts **only** `topreading-staging-postgres` with its own `topreading-staging-pgdata` volume. PostgreSQL is bound to `127.0.0.1:55433` and limited to 768 MiB of memory. It imports into `topreading_staging`, applies migrations, grants a separate non-owner application role, and builds with a 3 GiB Node heap limit at reduced CPU priority. It preserves copied data/configuration on reruns, rejects unrelated containers/volumes, and stops if the staging web port is already occupied. The original snapshot is a rehearsal baseline, not a fresh production cutover snapshot.
+
+The script prints `STAGING PREPARATION PASSED` when complete. It leaves the staging app stopped and its new Access AUD blank. It does not install a systemd unit, change Cloudflare routing, copy production secrets or configure an OpenAI key. Generated credentials are kept in mode-0600 files under `.env.local` and `backups/ubuntu-staging/`; do not post those files. Keep the setup state with the database volume because it is needed to resume safely.
+
+If Python reports that `venv`/`ensurepip` is unavailable, install the Ubuntu `python3-venv` package and rerun. If a native npm dependency needs a compiler, install `build-essential`. Do not run the whole helper with `sudo`; it requests sudo for Docker only when necessary. No cleanup command removes the database automatically.
+
+After preparation:
+
+1. Review the preparation result and imported library counts. The existing four users and their roles/memberships are imported; confirm the intended administrator account during sign-in.
+2. Configure a separate staging service on port 3100 after the staging Access settings are ready. Leave its OpenAI key unset while checking login, reading, editing and export.
 3. Create a separate self-hosted Cloudflare Access application for a staging hostname (proposed: `top-staging.dubugimchi.com`) with the same family admission rules. Protect it before publishing its tunnel route. Use that application's **own** AUD, the existing team domain, and the staging hostname as `APP_BASE_URL`. The supplied production AUD belongs to `topreading` and must not be assumed to cover the new application.
 4. Route only the staging hostname through the tunnel/proxy to the staging port. Test a real family-member login, an account excluded by policy, a disabled application user, and direct-origin requests without a signed assertion. Confirm library data and exports before planning the VPS deployment.
 
@@ -161,6 +181,7 @@ Browser checks require Playwright/Chromium; `PLAYWRIGHT_MODULE` and `CHROMIUM_EX
 ## Rehearsal results (2026-10-23 UTC)
 
 - Production build and type checking passed.
+- The Ubuntu staging helper passed an end-to-end disposable rehearsal: dependency installation, copied-backup verification/import, PostgreSQL role restrictions and production build. A second run retained staging writes, files and configuration. Changed-backup, unrelated-container/volume, missing-configuration, simultaneous-run and wrong-checkout refusals were exercised.
 - The restored PostgreSQL library passed browser checks for saved-book navigation, default library landing, chapter/question edits, failed-save retry, reload persistence, guide versions, PDF/DOCX export, and Korean/dark mobile layouts.
 - A temporary TXT book passed upload, extraction, two-chapter creation, generation-setup and deletion checks without calling an AI model.
 - All 40 book-resource handlers rejected another library's user and anonymous access. Actual Auth.js session retrieval and CSRF-protected sign-out passed; forged headers/cookies, expired/revoked sessions, disabled admins and uninvited/unverified Google identities were rejected.
