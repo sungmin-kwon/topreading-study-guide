@@ -401,8 +401,8 @@ export function AdminConsole() {
           <div className="admin-section-header">
             <div>
               <p className="admin-eyebrow">Parameters</p>
-              <h2>.env.local</h2>
-              <p>Changes are saved to the server environment file.</p>
+              <h2>Generation settings</h2>
+              <p>Settings are saved to the database. Login, secrets and storage paths are managed on the server.</p>
             </div>
             <button type="submit" disabled={isSavingSettings}>{isSavingSettings ? "Saving..." : "Save Settings"}</button>
           </div>

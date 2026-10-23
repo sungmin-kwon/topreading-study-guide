@@ -1,110 +1,124 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, pgSchema, text, uuid, timestamp, bigint, customType, primaryKey } from "drizzle-orm/pg-core";
+const schemaName = process.env.DATABASE_SCHEMA || "topreading";
+if (!/^[a-z][a-z0-9_]*$/.test(schemaName) || schemaName === "public") throw new Error("Use a dedicated DATABASE_SCHEMA");
+export const appSchema = pgSchema(schemaName);
+// Preserve the existing service boundary (JSON strings and ISO timestamps).
+// PostgreSQL stores validated JSONB rather than opaque text.
+const jsonString = customType<{ data: string; driverData: unknown }>({
+  dataType: () => "jsonb",
+  toDriver: value => JSON.stringify(JSON.parse(value)),
+  fromDriver: value => JSON.stringify(value)
+});
+const isoTime = (name: string) => timestamp(name, { withTimezone: true, mode: "string" });
 
-export const users = sqliteTable("users", {
-  id: text("id").primaryKey(),
+export const users = appSchema.table("users", {
+  id: uuid("id").primaryKey(),
   email: text("email").notNull().unique(),
   displayName: text("display_name"),
   role: text("role").notNull().default("member"),
   status: text("status").notNull().default("active"),
   notes: text("notes"),
-  lastSeenAt: text("last_seen_at"),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull()
+  lastSeenAt: isoTime("last_seen_at"),
+  createdAt: isoTime("created_at").notNull(),
+  updatedAt: isoTime("updated_at").notNull()
 });
 
-export const books = sqliteTable("books", {
-  id: text("id").primaryKey(),
+export const books = appSchema.table("books", {
+  libraryId: uuid("library_id").notNull(),
+  id: uuid("id").primaryKey(),
   title: text("title").notNull(),
   author: text("author"),
   readingLevel: text("reading_level"),
-  activeGenerationRunId: text("active_generation_run_id"),
-  pinnedAt: text("pinned_at"),
+  activeGenerationRunId: uuid("active_generation_run_id"),
+  pinnedAt: isoTime("pinned_at"),
   status: text("status").notNull().default("draft"),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull()
+  createdAt: isoTime("created_at").notNull(),
+  updatedAt: isoTime("updated_at").notNull()
 });
 
-export const sourceFiles = sqliteTable("source_files", {
-  id: text("id").primaryKey(),
-  bookId: text("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
+export const sourceFiles = appSchema.table("source_files", {
+  id: uuid("id").primaryKey(),
+  bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
   originalFilename: text("original_filename").notNull(),
   storedPath: text("stored_path").notNull(),
   mimeType: text("mime_type").notNull(),
-  byteSize: integer("byte_size").notNull(),
+  byteSize: bigint("byte_size", { mode: "number" }).notNull(),
   sha256: text("sha256").notNull(),
   uploadStatus: text("upload_status").notNull().default("uploaded"),
-  createdAt: text("created_at").notNull()
+  createdAt: isoTime("created_at").notNull()
 });
 
-export const parsedDocuments = sqliteTable("parsed_documents", {
-  id: text("id").primaryKey(),
-  sourceFileId: text("source_file_id").notNull().references(() => sourceFiles.id, { onDelete: "cascade" }),
+export const parsedDocuments = appSchema.table("parsed_documents", {
+  id: uuid("id").primaryKey(),
+  sourceFileId: uuid("source_file_id").notNull().references(() => sourceFiles.id, { onDelete: "cascade" }),
   parserName: text("parser_name").notNull(),
   parserVersion: text("parser_version").notNull(),
   textContent: text("text_content").notNull(),
   pageCount: integer("page_count").notNull(),
   wordCount: integer("word_count").notNull(),
-  metadataJson: text("metadata_json").notNull(),
-  createdAt: text("created_at").notNull()
+  metadataJson: jsonString("metadata_json").notNull(),
+  createdAt: isoTime("created_at").notNull()
 });
 
-export const parsedPages = sqliteTable("parsed_pages", {
-  id: text("id").primaryKey(),
-  parsedDocumentId: text("parsed_document_id").notNull().references(() => parsedDocuments.id, { onDelete: "cascade" }),
+export const parsedPages = appSchema.table("parsed_pages", {
+  id: uuid("id").primaryKey(),
+  parsedDocumentId: uuid("parsed_document_id").notNull().references(() => parsedDocuments.id, { onDelete: "cascade" }),
   pageNumber: integer("page_number").notNull(),
   textContent: text("text_content").notNull(),
   wordCount: integer("word_count").notNull(),
-  createdAt: text("created_at").notNull()
+  createdAt: isoTime("created_at").notNull()
 });
 
-export const chapters = sqliteTable("chapters", {
-  id: text("id").primaryKey(),
-  bookId: text("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
-  parsedDocumentId: text("parsed_document_id").notNull().references(() => parsedDocuments.id, { onDelete: "cascade" }),
+export const chapters = appSchema.table("chapters", {
+  id: uuid("id").primaryKey(),
+  currentRevisionId: uuid("current_revision_id"),
+  bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
+  parsedDocumentId: uuid("parsed_document_id").notNull().references(() => parsedDocuments.id, { onDelete: "cascade" }),
   chapterNumber: integer("chapter_number").notNull(),
   title: text("title").notNull().default(""),
   textContent: text("text_content").notNull(),
   wordCount: integer("word_count").notNull(),
   sortOrder: integer("sort_order").notNull(),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull()
+  createdAt: isoTime("created_at").notNull(),
+  updatedAt: isoTime("updated_at").notNull()
 });
 
-export const generationRuns = sqliteTable("generation_runs", {
-  id: text("id").primaryKey(),
-  bookId: text("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
+export const generationRuns = appSchema.table("generation_runs", {
+  id: uuid("id").primaryKey(),
+  bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
   name: text("name"),
   status: text("status").notNull().default("draft"),
-  configJson: text("config_json").notNull().default("{}"),
-  progressJson: text("progress_json").notNull().default("{}"),
-  logJson: text("log_json").notNull().default("[]"),
+  configJson: jsonString("config_json").notNull().default("{}"),
+  progressJson: jsonString("progress_json").notNull().default("{}"),
+  logJson: jsonString("log_json").notNull().default("[]"),
   errorMessage: text("error_message"),
-  startedAt: text("started_at").notNull(),
-  finishedAt: text("finished_at"),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull()
+  startedAt: isoTime("started_at").notNull(),
+  finishedAt: isoTime("finished_at"),
+  createdAt: isoTime("created_at").notNull(),
+  updatedAt: isoTime("updated_at").notNull()
 });
 
-export const studySets = sqliteTable("study_sets", {
-  id: text("id").primaryKey(),
-  bookId: text("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
-  generationRunId: text("generation_run_id").references(() => generationRuns.id, { onDelete: "set null" }),
-  chapterId: text("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+export const studySets = appSchema.table("study_sets", {
+  id: uuid("id").primaryKey(),
+  bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
+  generationRunId: uuid("generation_run_id").references(() => generationRuns.id, { onDelete: "set null" }),
+  chapterId: uuid("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
   title: text("title").notNull(),
   status: text("status").notNull().default("draft"),
   generator: text("generator").notNull().default("manual"),
   model: text("model"),
   promptVersion: text("prompt_version"),
-  settingsJson: text("settings_json").notNull().default("{}"),
-  rawOutputJson: text("raw_output_json"),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull()
+  settingsJson: jsonString("settings_json").notNull().default("{}"),
+  rawOutputJson: jsonString("raw_output_json"),
+  createdAt: isoTime("created_at").notNull(),
+  updatedAt: isoTime("updated_at").notNull()
 });
 
-export const vocabularyItems = sqliteTable("vocabulary_items", {
-  id: text("id").primaryKey(),
-  studySetId: text("study_set_id").notNull().references(() => studySets.id, { onDelete: "cascade" }),
-  chapterId: text("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+export const vocabularyItems = appSchema.table("vocabulary_items", {
+  id: uuid("id").primaryKey(),
+  studySetId: uuid("study_set_id").notNull().references(() => studySets.id, { onDelete: "cascade" }),
+  chapterId: uuid("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+  chapterRevisionId: uuid("chapter_revision_id"),
   term: text("term").notNull(),
   definition: text("definition").notNull(),
   contextSentence: text("context_sentence"),
@@ -112,30 +126,32 @@ export const vocabularyItems = sqliteTable("vocabulary_items", {
   difficulty: text("difficulty"),
   status: text("status").notNull().default("draft"),
   sortOrder: integer("sort_order").notNull(),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull()
+  createdAt: isoTime("created_at").notNull(),
+  updatedAt: isoTime("updated_at").notNull()
 });
 
-export const multipleChoiceQuestions = sqliteTable("multiple_choice_questions", {
-  id: text("id").primaryKey(),
-  studySetId: text("study_set_id").notNull().references(() => studySets.id, { onDelete: "cascade" }),
-  chapterId: text("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+export const multipleChoiceQuestions = appSchema.table("multiple_choice_questions", {
+  id: uuid("id").primaryKey(),
+  studySetId: uuid("study_set_id").notNull().references(() => studySets.id, { onDelete: "cascade" }),
+  chapterId: uuid("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+  chapterRevisionId: uuid("chapter_revision_id"),
   questionText: text("question_text").notNull(),
-  choicesJson: text("choices_json").notNull(),
+  choicesJson: jsonString("choices_json").notNull(),
   correctChoiceIndex: integer("correct_choice_index").notNull(),
   explanation: text("explanation"),
   skill: text("skill"),
   difficulty: text("difficulty"),
   status: text("status").notNull().default("draft"),
   sortOrder: integer("sort_order").notNull(),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull()
+  createdAt: isoTime("created_at").notNull(),
+  updatedAt: isoTime("updated_at").notNull()
 });
 
-export const shortAnswerQuestions = sqliteTable("short_answer_questions", {
-  id: text("id").primaryKey(),
-  studySetId: text("study_set_id").notNull().references(() => studySets.id, { onDelete: "cascade" }),
-  chapterId: text("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+export const shortAnswerQuestions = appSchema.table("short_answer_questions", {
+  id: uuid("id").primaryKey(),
+  studySetId: uuid("study_set_id").notNull().references(() => studySets.id, { onDelete: "cascade" }),
+  chapterId: uuid("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+  chapterRevisionId: uuid("chapter_revision_id"),
   questionText: text("question_text").notNull(),
   suggestedAnswer: text("suggested_answer").notNull(),
   rubric: text("rubric"),
@@ -143,19 +159,20 @@ export const shortAnswerQuestions = sqliteTable("short_answer_questions", {
   difficulty: text("difficulty"),
   status: text("status").notNull().default("draft"),
   sortOrder: integer("sort_order").notNull(),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull()
+  createdAt: isoTime("created_at").notNull(),
+  updatedAt: isoTime("updated_at").notNull()
 });
 
-export const chapterSummaries = sqliteTable("chapter_summaries", {
-  id: text("id").primaryKey(),
-  studySetId: text("study_set_id").notNull().references(() => studySets.id, { onDelete: "cascade" }),
-  chapterId: text("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+export const chapterSummaries = appSchema.table("chapter_summaries", {
+  id: uuid("id").primaryKey(),
+  studySetId: uuid("study_set_id").notNull().references(() => studySets.id, { onDelete: "cascade" }),
+  chapterId: uuid("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+  chapterRevisionId: uuid("chapter_revision_id"),
   summaryText: text("summary_text").notNull(),
   status: text("status").notNull().default("draft"),
   sortOrder: integer("sort_order").notNull(),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull()
+  createdAt: isoTime("created_at").notNull(),
+  updatedAt: isoTime("updated_at").notNull()
 });
 
 export type Book = typeof books.$inferSelect;
@@ -182,3 +199,12 @@ export type ShortAnswerQuestion = typeof shortAnswerQuestions.$inferSelect;
 export type NewShortAnswerQuestion = typeof shortAnswerQuestions.$inferInsert;
 export type ChapterSummaryItem = typeof chapterSummaries.$inferSelect;
 export type NewChapterSummaryItem = typeof chapterSummaries.$inferInsert;
+
+export const libraries = appSchema.table("libraries", { id: uuid("id").primaryKey(), name: text("name").notNull(), createdAt: isoTime("created_at").notNull() });
+export const libraryMemberships = appSchema.table("library_memberships", { libraryId: uuid("library_id").notNull(), userId: uuid("user_id").notNull(), role: text("role").notNull(), createdAt: isoTime("created_at").notNull().defaultNow() }, t => [primaryKey({ columns: [t.libraryId, t.userId] })]);
+
+export const authSessions = appSchema.table("auth_sessions", {
+  tokenHash: text("token_hash").primaryKey(),
+  userId: uuid("user_id").notNull(),
+  expires: isoTime("expires").notNull()
+});

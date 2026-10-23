@@ -17,7 +17,8 @@
     "start": "npm run start --workspace @topreading/web",
     "lint": "npm run lint --workspace @topreading/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "backup": "node scripts/backup-data.mjs"
+    "backup": "node scripts/backup-data.mjs",
+    "db:migrate": "node scripts/apply-postgres-migrations.mjs"
   },
   "overrides": {
     "postcss": "^8.5.31",

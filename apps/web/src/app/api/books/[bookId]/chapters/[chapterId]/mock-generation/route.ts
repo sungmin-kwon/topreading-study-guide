@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireActiveUser } from "@/lib/auth";
+import { requireBookAccess, requireActiveUser } from "@/lib/auth";
 import { getBook } from "@/lib/books";
 import { getChapter } from "@/lib/chapters";
 import { generateMockStudySet } from "@/lib/mock-generator";
@@ -30,6 +30,9 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   const { bookId, chapterId } = await context.params;
+  if (!(await requireBookAccess(request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const book = await getBook(bookId);
   const chapter = book ? await getChapter(chapterId) : null;
 

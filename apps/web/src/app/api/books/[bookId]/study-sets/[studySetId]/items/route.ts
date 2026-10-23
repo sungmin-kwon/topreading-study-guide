@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireActiveUser } from "@/lib/auth";
+import { requireBookAccess, requireActiveUser } from "@/lib/auth";
 import { getStudySetForBook } from "@/lib/study-sets";
 import { appendStudyItems, clearStudyItems, listStudyItems, replaceStudyItems, summarizeStudyItems } from "@/lib/study-items";
 
@@ -38,6 +38,9 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const { bookId, studySetId } = await context.params;
+  if (!(await requireBookAccess(request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const studySet = await getAuthorizedStudySet(bookId, studySetId);
 
   if (!studySet) {
@@ -54,6 +57,9 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   const { bookId, studySetId } = await context.params;
+  if (!(await requireBookAccess(request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const studySet = await getAuthorizedStudySet(bookId, studySetId);
 
   if (!studySet) {
@@ -76,6 +82,9 @@ export async function POST(request: Request, context: RouteContext) {
 
 export async function PUT(request: Request, context: RouteContext) {
   const { bookId, studySetId } = await context.params;
+  if (!(await requireBookAccess(request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const studySet = await getAuthorizedStudySet(bookId, studySetId);
 
   if (!studySet) {
@@ -102,6 +111,9 @@ export async function DELETE(_request: Request, context: RouteContext) {
   }
 
   const { bookId, studySetId } = await context.params;
+  if (!(await requireBookAccess(_request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const studySet = await getAuthorizedStudySet(bookId, studySetId);
 
   if (!studySet) {

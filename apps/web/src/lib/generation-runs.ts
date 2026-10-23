@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, isNull } from "drizzle-orm";
-import { db } from "@/lib/db/client";
+import { atomic, db } from "@/lib/db/client";
 import { books, generationRuns, studySets, type GenerationRun } from "@/lib/db/schema";
 import { listStudyItems } from "@/lib/study-items";
 import { deleteStudySetsForRun, listStudySetsForRun } from "@/lib/study-sets";
@@ -163,8 +163,10 @@ export async function updateGenerationRun(input: UpdateGenerationRunInput): Prom
 }
 
 export async function deleteGenerationRun(id: string): Promise<void> {
-  await deleteStudySetsForRun(id);
-  await db.delete(generationRuns).where(eq(generationRuns.id, id));
+  return atomic(async () => {
+    await deleteStudySetsForRun(id);
+    await db.delete(generationRuns).where(eq(generationRuns.id, id));
+  });
 }
 
 async function backfillLegacyStudySetsForBook(bookId: string) {

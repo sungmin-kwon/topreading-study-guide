@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth";
+import { userLibrary, requireAdmin } from "@/lib/auth";
 import { createUser, listUsers, summarizeUser } from "@/lib/users";
 
 export const runtime = "nodejs";
@@ -22,7 +22,9 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}));
   try {
-    const user = await createUser(body && typeof body === "object" ? body as Record<string, unknown> : {});
+    const membership = await userLibrary(admin.id, "admin");
+    if (!membership) return NextResponse.json({ error: "Library admin access required." }, { status: 403 });
+    const user = await createUser(body && typeof body === "object" ? body as Record<string, unknown> : {}, membership.libraryId);
     return NextResponse.json({ user: summarizeUser(user) }, { status: 201 });
   } catch (error) {
     return NextResponse.json(

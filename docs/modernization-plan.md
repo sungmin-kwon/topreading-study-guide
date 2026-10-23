@@ -2,7 +2,7 @@
 
 Date: 2026-10-23 (Asia/Seoul)
 
-Status: production backup restored and verified in isolation; UI prototype and PostgreSQL import rehearsal implemented. See [current implementation status](prototype-and-postgres.md). The approved layout is now connected to the existing SQLite application; see [live workspace integration](live-workspace-integration.md). Authentication, durable workers, and the full PostgreSQL application cutover remain pending.
+Status: baseline restored and verified; approved UI is connected to the SQLite service, including the library landing page. The isolated `modernization/postgres-auth` branch implements PostgreSQL runtime, membership checks, verified Cloudflare identity and invite-only Google sessions; see [staging implementation and release gates](postgres-auth-staging.md). Real-provider login/proxy validation, durable workers, object storage, VPS deployment and production cutover remain pending.
 
 ## Goal and scope
 
@@ -17,7 +17,7 @@ Start with an invite-only shared library. Design membership so separate librarie
 | Interface | Next.js; Text, Study guides, and Export destinations within each book |
 | Authentication | Google login through Auth.js, invitations, server-side sessions |
 | Authorization | Library memberships, admin/member roles, resource-level checks |
-| Database | PostgreSQL with version-controlled Drizzle migrations |
+| Database | PostgreSQL with Drizzle queries and version-controlled SQL migrations |
 | File storage | Private S3-compatible storage, such as Cloudflare R2 |
 | Processing | Separate worker with a PostgreSQL-backed queue |
 | Initial hosting | Small VPS running web, worker, and PostgreSQL through Docker Compose |

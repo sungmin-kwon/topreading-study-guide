@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireActiveUser } from "@/lib/auth";
+import { requireBookAccess, requireActiveUser } from "@/lib/auth";
 import { getBook, updateBookActiveGenerationRun } from "@/lib/books";
 import { deleteGenerationRun, getGenerationRun, summarizeGenerationRun, updateGenerationRun } from "@/lib/generation-runs";
 
@@ -24,6 +24,9 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   const { bookId, generationRunId } = await context.params;
+  if (!(await requireBookAccess(request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const run = await getAuthorizedRun(bookId, generationRunId);
 
   if (!run) {
@@ -62,6 +65,9 @@ export async function DELETE(_request: Request, context: RouteContext) {
   }
 
   const { bookId, generationRunId } = await context.params;
+  if (!(await requireBookAccess(_request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const run = await getAuthorizedRun(bookId, generationRunId);
 
   if (!run) {

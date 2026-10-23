@@ -4,13 +4,17 @@ TopReading Study Guide is a private study-guide maker for English reading books.
 
 The app is currently intended for private family/home-server use rather than public multi-tenant hosting.
 
+## Branch status
+
+This branch, `modernization/postgres-auth`, requires PostgreSQL and explicit authentication configuration. Follow the [staging runbook](docs/postgres-auth-staging.md) before running it. The current Ubuntu service stays on the SQLite branch `modernization/prototype-and-postgres`; do not deploy this backend with its existing environment. The legacy setup notes below remain reference material for that service.
+
 ## Modernization Work
 
 See the [implementation and migration plan](docs/modernization-plan.md) for the agreed UI, import, storage, authentication, and cloud-hosting direction. Work starts with the [baseline and restore runbook](docs/baseline-runbook.md). The live application remains on its existing architecture during staged implementation.
 
 The uploaded Ubuntu backup has passed an isolated restore rehearsal; see [production baseline findings](docs/production-baseline-findings.md) for validation, known issues, and remaining work.
 
-The first [UI prototype and PostgreSQL migration foundation](docs/prototype-and-postgres.md) is available at `/prototype`. The prototype uses sample data; the separately invoked migration tool has been rehearsed against the verified backup. The running application still uses SQLite.
+The first [UI prototype and PostgreSQL migration foundation](docs/prototype-and-postgres.md) is available at `/prototype`. The prototype uses sample data; the separately invoked migration tool has been rehearsed against the verified backup. The deployed Ubuntu application still uses SQLite; this separate backend branch uses PostgreSQL.
 
 See [UI behaviors and MCQ quality](docs/ui-behaviors-and-mcq-quality.md) for the device-local preview persistence and the quality pipeline applied to new AI-generated MCQs.
 

@@ -1,5 +1,6 @@
+import { getRuntimeSetting } from "@/lib/admin-settings";
 import { NextResponse } from "next/server";
-import { requireActiveUser } from "@/lib/auth";
+import { requireBookAccess, requireActiveUser } from "@/lib/auth";
 import { getBook } from "@/lib/books";
 import { getChapter } from "@/lib/chapters";
 import { getGeneratingRunForBook, getGenerationRun, summarizeGenerationRun, updateGenerationRun, type GenerationLogEntry } from "@/lib/generation-runs";
@@ -53,8 +54,8 @@ function parseRunConfig(value: unknown): ChapterPlanConfig[] {
     ));
 }
 
-function getPositiveIntegerEnv(name: string, fallback: number) {
-  const value = Number(process.env[name]);
+async function getPositiveIntegerEnv(name: "MAX_GENERATION_CHAPTERS" | "MAX_GENERATION_ITEMS", fallback: number) {
+  const value = Number(await getRuntimeSetting(name));
   return Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
@@ -200,6 +201,9 @@ export async function POST(_request: Request, context: RouteContext) {
   }
 
   const { bookId, generationRunId } = await context.params;
+  if (!(await requireBookAccess(_request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const book = await getBook(bookId);
   const generationRun = book ? await getGenerationRun(generationRunId) : null;
 
@@ -221,12 +225,12 @@ export async function POST(_request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Generation run has no usable chapter plan." }, { status: 400 });
   }
 
-  const maxChaptersPerRun = getPositiveIntegerEnv("MAX_GENERATION_CHAPTERS", 80);
+  const maxChaptersPerRun = await getPositiveIntegerEnv("MAX_GENERATION_CHAPTERS", 80);
   if (chaptersToGenerate.length > maxChaptersPerRun) {
     return NextResponse.json({ error: `This run includes ${chaptersToGenerate.length} chapters. The configured limit is ${maxChaptersPerRun}.` }, { status: 400 });
   }
 
-  const maxItemsPerRun = getPositiveIntegerEnv("MAX_GENERATION_ITEMS", 2500);
+  const maxItemsPerRun = await getPositiveIntegerEnv("MAX_GENERATION_ITEMS", 2500);
   const requestedItems = chaptersToGenerate.reduce((total, chapter) => total + getPlanItemCount(chapter), 0);
   if (requestedItems > maxItemsPerRun) {
     return NextResponse.json({ error: `This run requests ${requestedItems} generated items. The configured limit is ${maxItemsPerRun}.` }, { status: 400 });
@@ -256,7 +260,7 @@ export async function POST(_request: Request, context: RouteContext) {
     chapter: null,
     title: generationRun.name || `${book.title} - ${nowIso().slice(0, 16).replace("T", " ")}`,
     generator: "openai",
-    model: process.env.OPENAI_MODEL || null,
+    model: await getRuntimeSetting("OPENAI_MODEL"),
     promptVersion: "openai-study-guide-v2-mcq-quality",
     settings: JSON.parse(generationRun.configJson || "{}")
   });
@@ -351,7 +355,7 @@ export async function POST(_request: Request, context: RouteContext) {
       if (reviewCount) runLog = [...runLog, logEntry("warn", `${reviewCount} MCQ(s) in Chapter ${chapter.chapterNumber} need human review after quality checks.`)];
       const deduplicated = filterDuplicateVocabularyItems(result.generatedItems, seenVocabularyTerms);
       skippedDuplicateVocabularyCount += deduplicated.skippedTerms.length;
-      await appendStudyItems(runStudySet.id, deduplicated.generatedItems, { chapterId: chapter.id });
+      await appendStudyItems(runStudySet.id, deduplicated.generatedItems, { chapterId: chapter.id, chapterRevisionId: chapter.currentRevisionId });
       completedChapters = index + 1;
       addUsage(usageSummary, result.usage, result.model);
       rawChapters.push({

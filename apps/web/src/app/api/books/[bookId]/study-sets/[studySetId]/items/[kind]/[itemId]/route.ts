@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireActiveUser } from "@/lib/auth";
+import { requireBookAccess, requireActiveUser } from "@/lib/auth";
 import { getStudySetForBook } from "@/lib/study-sets";
 import { deleteStudyItem, listStudyItems, moveStudyItem, normalizeStudyItemKind, summarizeStudyItems, updateStudyItem } from "@/lib/study-items";
 
@@ -36,6 +36,9 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   const { bookId, studySetId, kind: kindValue, itemId } = await context.params;
+  if (!(await requireBookAccess(request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const authorized = await getAuthorizedContext(bookId, studySetId, kindValue);
 
   if (!authorized) {
@@ -79,6 +82,9 @@ export async function DELETE(_request: Request, context: RouteContext) {
   }
 
   const { bookId, studySetId, kind: kindValue, itemId } = await context.params;
+  if (!(await requireBookAccess(_request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const authorized = await getAuthorizedContext(bookId, studySetId, kindValue);
 
   if (!authorized) {

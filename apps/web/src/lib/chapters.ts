@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { chapters, type Chapter, type ParsedDocument, type ParsedPage } from "@/lib/db/schema";
 
@@ -423,7 +423,7 @@ async function insertChapterDrafts(bookId: string, parsedDocumentId: string, dra
   }
 
   await db.insert(chapters).values(rows);
-  return rows;
+  return db.select().from(chapters).where(inArray(chapters.id, rows.map(row => row.id))).orderBy(asc(chapters.sortOrder));
 }
 
 export function summarizeChapter(chapter: Chapter) {

@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import { NextResponse } from "next/server";
-import { requireActiveUser } from "@/lib/auth";
+import { requireBookAccess, requireActiveUser } from "@/lib/auth";
 import { exportStudySetFile, parseExportFileFormat, parsePdfExportType } from "@/lib/pdf-export";
 
 export const runtime = "nodejs";
@@ -18,6 +18,9 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const { bookId, studySetId } = await context.params;
+  if (!(await requireBookAccess(request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const url = new URL(request.url);
   const type = parsePdfExportType(url.searchParams.get("type"));
   const format = parseExportFileFormat(url.searchParams.get("format"));

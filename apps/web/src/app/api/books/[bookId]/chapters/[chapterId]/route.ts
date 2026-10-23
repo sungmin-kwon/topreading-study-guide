@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireActiveUser } from "@/lib/auth";
+import { requireBookAccess, requireActiveUser } from "@/lib/auth";
 import { getBook } from "@/lib/books";
 import { deleteChapter, getChapter, serializeChapterDetail, summarizeChapter, updateChapter } from "@/lib/chapters";
 
@@ -29,6 +29,9 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 
   const { bookId, chapterId } = await context.params;
+  if (!(await requireBookAccess(_request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const chapter = await getBookChapter(bookId, chapterId);
 
   if (!chapter) {
@@ -44,6 +47,9 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   const { bookId, chapterId } = await context.params;
+  if (!(await requireBookAccess(request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const chapter = await getBookChapter(bookId, chapterId);
 
   if (!chapter) {
@@ -79,6 +85,9 @@ export async function DELETE(_request: Request, context: RouteContext) {
   }
 
   const { bookId, chapterId } = await context.params;
+  if (!(await requireBookAccess(_request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const chapter = await getBookChapter(bookId, chapterId);
 
   if (!chapter) {

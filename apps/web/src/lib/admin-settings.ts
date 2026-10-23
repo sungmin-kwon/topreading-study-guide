@@ -1,195 +1,31 @@
-import fs from "node:fs/promises";
-import path from "node:path";
-
-export type AdminSettingDefinition = {
-  key: string;
-  label: string;
-  description: string;
-  kind: "text" | "number" | "secret";
-  value: string;
-  placeholder?: string;
-  isSet?: boolean;
+import { pool } from "@/lib/db/client";
+import { authTable } from "@/lib/auth-sessions";
+export type AdminSettingDefinition = { key: string; label: string; description: string; kind: "text" | "number" | "secret"; value: string; placeholder?: string; isSet?: boolean };
+const definitions = {
+  OPENAI_MODEL: { label: "Generation model", fallback: "gpt-5-mini", max: 0 },
+  MAX_GENERATION_CHAPTERS: { label: "Maximum chapters per run", fallback: "80", max: 500 },
+  MAX_GENERATION_ITEMS: { label: "Maximum items per run", fallback: "2500", max: 10000 }
 };
-
-const settingDefinitions: Array<Omit<AdminSettingDefinition, "value" | "isSet">> = [
-  {
-    key: "APP_ADMIN_EMAILS",
-    label: "Admin emails",
-    description: "Comma-separated emails that always have admin access.",
-    kind: "text",
-    placeholder: "admin@example.com"
-  },
-  {
-    key: "AUTH_ALLOWED_EMAILS",
-    label: "Allowed login emails",
-    description: "Comma-separated Cloudflare Access emails allowed into the app.",
-    kind: "text",
-    placeholder: "teacher@example.com,parent@example.com"
-  },
-  {
-    key: "AUTH_AUTO_CREATE_USERS",
-    label: "Auto-create users",
-    description: "Set false to require admin-created active user accounts.",
-    kind: "text",
-    placeholder: "false"
-  },
-  {
-    key: "OPENAI_MODEL",
-    label: "OpenAI model",
-    description: "Default model used for study guide generation.",
-    kind: "text",
-    placeholder: "gpt-5-mini"
-  },
-  {
-    key: "OPENAI_API_KEY",
-    label: "OpenAI API key",
-    description: "Leave blank to keep the current secret unchanged.",
-    kind: "secret",
-    placeholder: "sk-..."
-  },
-  {
-    key: "MAX_GENERATION_CHAPTERS",
-    label: "Max chapters per run",
-    description: "Safety limit for a single generation run.",
-    kind: "number",
-    placeholder: "80"
-  },
-  {
-    key: "MAX_GENERATION_ITEMS",
-    label: "Max generated items per run",
-    description: "Safety limit across vocabulary, MCQ, and short answer items.",
-    kind: "number",
-    placeholder: "2500"
-  },
-  {
-    key: "PYTHON_EXECUTABLE",
-    label: "Python executable",
-    description: "Python path used for extraction and exports.",
-    kind: "text",
-    placeholder: "/home/user/topreading-study-guide/.topreading/bin/python"
-  },
-  {
-    key: "UPLOAD_DIR",
-    label: "Upload directory",
-    description: "Durable folder for uploaded ebooks.",
-    kind: "text",
-    placeholder: "./data/uploads"
-  },
-  {
-    key: "EXPORT_DIR",
-    label: "Export directory",
-    description: "Folder for generated PDF and Word files.",
-    kind: "text",
-    placeholder: "./data/exports"
-  },
-  {
-    key: "BACKUP_DIR",
-    label: "Backup directory",
-    description: "Folder for SQLite backup snapshots.",
-    kind: "text",
-    placeholder: "./backups"
-  }
-];
-
-function getRepoRoot() {
-  return path.resolve(process.cwd(), "../..");
+export async function getRuntimeSetting(key: keyof typeof definitions) {
+  const result = await pool.query(`SELECT value FROM ${authTable("app_settings")} WHERE key=$1`, [key]);
+  return result.rows[0]?.value || process.env[key] || definitions[key].fallback;
 }
-
-function getEnvPath() {
-  return path.join(getRepoRoot(), ".env.local");
-}
-
-function parseEnv(content: string) {
-  const values: Record<string, string> = {};
-  for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) {
-      continue;
-    }
-
-    const separatorIndex = trimmed.indexOf("=");
-    if (separatorIndex === -1) {
-      continue;
-    }
-
-    const key = trimmed.slice(0, separatorIndex).trim();
-    values[key] = trimmed.slice(separatorIndex + 1).trim();
-  }
-
-  return values;
-}
-
-async function readEnvFile() {
-  return fs.readFile(getEnvPath(), "utf8").catch(() => "");
-}
-
-function serializeValue(value: string) {
-  return value.includes("\n") ? value.replace(/\r?\n/g, " ") : value;
-}
-
 export async function listAdminSettings(): Promise<AdminSettingDefinition[]> {
-  const content = await readEnvFile();
-  const fileValues = parseEnv(content);
-
-  return settingDefinitions.map((definition) => {
-    const actual = process.env[definition.key] || fileValues[definition.key] || "";
-    if (definition.kind === "secret") {
-      return {
-        ...definition,
-        value: "",
-        isSet: Boolean(actual)
-      };
-    }
-
-    return {
-      ...definition,
-      value: actual,
-      isSet: Boolean(actual)
-    };
-  });
+  return Promise.all((Object.keys(definitions) as Array<keyof typeof definitions>).map(async key => ({ key, label: definitions[key].label, description: "Applies to new generation requests.", kind: key === "OPENAI_MODEL" ? "text" : "number", value: await getRuntimeSetting(key) })));
 }
-
 export async function updateAdminSettings(input: Record<string, unknown>) {
-  const allowedKeys = new Set(settingDefinitions.map((definition) => definition.key));
-  const content = await readEnvFile();
-  const lines = content ? content.split(/\r?\n/) : [];
-  const seenKeys = new Set<string>();
-  const nextLines = lines.map((line) => {
-    const separatorIndex = line.indexOf("=");
-    if (separatorIndex === -1) {
-      return line;
-    }
-
-    const key = line.slice(0, separatorIndex).trim();
-    if (!allowedKeys.has(key) || input[key] === undefined) {
-      return line;
-    }
-
-    const value = String(input[key] || "").trim();
-    if (!value && settingDefinitions.find((definition) => definition.key === key)?.kind === "secret") {
-      return line;
-    }
-
-    seenKeys.add(key);
-    process.env[key] = value;
-    return `${key}=${serializeValue(value)}`;
+  const values = Object.entries(input).map(([key, value]) => {
+    if (!Object.hasOwn(definitions, key)) throw new Error("Deployment configuration cannot be edited here");
+    const text = String(value).trim();
+    const definition = definitions[key as keyof typeof definitions];
+    if (key === "OPENAI_MODEL" ? !/^[a-zA-Z0-9._:-]{1,100}$/.test(text) : !/^\d+$/.test(text) || Number(text) < 1 || Number(text) > definition.max) throw new Error(`Invalid value for ${key}`);
+    return [key, text];
   });
-
-  for (const definition of settingDefinitions) {
-    if (!allowedKeys.has(definition.key) || input[definition.key] === undefined || seenKeys.has(definition.key)) {
-      continue;
-    }
-
-    const value = String(input[definition.key] || "").trim();
-    if (!value && definition.kind === "secret") {
-      continue;
-    }
-
-    process.env[definition.key] = value;
-    nextLines.push(`${definition.key}=${serializeValue(value)}`);
-  }
-
-  await fs.mkdir(path.dirname(getEnvPath()), { recursive: true });
-  await fs.writeFile(getEnvPath(), nextLines.join("\n").replace(/\n*$/, "\n"), "utf8");
+  const connection = await pool.connect();
+  try {
+    await connection.query("BEGIN");
+    for (const [key, value] of values) await connection.query(`INSERT INTO ${authTable("app_settings")}(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=now()`, [key, value]);
+    await connection.query("COMMIT");
+  } catch (error) { await connection.query("ROLLBACK"); throw error; } finally { connection.release(); }
   return listAdminSettings();
 }

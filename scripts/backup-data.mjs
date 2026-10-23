@@ -83,6 +83,9 @@ async function main() {
     ...process.env
   };
 
+  if (/^postgres(ql)?:\/\//.test(env.DATABASE_URL || "")) {
+    throw new Error("This command backs up legacy SQLite only. Use pg_dump plus the upload directory for PostgreSQL; see docs/postgres-auth-staging.md.");
+  }
   const databasePath = resolveFromRepo(stripFilePrefix(env.DATABASE_URL || "file:./data/dev.db"));
   const uploadDir = resolveFromRepo(env.UPLOAD_DIR || "./data/uploads");
   const exportDir = resolveFromRepo(env.EXPORT_DIR || "./data/exports");

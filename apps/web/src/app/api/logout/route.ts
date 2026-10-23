@@ -12,7 +12,9 @@ function redirectTo(location: string) {
 }
 
 export async function GET() {
-  const authMode = String(process.env.AUTH_MODE || "off").trim().toLowerCase();
+  const authMode = String(process.env.AUTH_MODE || "google").trim().toLowerCase();
+
+  if (authMode === "google") return redirectTo("/api/auth/signout");
 
   if (authMode === "cloudflare_access") {
     return redirectTo("/cdn-cgi/access/logout?redirect_url=%2Fsigned-out");

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireActiveUser } from "@/lib/auth";
+import { requireBookAccess, requireActiveUser } from "@/lib/auth";
 import { getBook } from "@/lib/books";
 import { deleteParsedDocument, extractAndSaveParsedDocument, getParsedDocument, listParsedDocumentsForSource, summarizeParsedDocument } from "@/lib/parsed-documents";
 import { getSourceFile } from "@/lib/source-files";
@@ -30,6 +30,9 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 
   const { bookId, sourceFileId } = await context.params;
+  if (!(await requireBookAccess(_request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const sourceFile = await loadSourceForBook(bookId, sourceFileId);
 
   if (!sourceFile) {
@@ -48,6 +51,9 @@ export async function POST(_request: Request, context: RouteContext) {
   }
 
   const { bookId, sourceFileId } = await context.params;
+  if (!(await requireBookAccess(_request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const sourceFile = await loadSourceForBook(bookId, sourceFileId);
 
   if (!sourceFile) {
@@ -74,6 +80,9 @@ export async function DELETE(request: Request, context: RouteContext) {
   }
 
   const { bookId, sourceFileId } = await context.params;
+  if (!(await requireBookAccess(request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const sourceFile = await loadSourceForBook(bookId, sourceFileId);
 
   if (!sourceFile) {

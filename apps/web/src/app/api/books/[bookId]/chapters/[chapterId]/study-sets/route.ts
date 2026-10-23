@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireActiveUser } from "@/lib/auth";
+import { requireBookAccess, requireActiveUser } from "@/lib/auth";
 import { getBook } from "@/lib/books";
 import { getChapter } from "@/lib/chapters";
 import { getGenerationRun } from "@/lib/generation-runs";
@@ -31,6 +31,9 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const { bookId, chapterId } = await context.params;
+  if (!(await requireBookAccess(request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const result = await getBookChapter(bookId, chapterId);
 
   if (!result) {
@@ -57,6 +60,9 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   const { bookId, chapterId } = await context.params;
+  if (!(await requireBookAccess(request.headers, bookId))) {
+    return NextResponse.json({ error: "Book not found." }, { status: 404 });
+  }
   const result = await getBookChapter(bookId, chapterId);
 
   if (!result) {

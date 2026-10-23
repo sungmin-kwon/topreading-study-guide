@@ -142,7 +142,7 @@ export async function generateMockStudySet(bookId: string, chapter: Chapter, pla
   };
 
   try {
-    const items = await replaceStudyItems(studySet.id, generatedItems, { chapterId: chapter.id });
+    const items = await replaceStudyItems(studySet.id, generatedItems, { chapterId: chapter.id, chapterRevisionId: chapter.currentRevisionId });
     const readyStudySet = await updateStudySet({
       studySetId: studySet.id,
       status: "ready",

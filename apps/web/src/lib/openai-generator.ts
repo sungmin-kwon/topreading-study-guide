@@ -1,3 +1,4 @@
+import { getRuntimeSetting } from "@/lib/admin-settings";
 import fs from "node:fs";
 import path from "node:path";
 import { deriveGenerationPlan } from "@topreading/core";
@@ -334,7 +335,7 @@ async function requestStudyGuideJson(book: Book, chapter: Chapter, plan: Generat
     throw new Error("OPENAI_API_KEY is not set in .env.local.");
   }
 
-  const model = getServerEnv("OPENAI_MODEL") || "gpt-5-mini";
+  const model = await getRuntimeSetting("OPENAI_MODEL");
   const response = await fetchWithRetry("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -564,14 +565,14 @@ export async function generateOpenAIStudySet(
       ? `${options.runName.trim()} - Chapter ${chapter.chapterNumber}`
       : `Chapter ${chapter.chapterNumber} - ${formatRunTimestamp()}`,
     generator: "openai",
-    model: getServerEnv("OPENAI_MODEL") || "gpt-5-mini",
+    model: await getRuntimeSetting("OPENAI_MODEL"),
     promptVersion,
     settings: plan
   });
 
   try {
     const generated = await generateOpenAIChapterItems(book, chapter, plan);
-    const items = await replaceStudyItems(studySet.id, generated.generatedItems, { chapterId: chapter.id });
+    const items = await replaceStudyItems(studySet.id, generated.generatedItems, { chapterId: chapter.id, chapterRevisionId: chapter.currentRevisionId });
     const readyStudySet = await updateStudySet({
       studySetId: studySet.id,
       status: "ready",
