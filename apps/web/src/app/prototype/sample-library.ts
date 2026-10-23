@@ -1,7 +1,7 @@
 export type Chapter = { id: string; title: string; text: string; changed?: boolean };
 export type ItemKind = "multiple-choice" | "short-answer" | "vocabulary" | "summary";
 export type Item = { id: string; chapterId: string; kind: ItemKind; prompt: string; answer: string; choices?: string[]; correct?: number; explanation?: string };
-export type Guide = { id: string; name: string; date: string; items: Item[] };
+export type Guide = { id: string; name: string; date: string; sources?: Record<string, string>; items: Item[] };
 export type Book = { id: string; title: string; author: string; source: string; chapters: Chapter[]; guides: Guide[] };
 
 export const labels: Record<ItemKind, string> = {

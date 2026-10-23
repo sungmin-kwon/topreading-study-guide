@@ -257,3 +257,23 @@
  .choices li.correct { background:transparent; }
  @page { size:A4; margin:18mm; }
 }
+.saveBar { display:flex; align-items:center; flex-wrap:wrap; gap:12px; flex-shrink:0; padding:7px 28px; background:#f1f3ed; border-bottom:1px solid var(--p-line); font-size:12px; }
+.saveBar>span:last-child { margin-left:auto; color:var(--p-muted); }
+.saveBar button { padding:5px 10px; }
+.appBar { flex-wrap:wrap; }
+.shell button { min-height:36px; }
+.shell .editButton { font-size:12px; min-height:40px; }
+.shell[data-theme=dark] { --p-ink:#e0ebe5; --p-muted:#b2c1b8; --p-line:#43534a; --p-accent:#9bc9af; --p-paper:#18231e; color-scheme:dark; }
+.shell[data-theme=dark] :is(.appBar,.saveBar,.outline,.libraryPage,.printStage) { background:#18231e; }
+.shell[data-theme=dark] :is(.workspace,.header,.navigation,.editor,.exportSettings,.dialog) { background:#202e26; }
+.shell[data-theme=dark] :is(button,input,textarea,select) { background:#293a30; color:#e0ebe5; border-color:#53685a; }
+.shell[data-theme=dark] button:hover { background:#3c5143; }
+.shell[data-theme=dark] :is(.activeChapter,.activeBook,.sourcePassage,.dropzone) { background:#304537; }
+.shell[data-theme=dark] .primary { background:#a6d4b7; color:#15251c; }
+.shell[data-theme=dark] :is(.guideDocument,.textDocument) :is(.prompt,.answer,.explanation,.explanation>span,.choices li,.itemTypes>button,.chapterKicker) { color:#cad9ce; }
+.shell[data-theme=dark] .guideDocument .choices li.correct { background:#314c3a; color:#c6e5ce; }
+.shell[data-theme=dark] .notice { background:#443c23; color:#f0d69b; }
+.shell[data-theme=dark] .printable { color-scheme:light; color:#263930; }
+.shell[data-theme=dark] .shell .editButton { color:#c6e5ce; }
+@media(max-width:650px) { .saveBar { padding:7px 16px; font-size:11px; } .saveBar>span:last-child { display:none; } .shell button { min-height:44px; } .appBar>select { max-width:100px; } .appBar .bookSwitcher { flex-basis:40%; } }
+@media print { .saveBar { display:none!important; } .shell[data-theme=dark] { color-scheme:light; --p-line:#e1e5df; --p-muted:#64726d; } }
