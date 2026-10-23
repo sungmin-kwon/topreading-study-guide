@@ -41,9 +41,31 @@ if (!base || process.env.ALLOW_TEST_WRITES !== '1' || !['localhost', '127.0.0.1'
     await page.getByText('No guide is available for this chapter and version.', { exact: true }).waitFor();
     // Configure, but never execute generation: no paid AI request is part of this test.
     await page.getByRole('button', { name: 'Generate a guide', exact: true }).first().click();
-    await page.getByRole('button', { name: 'Configure Generation', exact: true }).click();
-    await page.getByRole('dialog').waitFor();
-    await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+    const setup = page.locator('.reading-generation-form');
+    await setup.waitFor();
+    assert.equal(await page.getByRole('dialog').count(), 0);
+    const totals = setup.locator('.reading-generation-totals');
+    await totals.getByLabel('Multiple Choice', { exact: true }).fill('6');
+    const counts = setup.locator('.reading-generation-counts');
+    assert.equal((await counts.locator('input').evaluateAll(inputs => inputs.filter((_, i) => i % 3 === 0).reduce((n, input) => n + Number(input.value), 0))), 6);
+    const secondChapter = setup.locator('.reading-generation-chapter').nth(1);
+    await secondChapter.getByRole('checkbox').uncheck();
+    assert(await secondChapter.getByRole('spinbutton').first().isDisabled());
+    await secondChapter.getByRole('checkbox').check();
+    await setup.getByRole('button', { name: 'Reset Suggestions', exact: true }).click();
+    // Never submit: production generation would make a paid model request.
+    assert(await setup.getByRole('button', { name: 'Start Generation', exact: true }).isEnabled());
+    await page.screenshot({ path: 'backups/live-ui-check/generate-guide-desktop.png' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.screenshot({ path: 'backups/live-ui-check/generate-guide-mobile.png' });
+    await page.getByRole('button', { name: 'Toggle dark mode', exact: true }).click();
+    await page.getByRole('combobox', { name: 'Interface language', exact: true }).selectOption('ko');
+    await page.reload({ waitUntil: 'networkidle' });
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+    assert.equal(await page.getByRole('combobox', { name: '화면 언어', exact: true }).inputValue(), 'ko');
+    await page.screenshot({ path: 'backups/live-ui-check/generate-guide-mobile-ko-dark.png' });
+    await page.getByRole('combobox', { name: '화면 언어', exact: true }).selectOption('en');
     await page.getByRole('button', { name: 'Export', exact: true }).click();
     await page.getByText('No exports available', { exact: true }).waitFor();
     assert.deepEqual(errors, []);

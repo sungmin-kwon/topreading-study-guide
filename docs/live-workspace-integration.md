@@ -23,10 +23,16 @@ The saved-book workspace now removes the permanent save-instruction strip, secon
 - Text import and chapter boundaries are under **Text tools**. The chapter title is an editable heading; numbering, deletion and Clear All Chapters are under **Chapter settings**.
 - **Manage versions** and generation sit beside the guide selector. Version metadata and alternate chapter sets are in management. Question cards show Edit and a keyboard-accessible More disclosure for reorder/delete; Add sits beside content tabs.
 - Export uses version, chapter scope, content and format selectors with one Export button. All eight existing content types and both PDF/Word formats remain available for a whole book or one chapter.
-- The header uses an avatar menu for preferences. Library has a correctly sized New book button and quieter book links.
+- Theme and language controls remain directly in the header; the avatar menu contains account actions. Library has a correctly sized New book button and quieter book links.
 - The sample prototype also drops its idle save strip, redundant library introduction, export helper text and duplicate answer toggle. Copy type controls answer inclusion; save failures still offer Retry.
 
 Verification covers keyboard disclosure/Escape behavior, relocated import tools, and both full-book and single-chapter PDF/Word downloads, in addition to the existing save/recovery checks. This pass makes no database or authentication changes.
+
+## Guide-page consistency follow-up
+
+Source passages use the same centered 860px maximum column as questions. Guide version management uses plain rows with active/use-version controls and secondary actions under More; chapter metadata is collapsed below the list. Generation now has an inline form with total counts, chapter selection and per-chapter counts, with responsive rows instead of the legacy configuration modal and dashboard cards. Progress, cancellation and processing details remain available. Both pages include a return-to-guide action.
+
+Browser checks verify source/question alignment, inline total distribution and chapter inclusion, responsive generation layouts, and direct theme/language controls persisting across reload. Generation is configured but never submitted during these checks.
 
 ## Saving and recovery boundaries
 

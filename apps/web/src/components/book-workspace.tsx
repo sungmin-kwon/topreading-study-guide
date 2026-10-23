@@ -3019,6 +3019,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                   <small>{currentUser.email}</small>
                 </div>
               ) : null}
+              {!modern && <>
               <button
                 className="preference-row"
                 type="button"
@@ -3045,6 +3046,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                   <strong>{uiLanguage === "ko" ? "English" : "한국어"}</strong>
                 </span>
               </button>
+              </>}
               <a className="preference-row preference-row-danger" href="/api/logout" role="menuitem">
                 <span className="preference-icon">
                   <UiIcon name="logOut" />
@@ -3094,7 +3096,13 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   return (
     <main className={`app-shell ${modern ? "reading-shell" : isLibraryCollapsed ? "library-collapsed" : ""}`}>
       {modern && <WorkspaceBar books={books} bookId={activeBook?.id || ""} libraryOpen={libraryOpen}
-        onLibrary={() => setLibraryOpen(true)} onBook={selectBook} preferences={preferences} t={t} />}
+        onLibrary={() => setLibraryOpen(true)} onBook={selectBook} preferences={<>
+          <button className="reading-theme-toggle" type="button" aria-label={t("Toggle dark mode", "다크 모드 전환")} aria-pressed={themeMode === "dark"} onClick={() => setThemeMode(current => current === "dark" ? "light" : "dark")}>
+            <UiIcon name={themeMode === "dark" ? "sun" : "moon"} /><span>{themeMode === "dark" ? t("Light", "라이트") : t("Dark", "다크")}</span>
+          </button>
+          <select className="reading-language-toggle" aria-label={t("Interface language", "화면 언어")} value={uiLanguage} onChange={event => setUiLanguage(event.target.value as UiLanguage)}><option value="en">English</option><option value="ko">한국어</option></select>
+          {preferences}
+        </>} t={t} />}
       {modern && libraryOpen && <SavedLibrary books={filteredBooks} total={books.length} search={bookSearch} onSearch={setBookSearch}
         sort={bookSortMode} onSort={value => setBookSortMode(value as BookSortMode)} onBook={selectBook}
         onPin={book => { const full = books.find(b => b.id === book.id); if (full) void handleToggleBookPin(full); }}
@@ -3346,7 +3354,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
           </div>
         ) : null}
 
-        {activeBook && isGenerationModalOpen ? (
+        {!modern && activeBook && isGenerationModalOpen ? (
           <div className="modal-backdrop" role="presentation">
             <section className="generation-dialog" role="dialog" aria-modal="true" aria-labelledby="generation-dialog-title">
               <div className="dialog-header">
@@ -3910,7 +3918,33 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
           </section>
           ) : null}
 
-          {activeWorkspaceTab === "generate" ? (
+          {activeWorkspaceTab === "generate" && modern ? (
+          <section className="generate-panel reading-guide-page">
+            <div className="reading-page-toolbar"><button type="button" onClick={() => navigateTo("review")}>← {t("Back to guide", "학습지로 돌아가기")}</button><button type="button" onClick={() => navigateTo("sets")}>{t("Manage versions", "버전 관리")}</button></div>
+            <h3>{t("Generate a guide", "학습지 생성")}</h3>
+            {generatingRun || isGeneratingBook ? <div className="reading-generation-progress">
+              <p role="status">{t(`Generating your guide · ${Number(generatingRun?.progress.completedChapters) || 0} of ${Number(generatingRun?.progress.totalChapters) || includedGenerationChapterCount} chapters complete`, `학습지 생성 중 · ${Number(generatingRun?.progress.totalChapters) || includedGenerationChapterCount}개 중 ${Number(generatingRun?.progress.completedChapters) || 0}개 챕터 완료`)}</p>
+              {generatingRun && <button type="button" disabled={cancellingGenerationRunId === generatingRun.id} onClick={handleCancelGenerationRun}>{cancellingGenerationRunId ? t("Cancelling…", "취소 중…") : t("Cancel Run", "실행 취소")}</button>}
+            </div> : null}
+            {generationLog.length > 0 && <details className="reading-processing-details"><summary>{t("Processing details", "처리 상세 정보")}</summary><div className="generation-terminal">{generationLog.map((entry, index) => <p className={`generation-log-line ${entry.level}`} key={index}><span>{formatLogTime(entry.timestamp)}</span><strong>{entry.level.toUpperCase()}</strong><em>{entry.message}</em></p>)}</div></details>}
+            {!chapters.length ? <p>{t("Create chapters from extracted source text before starting generation.", "생성을 시작하기 전에 추출된 원본 텍스트에서 챕터를 만드세요.")}</p> : <form className="reading-generation-form" onSubmit={event => { event.preventDefault(); if (!generatingRun) void handleGenerateBook(); }}>
+              <fieldset disabled={isGeneratingBook || Boolean(generatingRun)}>
+                <legend>{t("Question totals", "전체 문항 수")}</legend>
+                <p className="muted-text">{t("Totals are distributed across the selected chapters. Adjust individual counts below.", "선택한 챕터에 전체 문항 수를 배분합니다. 아래에서 챕터별 개수를 조정할 수 있습니다.")}</p>
+                <div className="reading-generation-totals">{generationTotalControls.map(control => <label key={control.field}>{control.label}<input type="number" min="0" value={control.value} disabled={includedGenerationChapterCount === 0} onChange={event => applyGenerationTotal(control.field, event.target.value)} /></label>)}</div>
+                <div className="reading-generation-chapters-heading"><h4>{t("Chapters", "챕터")}</h4><button type="button" onClick={resetGenerationPlans}>{t("Reset Suggestions", "추천값 초기화")}</button></div>
+                <div className="reading-generation-chapters">{chapters.map(chapter => {
+                  const draft = generationPlansByChapterId[chapter.id] || suggestedGenerationPlans[chapter.id] || { included: true, multipleChoiceCount: "0", shortAnswerCount: "0", vocabularyCount: "0" };
+                  return <div className="reading-generation-chapter" key={chapter.id}>
+                    <label className="reading-generation-include"><input type="checkbox" checked={draft.included} onChange={event => toggleGenerationChapter(chapter, event.target.checked)} /><span><strong>{chapter.chapterNumber}. {chapter.title}</strong><small>{t(`${chapter.wordCount.toLocaleString()} words`, `${chapter.wordCount.toLocaleString()}단어`)}</small></span></label>
+                    <div className="reading-generation-counts">{generationTotalControls.map(control => <label key={control.field}>{control.label}<input aria-label={`${chapter.chapterNumber}. ${chapter.title} · ${control.label}`} type="number" min="0" value={draft[control.field]} disabled={!draft.included} onChange={event => updateGenerationPlan(chapter.id, control.field, event.target.value)} /></label>)}</div>
+                  </div>;
+                })}</div>
+              </fieldset>
+              <div className="reading-generation-submit"><span>{t(`${includedGenerationChapterCount} chapters selected`, `챕터 ${includedGenerationChapterCount}개 선택됨`)}</span><button className="primary-action" type="submit" disabled={isGeneratingBook || Boolean(generatingRun) || includedGenerationChapterCount === 0}>{isGeneratingBook || generatingRun ? t("Generating…", "생성 중…") : t("Start Generation", "생성 시작")}</button></div>
+            </form>}
+          </section>
+          ) : activeWorkspaceTab === "generate" ? (
           <section className="generate-panel">
             <div className="panel-title-row">
               <div>
@@ -4017,7 +4051,8 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
           ) : null}
 
           {activeWorkspaceTab === "sets" ? (
-          <section className="sets-panel">
+          <section className={`sets-panel ${modern ? "reading-guide-page" : ""}`}>
+            {modern && <div className="reading-page-toolbar"><button type="button" onClick={() => navigateTo("review")}>← {t("Back to guide", "학습지로 돌아가기")}</button><button type="button" disabled={!hasChapters} onClick={() => navigateTo("generate")}>{t("Generate a guide", "학습지 생성")}</button></div>}
             <div className="panel-title-row">
               <div>
                 <h3>{modern ? t("Guide versions", "학습지 버전") : t("Study sets", "학습 세트")}</h3>
@@ -4027,7 +4062,70 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
               </div>
             </div>
 
-            {modern && selectedChapter && <section className="reading-version-detail"><h4>{t("Current chapter", "현재 챕터")}: {selectedChapter?.title}</h4>
+
+
+            {generationRuns.length === 0 ? (
+              <div className="empty-state">
+                <strong>{t("No study sets yet", "아직 학습 세트가 없습니다")}</strong>
+                <p>{t("Generate a set before managing versions.", "버전을 관리하려면 먼저 학습 세트를 생성하세요.")}</p>
+              </div>
+            ) : (
+              <div className="set-version-list">
+                {generationRuns.map((run) => {
+                  const isActiveRun = activeBook?.activeGenerationRunId === run.id;
+                  const canUseRun = run.status !== "generating" && run.status !== "failed";
+                  return (
+                    <article className={`set-version-card ${isActiveRun ? "active" : ""}`} key={run.id}>
+                      <div className="set-version-main">
+                        <div>
+                          {!modern && <p className="step-label">{isActiveRun ? t("Active set", "활성 세트") : t("Set", "세트")}</p>}
+                          <h4>{run.name}</h4>
+                        </div>
+                        <div className="study-set-meta-row">
+                          <span>{formatUiStatus(run.status)}</span>
+                          <span>{formatDateTime(run.startedAt)}</span>
+                          {!modern && run.finishedAt ? <span>{t("Finished", "완료")} {formatDateTime(run.finishedAt)}</span> : null}
+                        </div>
+                        <p className="muted-text">
+                          {t(`${run.chapterCount} chapters`, `챕터 ${run.chapterCount}개`)} · {t(`${run.multipleChoiceCount} MCQ`, `객관식 ${run.multipleChoiceCount}개`)} · {t(`${run.shortAnswerCount} short answer`, `단답형 ${run.shortAnswerCount}개`)} · {t(`${run.vocabularyCount} vocab`, `단어 ${run.vocabularyCount}개`)}
+                        </p>
+                        {run.errorMessage ? <p className="generation-error-text">{run.errorMessage}</p> : null}
+                      </div>
+                      {modern ? <div className="set-version-actions">
+                        {isActiveRun ? <span className="reading-active-version">{t("Active", "활성")}</span> : <button type="button" disabled={!canUseRun || switchingVersion} onClick={() => void handleSelectActiveGenerationRun(run.id)}>{t("Use version", "이 버전 사용")}</button>}
+                        <QuietMenu label={t("More", "더 보기")}>
+                          <button type="button" onClick={() => openGenerationRunRenameModal(run)}>{t("Rename", "이름 변경")}</button>
+                          <button type="button" className="danger-button" disabled={run.status === "generating" || deletingId === run.id} onClick={() => handleDeleteGenerationRun(run)}>{deletingId === run.id ? t("Deleting...", "삭제 중...") : t("Delete", "삭제")}</button>
+                        </QuietMenu>
+                      </div> : (                      <div className="set-version-actions">
+                        <button
+                          type="button"
+                          onClick={() => openGenerationRunRenameModal(run)}
+                        >
+                          {t("Rename", "이름 변경")}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!canUseRun || isActiveRun}
+                          onClick={() => void handleSelectActiveGenerationRun(run.id)}
+                        >
+                          {isActiveRun ? t("Active", "활성") : t("Use Set", "이 세트 사용")}
+                        </button>
+                        <button
+                          className="danger-button"
+                          type="button"
+                          disabled={run.status === "generating" || deletingId === run.id}
+                          onClick={() => handleDeleteGenerationRun(run)}
+                        >
+                          {deletingId === run.id ? t("Deleting...", "삭제 중...") : t("Delete", "삭제")}
+                        </button>
+                      </div>) }
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+            {modern && selectedChapter && <details className="reading-version-detail"><summary>{t("Current chapter", "현재 챕터")}: {selectedChapter?.title}</summary>
                         <div className="study-set-header">
                           <div>
                             <p className="step-label">{t("Selected set", "선택된 세트")}</p>
@@ -4057,63 +4155,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                           </div>
                         </div>
 
-                        </section>}
-
-            {generationRuns.length === 0 ? (
-              <div className="empty-state">
-                <strong>{t("No study sets yet", "아직 학습 세트가 없습니다")}</strong>
-                <p>{t("Generate a set before managing versions.", "버전을 관리하려면 먼저 학습 세트를 생성하세요.")}</p>
-              </div>
-            ) : (
-              <div className="set-version-list">
-                {generationRuns.map((run) => {
-                  const isActiveRun = activeBook?.activeGenerationRunId === run.id;
-                  const canUseRun = run.status !== "generating" && run.status !== "failed";
-                  return (
-                    <article className={`set-version-card ${isActiveRun ? "active" : ""}`} key={run.id}>
-                      <div className="set-version-main">
-                        <div>
-                          <p className="step-label">{isActiveRun ? t("Active set", "활성 세트") : t("Set", "세트")}</p>
-                          <h4>{run.name}</h4>
-                        </div>
-                        <div className="study-set-meta-row">
-                          <span>{formatUiStatus(run.status)}</span>
-                          <span>{formatDateTime(run.startedAt)}</span>
-                          {run.finishedAt ? <span>{t("Finished", "완료")} {formatDateTime(run.finishedAt)}</span> : null}
-                        </div>
-                        <p className="muted-text">
-                          {t(`${run.chapterCount} chapters`, `챕터 ${run.chapterCount}개`)} · {t(`${run.multipleChoiceCount} MCQ`, `객관식 ${run.multipleChoiceCount}개`)} · {t(`${run.shortAnswerCount} short answer`, `단답형 ${run.shortAnswerCount}개`)} · {t(`${run.vocabularyCount} vocab`, `단어 ${run.vocabularyCount}개`)}
-                        </p>
-                        {run.errorMessage ? <p className="generation-error-text">{run.errorMessage}</p> : null}
-                      </div>
-                      <div className="set-version-actions">
-                        <button
-                          type="button"
-                          onClick={() => openGenerationRunRenameModal(run)}
-                        >
-                          {t("Rename", "이름 변경")}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!canUseRun || isActiveRun}
-                          onClick={() => void handleSelectActiveGenerationRun(run.id)}
-                        >
-                          {isActiveRun ? t("Active", "활성") : t("Use Set", "이 세트 사용")}
-                        </button>
-                        <button
-                          className="danger-button"
-                          type="button"
-                          disabled={run.status === "generating" || deletingId === run.id}
-                          onClick={() => handleDeleteGenerationRun(run)}
-                        >
-                          {deletingId === run.id ? t("Deleting...", "삭제 중...") : t("Delete", "삭제")}
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
+                        </details>}
           </section>
           ) : null}
 
