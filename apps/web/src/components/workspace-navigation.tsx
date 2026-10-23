@@ -12,7 +12,8 @@ export function WorkspaceBar({ books, bookId, libraryOpen, onLibrary, onBook, pr
     <span className="reading-brand">TopReading</span>
     <button type="button" onClick={onLibrary} aria-pressed={libraryOpen}>{t("Library", "도서관")}</button>
     <label className="reading-book-switcher"><span className="visually-hidden">{t("Current book", "현재 책")}</span>
-      <select value={bookId} onChange={e => onBook(e.target.value)} disabled={!books.length}>
+      <select value={libraryOpen ? "" : bookId} onChange={e => onBook(e.target.value)} disabled={!books.length}>
+        {libraryOpen && books.length > 0 && <option value="" disabled>{t("Choose a book", "책 선택")}</option>}
         {!books.length && <option value="">{t("No books yet", "등록된 책 없음")}</option>}
         {books.map(book => <option key={book.id} value={book.id}>{book.title}</option>)}
       </select>

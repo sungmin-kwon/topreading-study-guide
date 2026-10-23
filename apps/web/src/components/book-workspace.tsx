@@ -701,7 +701,7 @@ function renderVocabularyExample(sentence: string, term: string) {
 }
 
 export function BookWorkspace({ modern = true }: { modern?: boolean }) {
-  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(modern);
   const [libraryError, setLibraryError] = useState("");
   const [bookLoadError, setBookLoadError] = useState("");
   const [bookLoadAttempt, setBookLoadAttempt] = useState(0);
@@ -902,12 +902,18 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
     return () => window.removeEventListener("beforeunload", warn);
   }, [hasUnsavedChanges]);
   useEffect(() => {
-    if (!modern || isLoading || isBookLoading || !activeBook || loadedBookId !== activeBook.id || bookLoadError) return;
+    if (!modern || isLoading) return;
     const url = new URL(window.location.href);
+    if (libraryOpen) {
+      for (const key of ["book", "chapter", "section"]) url.searchParams.delete(key);
+      window.history.replaceState(null, "", url);
+      return;
+    }
+    if (isBookLoading || !activeBook || loadedBookId !== activeBook.id || bookLoadError) return;
     url.searchParams.set("book", activeBook.id); url.searchParams.set("section", activeWorkspaceTab);
     if (selectedChapterId) url.searchParams.set("chapter", selectedChapterId); else url.searchParams.delete("chapter");
     window.history.replaceState(null, "", url);
-  }, [modern, isLoading, isBookLoading, activeBook?.id, activeWorkspaceTab, selectedChapterId, bookLoadError, loadedBookId]);
+  }, [modern, libraryOpen, isLoading, isBookLoading, activeBook?.id, activeWorkspaceTab, selectedChapterId, bookLoadError, loadedBookId]);
   useEffect(() => {
     if (!activeBook || !selectedChapter || chapterDetailById[selectedChapter.id]) return;
     const chapter = selectedChapter;
@@ -1170,7 +1176,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
         if (modern) {
           const tab = new URLSearchParams(window.location.search).get("section");
           setActiveWorkspaceTab((["source", "split", "chapters", "review", "generate", "sets", "export"].includes(tab || "") ? tab : "review") as WorkspaceTab);
-          if (loadedBooks.length === 0) setLibraryOpen(true);
+          setLibraryOpen(!loadedBooks.some(book => book.id === requested));
         }
       })
       .catch((error) => {
