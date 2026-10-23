@@ -1,0 +1,2 @@
+# Separate from the running application's Python document helpers.
+psycopg[binary]==3.2.13

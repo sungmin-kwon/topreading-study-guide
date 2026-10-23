@@ -4,6 +4,14 @@ TopReading Study Guide is a private study-guide maker for English reading books.
 
 The app is currently intended for private family/home-server use rather than public multi-tenant hosting.
 
+## Modernization Work
+
+See the [implementation and migration plan](docs/modernization-plan.md) for the agreed UI, import, storage, authentication, and cloud-hosting direction. Work starts with the [baseline and restore runbook](docs/baseline-runbook.md). The live application remains on its existing architecture during staged implementation.
+
+The uploaded Ubuntu backup has passed an isolated restore rehearsal; see [production baseline findings](docs/production-baseline-findings.md) for validation, known issues, and remaining work.
+
+The first [UI prototype and PostgreSQL migration foundation](docs/prototype-and-postgres.md) is available at `/prototype`. The prototype uses sample data; the separately invoked migration tool has been rehearsed against the verified backup. The running application still uses SQLite.
+
 ## Current Workflow
 
 1. Create or select a book.

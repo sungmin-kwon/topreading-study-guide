@@ -13,6 +13,7 @@ apps/web/.env.local
 
 # Local Python environment
 .topreading/
+__pycache__/
 
 # Runtime data
 data/*.db
