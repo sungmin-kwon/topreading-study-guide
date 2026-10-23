@@ -54,6 +54,8 @@ print(f"PASS: received {len(usable)} public signing key(s) from the team domain"
 PYTHON
 ```
 
+**Reported result:** the user ran this check on the Ubuntu server and received `PASS: Cloudflare signing keys are reachable`. Key retrieval from that server is confirmed.
+
 A passing key check confirms reachability and key availability only. The release check still needs a real browser sign-in through Cloudflare into the migrated staging app, plus denied requests without a valid assertion. Do not paste session cookies or JWTs into chat. Keep the current SQLite service on its existing branch until the separate PostgreSQL/authentication deployment is ready.
 
 Retain the tunnel or restrict origin ingress to the intended proxy. Confirm that a direct request with only an email header is denied and that the signed Access login works through the complete proxy chain before release.
@@ -67,6 +69,46 @@ Retain the tunnel or restrict origin ingress to the intended proxy. Confirm that
 5. Configure the proxy to preserve the public host/protocol, and test login, refresh, sign-out, an uninvited account and a disabled account through staging. Keep Cloudflare Access protection in place until the Google flow is verified; its login policy remains an independent gate if retained.
 
 The app pins the trusted OAuth origin using `AUTH_URL`. Use production HTTPS so Auth.js issues secure cookies. Real Google consent/callback and live proxy tests require configured credentials and remain release gates. Local tests seed sessions and exercise the adapter/admission logic without contacting Google.
+
+## First browser staging test on the existing Ubuntu host
+
+Use a separate checkout at `/home/sungmin-kwon/topreading-staging`, a separate PostgreSQL database/container, and a copy of the verified baseline. The running service stays in `/home/sungmin-kwon/topreading-study-guide`. This is a staging rehearsal before purchasing/provisioning the VPS.
+
+Start by creating the checkout and checking host capacity. Do not run the legacy deployment instructions in `docs/deployment.md` against this PostgreSQL branch.
+
+```bash
+(
+  set -e
+  cd /home/sungmin-kwon
+  git clone --single-branch --branch modernization/postgres-auth \
+    https://github.com/sungmin-kwon/topreading-study-guide.git topreading-staging
+  cd topreading-staging
+  git log -1 --oneline
+  free -h
+  df -h .
+  sudo docker version --format 'Docker server: {{.Server.Version}}'
+  python3 - <<'PYTHON'
+from pathlib import Path
+baseline = Path('/home/sungmin-kwon/topreading-study-guide/backups/migration-baseline-xuWh81Xw/topreading-backup-20261023_113708')
+for name in ('topreading.sqlite', 'uploads'):
+    item = baseline / name
+    if not item.exists():
+        raise SystemExit(f'Missing baseline component: {item}')
+print('Verified baseline location is available for copying')
+PYTHON
+)
+```
+
+The command intentionally stops if the staging directory already exists; inspect it instead of overwriting it. The capacity check is needed before running a production build alongside the current application. No dependencies are installed and no services are restarted by this preparation step.
+
+After confirming capacity and backup availability:
+
+1. Copy the baseline into staging, start a separate PostgreSQL instance and perform the verified import/application migrations below. Use separate credentials and copied upload/export directories.
+2. Build and run the staging app on a different port. Leave its OpenAI key unset while checking login, reading, editing and export, so this rehearsal cannot make paid generation calls.
+3. Create a separate self-hosted Cloudflare Access application for a staging hostname (proposed: `top-staging.dubugimchi.com`) with the same family admission rules. Protect it before publishing its tunnel route. Use that application's **own** AUD, the existing team domain, and the staging hostname as `APP_BASE_URL`. The supplied production AUD belongs to `topreading` and must not be assumed to cover the new application.
+4. Route only the staging hostname through the tunnel/proxy to the staging port. Test a real family-member login, an account excluded by policy, a disabled application user, and direct-origin requests without a signed assertion. Confirm library data and exports before planning the VPS deployment.
+
+These steps do not establish Google OAuth; its real-provider test follows the separate Google setup above. Cloudflare and Google checks are distinct release gates.
 
 ## Isolated deployment sequence
 
