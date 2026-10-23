@@ -4427,6 +4427,7 @@ export function BookWorkspace() {
                               {renderNewStudyItemForm("multiple-choice")}
                               {selectedStudyItems.multipleChoiceQuestions.map((item, index) => (
                                 <article className="study-item-card" key={item.id}>
+                                  {item.status === "needs_review" ? <p role="status">{t("Needs review: automated MCQ checks were inconclusive or found a quality issue. Check the passage, answer and distractors before using this question.", "검토 필요: 자동 품질 검사에서 문제가 발견되었거나 확인되지 않았습니다. 사용 전에 본문, 정답과 오답을 확인하세요.")}</p> : null}
                                   {editingStudyItemId === item.id ? (
                                     <div className="study-item-edit-form">
                                       <label>
@@ -4461,6 +4462,7 @@ export function BookWorkspace() {
                                         {t("Explanation", "해설")}
                                         <textarea rows={3} value={studyItemDraftById[item.id]?.explanation || ""} onChange={(event) => updateStudyItemDraft(item.id, { explanation: event.target.value })} />
                                       </label>
+                                      {item.status === "needs_review" ? <label><input type="checkbox" checked={studyItemDraftById[item.id]?.status === "reviewed"} onChange={event => updateStudyItemDraft(item.id, { status: event.target.checked ? "reviewed" : "needs_review" })} />{t("I checked the answer and distractors against the passage", "본문과 대조하여 정답과 오답을 확인했습니다")}</label> : null}
                                     </div>
                                   ) : (
                                     <>

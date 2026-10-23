@@ -12,6 +12,8 @@ The uploaded Ubuntu backup has passed an isolated restore rehearsal; see [produc
 
 The first [UI prototype and PostgreSQL migration foundation](docs/prototype-and-postgres.md) is available at `/prototype`. The prototype uses sample data; the separately invoked migration tool has been rehearsed against the verified backup. The running application still uses SQLite.
 
+See [UI behaviors and MCQ quality](docs/ui-behaviors-and-mcq-quality.md) for the device-local preview persistence and the quality pipeline applied to new AI-generated MCQs.
+
 ## Current Workflow
 
 1. Create or select a book.

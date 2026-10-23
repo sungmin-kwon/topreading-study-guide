@@ -68,7 +68,7 @@ type StudyItemsOptions = {
 export type StudyItemKind = "vocabulary" | "multiple-choice" | "short-answer";
 export type StudyItemMoveDirection = "up" | "down";
 
-const allowedItemStatuses = new Set(["draft", "reviewed", "approved", "rejected", "archived"]);
+const allowedItemStatuses = new Set(["draft", "needs_review", "reviewed", "approved", "rejected", "archived"]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -437,6 +437,8 @@ export async function rebalanceStudySetMultipleChoiceAnswers(studySetId: string)
   const items = await listStudyItems(studySetId);
   const balanced = balanceCorrectChoicePositions(items.multipleChoice.map((item) => ({
     id: item.id,
+    questionText: item.questionText,
+    explanation: item.explanation,
     choices: parseJsonArray(item.choicesJson),
     correctChoiceIndex: item.correctChoiceIndex
   })));

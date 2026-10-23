@@ -274,6 +274,9 @@
 .shell[data-theme=dark] .guideDocument .choices li.correct { background:#314c3a; color:#c6e5ce; }
 .shell[data-theme=dark] .notice { background:#443c23; color:#f0d69b; }
 .shell[data-theme=dark] .printable { color-scheme:light; color:#263930; }
-.shell[data-theme=dark] .shell .editButton { color:#c6e5ce; }
+.shell[data-theme=dark] .editButton { color:#c6e5ce; }
 @media(max-width:650px) { .saveBar { padding:7px 16px; font-size:11px; } .saveBar>span:last-child { display:none; } .shell button { min-height:44px; } .appBar>select { max-width:100px; } .appBar .bookSwitcher { flex-basis:40%; } }
 @media print { .saveBar { display:none!important; } .shell[data-theme=dark] { color-scheme:light; --p-line:#e1e5df; --p-muted:#64726d; } }
+
+.itemNumber,.chapterNumber,.itemTypes>button>span,.chapterKicker { color:var(--p-muted); }
+.shell[data-theme=dark] .activeChapter .chapterNumber { color:var(--p-accent); }

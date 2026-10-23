@@ -4,8 +4,8 @@ import { getBook } from "@/lib/books";
 import { getChapter } from "@/lib/chapters";
 import { getGeneratingRunForBook, getGenerationRun, summarizeGenerationRun, updateGenerationRun, type GenerationLogEntry } from "@/lib/generation-runs";
 import { generateOpenAIChapterItems, type OpenAIUsageSummary } from "@/lib/openai-generator";
-import { appendStudyItems, rebalanceStudySetMultipleChoiceAnswers, summarizeStudyItems, type StudyItemsInput } from "@/lib/study-items";
-import { createStudySet, deleteStudySet, deleteStudySetsForRun, updateStudySet } from "@/lib/study-sets";
+import { appendStudyItems, listStudyItems, summarizeStudyItems, type StudyItemsInput } from "@/lib/study-items";
+import { createStudySet, listStudySetsForRun, updateStudySet } from "@/lib/study-sets";
 
 export const runtime = "nodejs";
 export const maxDuration = 900;
@@ -246,7 +246,10 @@ export async function POST(_request: Request, context: RouteContext) {
     estimatedCostUsd: null
   };
 
-  await deleteStudySetsForRun(generationRun.id);
+  // Never erase a saved version (including manually edited partial results) on rerun.
+  if ((await listStudySetsForRun(generationRun.id)).length) {
+    return NextResponse.json({ error: "This version already contains saved results. Create a new guide version to generate again; existing edits have been preserved." }, { status: 409 });
+  }
   const runStudySet = await createStudySet({
     bookId: book.id,
     generationRunId: generationRun.id,
@@ -254,7 +257,7 @@ export async function POST(_request: Request, context: RouteContext) {
     title: generationRun.name || `${book.title} - ${nowIso().slice(0, 16).replace("T", " ")}`,
     generator: "openai",
     model: process.env.OPENAI_MODEL || null,
-    promptVersion: "openai-study-guide-v1",
+    promptVersion: "openai-study-guide-v2-mcq-quality",
     settings: JSON.parse(generationRun.configJson || "{}")
   });
   await updateGenerationRun({
@@ -271,15 +274,15 @@ export async function POST(_request: Request, context: RouteContext) {
     finishedAt: null
   });
 
+  const rawChapters: unknown[] = [];
+  let completedChapters = 0;
   try {
-    const rawChapters: unknown[] = [];
-    let completedChapters = 0;
     let skippedDuplicateVocabularyCount = 0;
     const seenVocabularyTerms = new Set<string>();
 
     const finishCancelled = async (message: string) => {
       const finalUsage = finalizeUsage(usageSummary);
-      const finalItems = await rebalanceStudySetMultipleChoiceAnswers(runStudySet.id);
+      const finalItems = await listStudyItems(runStudySet.id);
       const generatedCollections = summarizeStudyItems(finalItems);
       runLog = [
         ...runLog,
@@ -344,6 +347,8 @@ export async function POST(_request: Request, context: RouteContext) {
       });
 
       const result = await generateOpenAIChapterItems(book, chapter, chapterConfig.plan);
+      const reviewCount = result.generatedItems.multipleChoiceQuestions?.filter(q => q.status === "needs_review").length || 0;
+      if (reviewCount) runLog = [...runLog, logEntry("warn", `${reviewCount} MCQ(s) in Chapter ${chapter.chapterNumber} need human review after quality checks.`)];
       const deduplicated = filterDuplicateVocabularyItems(result.generatedItems, seenVocabularyTerms);
       skippedDuplicateVocabularyCount += deduplicated.skippedTerms.length;
       await appendStudyItems(runStudySet.id, deduplicated.generatedItems, { chapterId: chapter.id });
@@ -386,7 +391,7 @@ export async function POST(_request: Request, context: RouteContext) {
     }
 
     const finalUsage = finalizeUsage(usageSummary);
-    const finalItems = await rebalanceStudySetMultipleChoiceAnswers(runStudySet.id);
+    const finalItems = await listStudyItems(runStudySet.id);
     const generatedCollections = summarizeStudyItems(finalItems);
     await updateStudySet({
       studySetId: runStudySet.id,
@@ -424,7 +429,7 @@ export async function POST(_request: Request, context: RouteContext) {
 
     return NextResponse.json({ generationRun: await summarizeGenerationRun(completed || generationRun) });
   } catch (error) {
-    await deleteStudySet(runStudySet.id);
+    await updateStudySet({ studySetId: runStudySet.id, status: "failed", rawOutput: { chapters: rawChapters, incomplete: true, usage: finalizeUsage(usageSummary) } });
     const message = error instanceof Error ? error.message : "Generation failed.";
     const finalUsage = finalizeUsage(usageSummary);
     runLog = [...runLog, logEntry("error", `Failed: ${message}`)];

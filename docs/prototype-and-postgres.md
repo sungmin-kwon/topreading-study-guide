@@ -13,7 +13,7 @@ npm run dev
 
 Open `/prototype` on that development server. The existing application remains at `/`.
 
-Inside a book, the prototype has three destinations: Text, Study guides, and Export. A header book switcher and a separate searchable Library view replace the persistent library sidebar. Only the chapter outline remains beside Text and Study guides; Export uses that space for its settings. It uses fictional sample readings and keeps changes in browser memory. Reloading resets everything. It makes no API requests, changes no application records, and makes no AI calls.
+Inside a book, the prototype has three destinations: Text, Study guides, and Export. A header book switcher and a separate searchable Library view replace the persistent library sidebar. Only the chapter outline remains beside Text and Study guides; Export uses that space for its settings. It starts with fictional readings and now saves preview books and drafts locally on the device, including across reloads. See [implemented UI behaviors and MCQ quality checks](ui-behaviors-and-mcq-quality.md) for persistence, recovery, version and quality behavior. It makes no API requests, changes no application records, and makes no AI calls.
 
 Try these tasks:
 
@@ -22,7 +22,7 @@ Try these tasks:
 3. Choose Export, select chapters and content, and toggle answers. Use the browser print dialog to print or save a PDF.
 4. Open Library from the header and search by title or author. Return to the current book, or switch books using the header selector. Within this tab, each book retains its chapter, guide version, content type, source visibility, and question draft. On a phone, use the same header controls and the chapter picker.
 
-This slice establishes layout and interactions. It does not yet implement persistent saving, actual AI generation, PDF/EPUB extraction, DOCX export, Korean UI, dark mode, or job recovery states. Those remain in the [modernization plan](modernization-plan.md). Sample questions created from imported text are placeholders for exercising the workflow.
+This slice establishes layout and interactions. It does not yet implement server-synchronized saving, actual AI generation in the prototype, PDF/EPUB extraction, DOCX export in the prototype, or production worker recovery. Those remain in the [modernization plan](modernization-plan.md). Sample questions created from imported text are placeholders for exercising the workflow.
 
 ![Desktop study guide](prototype/desktop.png)
 
@@ -30,9 +30,9 @@ This slice establishes layout and interactions. It does not yet implement persis
 
 ## Design decisions before backend integration
 
-The single-sidebar layout is implemented. The following are recommended behavior defaults for the next implementation slice, not claims about completed prototype features:
+The single-sidebar layout and prototype behavior implementation are complete; see [implementation scope and verification](ui-behaviors-and-mcq-quality.md). The following requirements also guide production integration:
 
-- **Saving and navigation:** show persistent Saving / Saved / Could not save feedback near the editor; preserve failed edits with a Retry action. Keep unsaved question drafts when navigating, and make reload/leave protection explicit. Restore book, task, chapter, and guide through URL state in the real app. The prototype only remembers book context in memory; changing a task/chapter/version can still discard an open question draft.
+- **Saving and navigation:** show persistent Saving / Saved / Could not save feedback near the editor; preserve failed edits with a Retry action. Keep unsaved question drafts when navigating, and make reload/leave protection explicit. Restore book, task, chapter, and guide through URL state in the real app. The prototype now saves keyed drafts locally across navigation/reload; production server saving remains to be connected.
 - **Reversible chapter changes:** offer immediate Undo after splitting or merging, plus revision history. Review proposed boundaries before replacing the chapter structure. Each operation must be atomic and preserve the text; confirmation is appropriate for replacement or deletion rather than every ordinary edit.
 - **Generation and source changes:** generate into a new guide version by default, preserving manual edits. Separate Queued / Generating / Ready / Failed from Needs review after a source edit. Record the source revision each generated item used; retry failed work without duplicating completed items. Legacy provenance remains unknown.
 - **Output intent:** name student handouts and teacher copies explicitly, show the selected guide/chapter scope, and make answer inclusion visible in the preview. Preserve the existing standalone answer-key formats when production exports are connected.

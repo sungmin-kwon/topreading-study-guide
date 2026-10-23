@@ -1,46 +1,15 @@
-type MultipleChoiceLike = {
-  choices: string[];
-  correctChoiceIndex: number;
-};
-
-function shuffleInPlace<T>(items: T[]) {
-  for (let index = items.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [items[index], items[swapIndex]] = [items[swapIndex], items[index]];
-  }
-
-  return items;
-}
-
-function buildBalancedPositions(questionCount: number, choiceCount: number) {
-  const positions = Array.from({ length: questionCount }, (_item, index) => index % choiceCount);
-  return shuffleInPlace(positions);
-}
-
-export function balanceCorrectChoicePositions<T extends MultipleChoiceLike>(questions: T[]) {
-  if (!questions.length) {
-    return questions;
-  }
-
-  const choiceCount = Math.min(...questions.map((question) => question.choices.length));
-  if (choiceCount < 2) {
-    return questions;
-  }
-
-  const targetPositions = buildBalancedPositions(questions.length, choiceCount);
-  return questions.map((question, index) => {
-    const targetIndex = targetPositions[index];
-    const currentIndex = question.correctChoiceIndex;
-    const choices = [...question.choices];
-
-    if (currentIndex >= 0 && currentIndex < choices.length && targetIndex < choices.length && currentIndex !== targetIndex) {
-      [choices[currentIndex], choices[targetIndex]] = [choices[targetIndex], choices[currentIndex]];
-    }
-
-    return {
-      ...question,
-      choices,
-      correctChoiceIndex: targetIndex
-    };
+import { hasAnswerLetterReference } from "./mcq-checks";
+type MultipleChoiceLike = { choices: string[]; correctChoiceIndex: number; questionText?: string; explanation?: string | null };
+function shuffle<T>(items:T[]) { for(let i=items.length-1;i>0;i--) { const j=Math.floor(Math.random()*(i+1)); [items[i],items[j]]=[items[j],items[i]]; } return items; }
+export function balanceCorrectChoicePositions<T extends MultipleChoiceLike>(questions:T[]):T[] {
+  const positions=new Map<number,number[]>();
+  return questions.map(q=>{
+    if (!Number.isInteger(q.correctChoiceIndex) || q.correctChoiceIndex<0 || q.correctChoiceIndex>=q.choices.length) throw new Error("Cannot shuffle an invalid answer index.");
+    if(q.choices.length<2 || hasAnswerLetterReference(`${q.questionText || ""} ${q.explanation || ""} ${q.choices.join(" ")}`)) return {...q,choices:[...q.choices]};
+    let pool=positions.get(q.choices.length);
+    if(!pool?.length) {pool=shuffle(q.choices.map((_,i)=>i));positions.set(q.choices.length,pool);}
+    const correctChoiceIndex=pool.pop()!;
+    const choices=shuffle(q.choices.filter((_,i)=>i!==q.correctChoiceIndex)); choices.splice(correctChoiceIndex,0,q.choices[q.correctChoiceIndex]);
+    return {...q,choices,correctChoiceIndex};
   });
 }
