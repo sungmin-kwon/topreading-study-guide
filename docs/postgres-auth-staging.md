@@ -26,17 +26,35 @@ Admin is currently an application-wide role for users and settings. Membership i
 `top.dubugimchi.com` is the public application hostname. It is not the Access token issuer.
 
 1. Open the Cloudflare Zero Trust dashboard. Find the **team name/domain** in Settings (often under Custom Pages or Team domain, depending on the dashboard version). It ends in `.cloudflareaccess.com`.
-2. Open **Access → Applications → TopReading**. Copy the application's **Application Audience (AUD) Tag** from its overview/configuration.
-3. Configure on the server:
+2. Open **Access controls → Applications → topreading → Configure → Additional settings**. Copy **Application Audience (AUD) Tag**. This is the self-hosted application for `top.dubugimchi.com`, using the `Family Access` policy.
+3. The user supplied the following non-secret settings for the existing application. Use them when configuring the backend for that application; a separate staging Access application must use its own AUD and public URL:
 
    ```dotenv
    AUTH_MODE=cloudflare_access
    APP_BASE_URL=https://top.dubugimchi.com
-   CLOUDFLARE_ACCESS_TEAM_DOMAIN=YOUR-TEAM.cloudflareaccess.com
-   CLOUDFLARE_ACCESS_AUD=YOUR-APPLICATION-AUD
+   CLOUDFLARE_ACCESS_TEAM_DOMAIN=supervenience.cloudflareaccess.com
+   CLOUDFLARE_ACCESS_AUD=d1c8751b006e02f5d135ccdb4402eaef1bca2f4897e592ad9aa3015232f9457a
    ```
 
-The team domain and AUD are non-secret identifiers. OAuth secrets, session secrets and API keys should be entered directly into server configuration, never chat or Git. Until these Access identifiers are supplied, the actual Cloudflare boundary cannot be validated. No production Cloudflare settings were changed by this work.
+The team domain and AUD are non-secret identifiers. OAuth secrets, session secrets and API keys should be entered directly into server configuration, never chat or Git. Both Access identifiers have now been supplied and accepted by the local configuration validator. This does not verify a live signed assertion or establish that the Ubuntu service uses the new authentication code. No production Cloudflare settings were changed by this work.
+
+The development workspace currently has no network allowance for the team domain or public application hostname. Run this read-only check on Ubuntu to confirm that the server can obtain Cloudflare's public signing keys (it needs no login or secret):
+
+```bash
+python3 - <<'PYTHON'
+import json
+import urllib.request
+url = "https://supervenience.cloudflareaccess.com/cdn-cgi/access/certs"
+with urllib.request.urlopen(url, timeout=15) as response:
+    keys = json.load(response).get("keys", [])
+usable = [key for key in keys if key.get("kty") == "RSA" and key.get("kid") and key.get("n") and key.get("e")]
+if not usable:
+    raise SystemExit("FAIL: no usable RSA signing keys returned")
+print(f"PASS: received {len(usable)} public signing key(s) from the team domain")
+PYTHON
+```
+
+A passing key check confirms reachability and key availability only. The release check still needs a real browser sign-in through Cloudflare into the migrated staging app, plus denied requests without a valid assertion. Do not paste session cookies or JWTs into chat. Keep the current SQLite service on its existing branch until the separate PostgreSQL/authentication deployment is ready.
 
 Retain the tunnel or restrict origin ingress to the intended proxy. Confirm that a direct request with only an email header is denied and that the signed Access login works through the complete proxy chain before release.
 
