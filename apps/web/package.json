@@ -13,8 +13,8 @@
   "dependencies": {
     "@topreading/core": "0.1.0",
     "better-sqlite3": "^11.10.0",
-    "drizzle-orm": "^0.44.6",
-    "next": "^15.3.0",
+    "drizzle-orm": "^0.45.4",
+    "next": "^15.5.28",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -23,9 +23,9 @@
     "@types/node": "^22.15.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "drizzle-kit": "^0.31.4",
+    "drizzle-kit": "^0.31.11",
     "eslint": "^9.25.0",
-    "eslint-config-next": "^15.3.0",
+    "eslint-config-next": "^15.5.28",
     "typescript": "^5.8.3"
   }
 }

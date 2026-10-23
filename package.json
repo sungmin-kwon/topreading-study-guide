@@ -18,5 +18,11 @@
     "lint": "npm run lint --workspace @topreading/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "backup": "node scripts/backup-data.mjs"
+  },
+  "overrides": {
+    "postcss": "^8.5.31",
+    "next": {
+      "sharp": "^0.35.5"
+    }
   }
 }
