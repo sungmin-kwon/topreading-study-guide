@@ -1,7 +1,10 @@
 "use client";
 
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { allocateCountByWordWeight, deriveBookGenerationPlan } from "@topreading/core";
+
+import { WorkspaceBar, SavedLibrary, WorkspaceNavigation } from "./workspace-navigation";
+import "./live-workspace.css";
 
 type BookSummary = {
   id: string;
@@ -697,7 +700,21 @@ function renderVocabularyExample(sentence: string, term: string) {
   return parts.length ? parts : sentence;
 }
 
-export function BookWorkspace() {
+export function BookWorkspace({ modern = true }: { modern?: boolean }) {
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryError, setLibraryError] = useState("");
+  const [bookLoadError, setBookLoadError] = useState("");
+  const [bookLoadAttempt, setBookLoadAttempt] = useState(0);
+  const [isBookLoading, setIsBookLoading] = useState(true);
+  const [loadedBookId, setLoadedBookId] = useState<string | null>(null);
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [dirtyItemIds, setDirtyItemIds] = useState<string[]>([]);
+  const readingPositions = useRef(new Map<string, { chapterId: string | null; tab: WorkspaceTab }>());
+  const currentBookRef = useRef<string | null>(null);
+  const studyRequestEpoch = useRef(0);
+  const [studyLoadError, setStudyLoadError] = useState("");
+  const [switchingVersion, setSwitchingVersion] = useState(false);
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>("source");
@@ -853,6 +870,58 @@ export function BookWorkspace() {
   const currentUserMeta = currentUser
     ? `${currentUser.role === "admin" ? t("Admin", "관리자") : t("Member", "회원")} · ${uiLanguage === "ko" ? "KO" : "EN"} · ${themeMode === "dark" ? t("Dark", "다크") : t("Light", "라이트")}`
     : `${uiLanguage === "ko" ? "KO" : "EN"} · ${themeMode === "dark" ? t("Dark", "다크") : t("Light", "라이트")}`;
+  const hasUnsavedChanges = dirtyItemIds.length > 0 || Boolean(creatingStudyItemKind) || Object.entries(chapterEditById).some(([id, draft]) => {
+    const saved = chapterDetailById[id];
+    return saved && (Number(draft.chapterNumber) !== saved.chapterNumber || draft.title !== saved.title || draft.textContent !== saved.textContent);
+  });
+  function selectBook(id: string) {
+    if (isSavingNewStudyItem) return;
+    if (id !== activeBook?.id && (isUploading || extractingSourceId || splittingParsedDocumentId)) { setStatusMessage(t("Wait for the import operation to finish before switching books.", "가져오기가 완료된 후 책을 전환하세요.")); return; }
+    if (id !== activeBook?.id && (isGeneratingBook || generatingRun)) { setStatusMessage(t("Wait for generation to finish or cancel it before switching books.", "생성이 끝날 때까지 기다리거나 취소한 후 책을 전환하세요.")); return; }
+    if (creatingStudyItemKind && !window.confirm(t("Discard the new unsaved item?", "저장되지 않은 새 항목을 버릴까요?"))) return;
+    setCreatingStudyItemKind(null); setNewStudyItemDraft({});
+    if (activeBook && id !== activeBook.id) {
+      readingPositions.current.set(activeBook.id, { chapterId: selectedChapterId, tab: activeWorkspaceTab });
+      setIsBookLoading(true);
+      setActiveWorkspaceTab(readingPositions.current.get(id)?.tab || "review");
+    }
+    setActiveBookId(id); setLibraryOpen(false); setSaveError("");
+  }
+  function navigateTo(tab: WorkspaceTab) {
+    if (isSavingNewStudyItem) return;
+    if (creatingStudyItemKind && !window.confirm(t("Discard the new unsaved item?", "저장되지 않은 새 항목을 버릴까요?"))) return;
+    setCreatingStudyItemKind(null); setNewStudyItemDraft({});
+    setActiveWorkspaceTab(tab); setSaveError("");
+  }
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => { if (hasUnsavedChanges) { event.preventDefault(); event.returnValue = ""; } };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [hasUnsavedChanges]);
+  useEffect(() => {
+    if (!modern || isLoading || isBookLoading || !activeBook || loadedBookId !== activeBook.id || bookLoadError) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("book", activeBook.id); url.searchParams.set("section", activeWorkspaceTab);
+    if (selectedChapterId) url.searchParams.set("chapter", selectedChapterId); else url.searchParams.delete("chapter");
+    window.history.replaceState(null, "", url);
+  }, [modern, isLoading, isBookLoading, activeBook?.id, activeWorkspaceTab, selectedChapterId, bookLoadError, loadedBookId]);
+  useEffect(() => {
+    if (!activeBook || !selectedChapter || chapterDetailById[selectedChapter.id]) return;
+    const chapter = selectedChapter;
+    const abort = new AbortController();
+    setLoadingChapterId(chapter.id);
+    fetch(`/api/books/${activeBook.id}/chapters/${chapter.id}`, { cache: "no-store", signal: abort.signal })
+      .then(async response => {
+        const payload = await response.json() as ChapterDetailResponse;
+        if (!response.ok || !payload.chapter) throw new Error(payload.error || "Could not load this chapter.");
+        if (abort.signal.aborted) return;
+        const detail = payload.chapter;
+        setChapterDetailById(current => ({ ...current, [chapter.id]: detail }));
+        setChapterEditById(current => ({ ...current, [chapter.id]: current[chapter.id] || { chapterNumber: String(detail.chapterNumber), title: detail.title, textContent: detail.textContent } }));
+      }).catch(error => { if (!abort.signal.aborted) setSaveError(error instanceof Error ? error.message : "Could not load this chapter."); })
+      .finally(() => { if (!abort.signal.aborted) setLoadingChapterId(null); });
+    return () => abort.abort();
+  }, [activeBook?.id, selectedChapter?.id, bookLoadAttempt]);
   function setStatusMessage(message: string) {
     const trimmed = message.trim();
     if (!trimmed) {
@@ -1093,11 +1162,17 @@ export function BookWorkspace() {
         }
 
         setBooks(loadedBooks);
-        setActiveBookId((current) => current || loadedBooks[0]?.id || null);
+        const requested = new URLSearchParams(window.location.search).get("book");
+        setActiveBookId(loadedBooks.find(book => book.id === requested)?.id || loadedBooks[0]?.id || null);
+        if (modern) {
+          const tab = new URLSearchParams(window.location.search).get("section");
+          setActiveWorkspaceTab((["source", "split", "chapters", "review", "generate", "sets", "export"].includes(tab || "") ? tab : "review") as WorkspaceTab);
+          if (loadedBooks.length === 0) setLibraryOpen(true);
+        }
       })
       .catch((error) => {
         if (isMounted) {
-          setStatusMessage(error instanceof Error ? error.message : "Could not load books.");
+          setLibraryError(error instanceof Error ? error.message : "Could not load books.");
         }
       })
       .finally(() => {
@@ -1112,129 +1187,37 @@ export function BookWorkspace() {
   }, []);
 
   useEffect(() => {
-    if (!activeBook?.id) {
-      setSourceFiles([]);
-      setChapters([]);
-      setStudySetCount(0);
-      setGenerationRuns([]);
-      setSelectedChapterId(null);
-      return;
-    }
-
-    let isMounted = true;
-    setIsLoadingSources(true);
-    setSourceFiles([]);
-    setChapters([]);
-    setStudySetCount(0);
-    setGenerationRuns([]);
-    setParsedDocumentsBySource({});
-    setSplitPreviewByParsedDocument({});
-    setParsedDocumentDetailById({});
-    setParsedPagesByDocumentId({});
-    setActiveParsedToolByDocumentId({});
-    setTextSearchByParsedDocument({});
-    setManualMarkersByParsedDocument({});
-    setPageMarkersByParsedDocument({});
-    setChapterDetailById({});
-    setChapterEditById({});
-    setStudySetsByChapterId({});
-    setSelectedStudySetIdByChapterId({});
-    setStudyItemsByStudySetId({});
-    setSelectedChapterId(null);
-
-    fetchSourceFiles(activeBook.id)
-      .then((loadedSourceFiles) => {
-        if (isMounted) {
-          setSourceFiles(loadedSourceFiles);
-          loadedSourceFiles.forEach((sourceFile) => {
-            fetchParsedDocuments(activeBook.id, sourceFile.id)
-              .then((parsedDocuments) => {
-                if (isMounted) {
-                  setParsedDocumentsBySource((current) => ({
-                    ...current,
-                    [sourceFile.id]: parsedDocuments
-                  }));
-                }
-              })
-              .catch(() => {
-                if (isMounted) {
-                  setParsedDocumentsBySource((current) => ({
-                    ...current,
-                    [sourceFile.id]: []
-                  }));
-                }
-              });
-          });
-        }
+    currentBookRef.current = activeBook?.id || null;
+    studyRequestEpoch.current += 1;
+    setStudyLoadError("");
+    if (!activeBook?.id) { setIsBookLoading(false); return; }
+    const bookId = activeBook.id;
+    let cancelled = false;
+    setIsBookLoading(true);
+    setBookLoadError("");
+    setSourceFiles([]); setChapters([]); setStudySetCount(0); setGenerationRuns([]);
+    setSelectedChapterId(null); setSourceOpen(false);
+    setParsedDocumentsBySource({}); setSplitPreviewByParsedDocument({});
+    setParsedDocumentDetailById({}); setParsedPagesByDocumentId({});
+    setActiveParsedToolByDocumentId({}); setTextSearchByParsedDocument({});
+    setManualMarkersByParsedDocument({}); setPageMarkersByParsedDocument({});
+    // Chapter and item drafts are keyed by immutable IDs; retain them when switching books.
+    setStudySetsByChapterId({}); setSelectedStudySetIdByChapterId({}); setStudyItemsByStudySetId({});
+    Promise.all([fetchSourceFiles(bookId), fetchChapters(bookId), fetchBookStats(bookId), fetchGenerationRuns(bookId)])
+      .then(async ([sources, loadedChapters, stats, runs]) => {
+        const documents = await Promise.all(sources.map(async source => [source.id, await fetchParsedDocuments(bookId, source.id)] as const));
+        if (cancelled) return;
+        setLoadedBookId(bookId);
+        setSourceFiles(sources); setChapters(loadedChapters); setStudySetCount(stats.studySetCount); setGenerationRuns(runs);
+        setParsedDocumentsBySource(Object.fromEntries(documents));
+        const query = new URLSearchParams(window.location.search);
+        const chapterId = readingPositions.current.get(bookId)?.chapterId || (query.get("book") === bookId ? query.get("chapter") : null);
+        setSelectedChapterId(loadedChapters.find(chapter => chapter.id === chapterId)?.id || loadedChapters[0]?.id || null);
       })
-      .catch((error) => {
-        if (isMounted) {
-          setStatusMessage(error instanceof Error ? error.message : "Could not load source files.");
-        }
-      })
-      .finally(() => {
-        if (isMounted) {
-          setIsLoadingSources(false);
-        }
-      });
-
-    fetchChapters(activeBook.id)
-      .then((loadedChapters) => {
-        if (isMounted) {
-          setChapters(loadedChapters);
-          setSelectedChapterId((current) =>
-            current && loadedChapters.some((chapter) => chapter.id === current)
-              ? current
-              : loadedChapters[0]?.id || null
-          );
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setChapters([]);
-          setSelectedChapterId(null);
-        }
-      });
-
-    fetchBookStats(activeBook.id)
-      .then((stats) => {
-        if (isMounted) {
-          setStudySetCount(stats.studySetCount);
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setStudySetCount(0);
-        }
-      });
-
-    fetchGenerationRuns(activeBook.id)
-      .then(async (loadedRuns) => {
-        if (!isMounted) {
-          return;
-        }
-
-        setGenerationRuns(loadedRuns);
-        try {
-          const refreshedBook = await fetchBook(activeBook.id);
-          if (isMounted) {
-            updateBookInState(refreshedBook);
-          }
-        } catch {
-          // Keep the loaded run list even if the follow-up book refresh fails.
-        }
-      })
-      .catch((error) => {
-        if (isMounted) {
-          setGenerationRuns([]);
-          setStatusMessage(error instanceof Error ? error.message : "Could not load generation history.");
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [activeBook?.id]);
+      .catch(error => { if (!cancelled) setBookLoadError(error instanceof Error ? error.message : "Could not load this book."); })
+      .finally(() => { if (!cancelled) setIsBookLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeBook?.id, bookLoadAttempt]);
 
   useEffect(() => {
     if ((activeWorkspaceTab === "export" || activeWorkspaceTab === "review") && selectedChapter) {
@@ -1298,6 +1281,7 @@ export function BookWorkspace() {
   }, [activeBook?.id, activeBook?.activeGenerationRunId, activeWorkspaceTab, generatingRun?.id, selectedChapter?.id]);
 
   useEffect(() => {
+    if (modern || isBookLoading) return;
     if (!activeBook) {
       if (activeWorkspaceTab !== "source") {
         setActiveWorkspaceTab("source");
@@ -1321,29 +1305,35 @@ export function BookWorkspace() {
   }, [activeBook, activeWorkspaceTab, hasChapters, hasSourceFiles, hasStudySets]);
 
   async function handleCreateBook() {
+    if (isSavingNewStudyItem || isUploading || extractingSourceId || splittingParsedDocumentId) return;
+    if (isGeneratingBook || generatingRun) { setStatusMessage(t("Finish or cancel generation before creating another book.", "다른 책을 만들기 전에 생성을 완료하거나 취소하세요.")); return; }
     setIsCreating(true);
     setStatusMessage("");
 
-    const response = await fetch("/api/books", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ title: "Untitled Book" })
-    });
-    const payload = (await response.json().catch(() => ({}))) as CreateBookResponse;
+    try {
+      const response = await fetch("/api/books", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ title: "Untitled Book" })
+      });
+      const payload = (await response.json().catch(() => ({}))) as CreateBookResponse;
 
-    if (!response.ok || !payload.book) {
-      setStatusMessage(payload.error || "Could not create the book.");
-      setIsCreating(false);
-      return;
-    }
+      if (!response.ok || !payload.book) {
+        setStatusMessage(payload.error || "Could not create the book.");
+        setIsCreating(false);
+        return;
+      }
 
-    setBooks((current) => [payload.book as BookSummary, ...current]);
-    setActiveBookId(payload.book.id);
-    setActiveWorkspaceTab("source");
-    setStatusMessage("Book created. Use Edit Book Info to add author or reading level.");
-    setIsCreating(false);
+      setBooks((current) => [payload.book as BookSummary, ...current]);
+      setActiveBookId(payload.book.id);
+      setLibraryOpen(false);
+      setActiveWorkspaceTab("source");
+      setStatusMessage("Book created. Use Edit Book Info to add author or reading level.");
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Could not create the book.");
+    } finally { setIsCreating(false); }
   }
 
   async function handleSourceUpload(event: FormEvent<HTMLFormElement>) {
@@ -1365,23 +1355,26 @@ export function BookWorkspace() {
     const formData = new FormData();
     formData.append("file", fileInput.files[0]);
 
-    const response = await fetch(`/api/books/${activeBook.id}/source-files`, {
-      method: "POST",
-      body: formData
-    });
-    const payload = (await response.json().catch(() => ({}))) as UploadSourceResponse;
+    try {
+      const response = await fetch(`/api/books/${activeBook.id}/source-files`, {
+        method: "POST",
+        body: formData
+      });
+      const payload = (await response.json().catch(() => ({}))) as UploadSourceResponse;
 
-    if (!response.ok || !payload.sourceFile) {
-      setStatusMessage(payload.error || "Could not upload the source file.");
-      setIsUploading(false);
-      return;
-    }
+      if (!response.ok || !payload.sourceFile) {
+        setStatusMessage(payload.error || "Could not upload the source file.");
+        setIsUploading(false);
+        return;
+      }
 
-    setSourceFiles((current) => [payload.sourceFile as SourceFile, ...current]);
-    form.reset();
-    setSourceUploadFilename("");
-    setStatusMessage("Source file uploaded and saved.");
-    setIsUploading(false);
+      setSourceFiles((current) => [payload.sourceFile as SourceFile, ...current]);
+      form.reset();
+      setSourceUploadFilename("");
+      setStatusMessage("Source file uploaded and saved.");
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Could not upload the source file.");
+    } finally { setIsUploading(false); }
   }
 
   async function refreshActiveBookStats(bookId = activeBook?.id) {
@@ -1441,38 +1434,25 @@ export function BookWorkspace() {
   }
 
   async function handleSelectActiveGenerationRun(generationRunId: string | null) {
-    if (!activeBook) {
-      return;
-    }
-
-    const response = await fetch(`/api/books/${activeBook.id}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        title: activeBook.title,
-        author: activeBook.author,
-        readingLevel: activeBook.readingLevel,
-        activeGenerationRunId: generationRunId
-      })
-    });
-    const payload = (await response.json().catch(() => ({}))) as BookResponse;
-
-    if (!response.ok || !payload.book) {
-      setStatusMessage(payload.error || "Could not select generation run.");
-      return;
-    }
-
-    updateBookInState(payload.book);
-    setStudySetsByChapterId({});
-    setSelectedStudySetIdByChapterId({});
-    setStudyItemsByStudySetId({});
-    setStatusMessage(generationRunId ? "Active generation run selected." : "Using latest study sets across all runs.");
-
-    if ((activeWorkspaceTab === "review" || activeWorkspaceTab === "export") && selectedChapter) {
-      void loadStudySets(selectedChapter, generationRunId);
-    }
+    if (!activeBook || switchingVersion) return;
+    const bookId = activeBook.id;
+    setSwitchingVersion(true); setSaveError("");
+    try {
+      const response = await fetch(`/api/books/${bookId}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activeGenerationRunId: generationRunId })
+      });
+      const payload = await response.json() as BookResponse;
+      if (!response.ok || !payload.book) throw new Error(payload.error || "Could not select guide version.");
+      if (currentBookRef.current !== bookId) return;
+      studyRequestEpoch.current += 1;
+      setStudySetsByChapterId({}); setSelectedStudySetIdByChapterId({}); setStudyItemsByStudySetId({});
+      setStudyLoadError("");
+      updateBookInState(payload.book);
+      setStatusMessage(t("Guide version selected.", "학습지 버전이 선택되었습니다."));
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Could not select guide version. Try again.");
+    } finally { setSwitchingVersion(false); }
   }
 
   async function handleSaveBookMetadata(event: FormEvent<HTMLFormElement>) {
@@ -1542,8 +1522,7 @@ export function BookWorkspace() {
     setActiveParsedToolByDocumentId({});
     setChapters([]);
     setSelectedChapterId(null);
-    setChapterDetailById({});
-    setChapterEditById({});
+    discardChapterCaches(chapters.map(chapter => chapter.id));
     setStudySetsByChapterId({});
     setSelectedStudySetIdByChapterId({});
     setStudyItemsByStudySetId({});
@@ -1560,23 +1539,26 @@ export function BookWorkspace() {
     setExtractingSourceId(sourceFile.id);
     setStatusMessage("");
 
-    const response = await fetch(`/api/books/${activeBook.id}/source-files/${sourceFile.id}/parsed-documents`, {
-      method: "POST"
-    });
-    const payload = (await response.json().catch(() => ({}))) as ExtractResponse;
+    try {
+      const response = await fetch(`/api/books/${activeBook.id}/source-files/${sourceFile.id}/parsed-documents`, {
+        method: "POST"
+      });
+      const payload = (await response.json().catch(() => ({}))) as ExtractResponse;
 
-    if (!response.ok || !payload.parsedDocument) {
-      setStatusMessage(payload.error || "Could not extract text from this source file.");
-      setExtractingSourceId(null);
-      return;
-    }
+      if (!response.ok || !payload.parsedDocument) {
+        setStatusMessage(payload.error || "Could not extract text from this source file.");
+        setExtractingSourceId(null);
+        return;
+      }
 
-    setParsedDocumentsBySource((current) => ({
-      ...current,
-      [sourceFile.id]: [payload.parsedDocument as ParsedDocument, ...(current[sourceFile.id] || [])]
-    }));
-    setStatusMessage("Source text extracted and saved.");
-    setExtractingSourceId(null);
+      setParsedDocumentsBySource((current) => ({
+        ...current,
+        [sourceFile.id]: [payload.parsedDocument as ParsedDocument, ...(current[sourceFile.id] || [])]
+      }));
+      setStatusMessage("Source text extracted and saved.");
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "The request failed. Please try again.");
+    } finally { setExtractingSourceId(null); }
   }
 
   function parseManualMarkers(value: string) {
@@ -1688,35 +1670,37 @@ export function BookWorkspace() {
     setSplittingParsedDocumentId(parsedDocument.id);
     setStatusMessage("");
 
-    const response = await fetch(`/api/books/${activeBook.id}/chapters`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        parsedDocumentId: parsedDocument.id,
-        markers: parseManualMarkers(markersText),
-        pageStarts: parsePageStarts(pageStartsText)
-      })
-    });
-    const payload = (await response.json().catch(() => ({}))) as ChaptersResponse;
+    try {
+      const response = await fetch(`/api/books/${activeBook.id}/chapters`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          parsedDocumentId: parsedDocument.id,
+          markers: parseManualMarkers(markersText),
+          pageStarts: parsePageStarts(pageStartsText)
+        })
+      });
+      const payload = (await response.json().catch(() => ({}))) as ChaptersResponse;
 
-    if (!response.ok || !payload.chapters) {
-      setStatusMessage(payload.error || "Could not create chapters.");
-      setSplittingParsedDocumentId(null);
-      return;
-    }
+      if (!response.ok || !payload.chapters) {
+        setStatusMessage(payload.error || "Could not create chapters.");
+        setSplittingParsedDocumentId(null);
+        return;
+      }
 
-    setChapters(payload.chapters);
-    setSelectedChapterId(payload.chapters[0]?.id || null);
-    setChapterDetailById({});
-    setChapterEditById({});
-    setStudySetsByChapterId({});
-    setSelectedStudySetIdByChapterId({});
-    setStudyItemsByStudySetId({});
-    setActiveWorkspaceTab("chapters");
-    setStatusMessage(`Created ${payload.chapters.length} chapter${payload.chapters.length === 1 ? "" : "s"}.`);
-    setSplittingParsedDocumentId(null);
+      const added = payload.chapters;
+      setChapters(current => [...current.filter(chapter => !added.some(next => next.id === chapter.id)), ...added].sort((a, b) => a.sortOrder - b.sortOrder || a.chapterNumber - b.chapterNumber));
+      setSelectedChapterId(payload.chapters[0]?.id || null);
+      setStudySetsByChapterId({});
+      setSelectedStudySetIdByChapterId({});
+      setStudyItemsByStudySetId({});
+      setActiveWorkspaceTab("chapters");
+      setStatusMessage(`Created ${payload.chapters.length} chapter${payload.chapters.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "The request failed. Please try again.");
+    } finally { setSplittingParsedDocumentId(null); }
   }
 
   async function handleLoadPages(parsedDocument: ParsedDocument) {
@@ -1833,31 +1817,34 @@ export function BookWorkspace() {
     setPreviewingParsedDocumentId(parsedDocument.id);
     setStatusMessage("");
 
-    const response = await fetch(`/api/books/${activeBook.id}/parsed-documents/${parsedDocument.id}/split-preview`, {
-      cache: "no-store"
-    });
-    const payload = (await response.json().catch(() => ({}))) as SplitPreviewResponse;
+    try {
+      const response = await fetch(`/api/books/${activeBook.id}/parsed-documents/${parsedDocument.id}/split-preview`, {
+        cache: "no-store"
+      });
+      const payload = (await response.json().catch(() => ({}))) as SplitPreviewResponse;
 
-    if (!response.ok || !payload.preview) {
-      setStatusMessage(payload.error || "Could not preview the chapter split.");
-      setPreviewingParsedDocumentId(null);
-      return;
-    }
+      if (!response.ok || !payload.preview) {
+        setStatusMessage(payload.error || "Could not preview the chapter split.");
+        setPreviewingParsedDocumentId(null);
+        return;
+      }
 
-    setSplitPreviewByParsedDocument((current) => ({
-      ...current,
-      [parsedDocument.id]: payload.preview as SplitPreview
-    }));
-    setActiveParsedToolByDocumentId((current) => ({
-      ...current,
-      [parsedDocument.id]: "preview"
-    }));
-    setStatusMessage(
-      payload.preview.acceptedCandidates
-        ? `Found ${payload.preview.acceptedCandidates} accepted chapter heading candidates.`
-        : "No reliable chapter headings found. This book likely needs manual splitting or a broader rule."
-    );
-    setPreviewingParsedDocumentId(null);
+      setSplitPreviewByParsedDocument((current) => ({
+        ...current,
+        [parsedDocument.id]: payload.preview as SplitPreview
+      }));
+      setActiveParsedToolByDocumentId((current) => ({
+        ...current,
+        [parsedDocument.id]: "preview"
+      }));
+      setStatusMessage(
+        payload.preview.acceptedCandidates
+          ? `Found ${payload.preview.acceptedCandidates} accepted chapter heading candidates.`
+          : "No reliable chapter headings found. This book likely needs manual splitting or a broader rule."
+      );
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "The request failed. Please try again.");
+    } finally { setPreviewingParsedDocumentId(null); }
   }
 
   async function handleDeleteSourceFile(sourceFile: SourceFile) {
@@ -1978,8 +1965,7 @@ export function BookWorkspace() {
 
     setChapters([]);
     setSelectedChapterId(null);
-    setChapterDetailById({});
-    setChapterEditById({});
+    discardChapterCaches(chapters.map(chapter => chapter.id));
     setStudySetsByChapterId({});
     setSelectedStudySetIdByChapterId({});
     setStudyItemsByStudySetId({});
@@ -1995,17 +1981,20 @@ export function BookWorkspace() {
     }
 
     setLoadingStudyItemsSetId(studySetId);
+    const epoch = studyRequestEpoch.current;
+    setStudyLoadError("");
 
     try {
       const items = await fetchStudyItems(activeBook.id, studySetId, chapterId);
+      if (epoch !== studyRequestEpoch.current) return;
       setStudyItemsByStudySetId((current) => ({
         ...current,
         [cacheKey]: items
       }));
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Could not load generated study items.");
+      if (epoch === studyRequestEpoch.current) setStudyLoadError(error instanceof Error ? error.message : "Could not load generated study items.");
     } finally {
-      setLoadingStudyItemsSetId(null);
+      if (epoch === studyRequestEpoch.current) setLoadingStudyItemsSetId(null);
     }
   }
 
@@ -2015,9 +2004,12 @@ export function BookWorkspace() {
     }
 
     setLoadingStudySetsChapterId(chapter.id);
+    const epoch = studyRequestEpoch.current;
+    setStudyLoadError("");
 
     try {
       const studySets = await fetchStudySets(activeBook.id, chapter.id, generationRunId);
+      if (epoch !== studyRequestEpoch.current) return;
       setStudySetsByChapterId((current) => ({
         ...current,
         [chapter.id]: studySets
@@ -2041,54 +2033,25 @@ export function BookWorkspace() {
         });
       }
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Could not load study sets.");
+      if (epoch === studyRequestEpoch.current) setStudyLoadError(error instanceof Error ? error.message : "Could not load study sets.");
     } finally {
-      setLoadingStudySetsChapterId(null);
+      if (epoch === studyRequestEpoch.current) setLoadingStudySetsChapterId(null);
     }
   }
 
-  async function handleSelectChapter(chapter: ChapterSummary) {
-    if (!activeBook) {
-      return;
-    }
-
+  function handleSelectChapter(chapter: ChapterSummary) {
+    if (isSavingNewStudyItem) return;
+    if (creatingStudyItemKind && !window.confirm(t("Discard the new unsaved item?", "저장되지 않은 새 항목을 버릴까요?"))) return;
+    setCreatingStudyItemKind(null);
+    setNewStudyItemDraft({});
     setSelectedChapterId(chapter.id);
-    void loadStudySets(chapter);
-
-    if (chapterDetailById[chapter.id]) {
-      return;
-    }
-
-    setLoadingChapterId(chapter.id);
-    setStatusMessage("");
-
-    const response = await fetch(`/api/books/${activeBook.id}/chapters/${chapter.id}`, {
-      cache: "no-store"
-    });
-    const payload = (await response.json().catch(() => ({}))) as ChapterDetailResponse;
-
-    if (!response.ok || !payload.chapter) {
-      setStatusMessage(payload.error || "Could not load this chapter.");
-      setLoadingChapterId(null);
-      return;
-    }
-
-    setChapterDetailById((current) => ({
-      ...current,
-      [chapter.id]: payload.chapter as ChapterDetail
-    }));
-    setChapterEditById((current) => ({
-      ...current,
-      [chapter.id]: {
-        chapterNumber: String(payload.chapter?.chapterNumber || chapter.chapterNumber),
-        title: payload.chapter?.title || "",
-        textContent: payload.chapter?.textContent || ""
-      }
-    }));
-    setLoadingChapterId(null);
+    setSaveError("");
   }
 
   async function handleSelectStudySet(chapterId: string, studySetId: string) {
+    if (isSavingNewStudyItem) return;
+    if (creatingStudyItemKind && !window.confirm(t("Discard the new unsaved item?", "저장되지 않은 새 항목을 버릴까요?"))) return;
+    setCreatingStudyItemKind(null); setNewStudyItemDraft({});
     setSelectedStudySetIdByChapterId((current) => ({
       ...current,
       [chapterId]: studySetId
@@ -2096,7 +2059,13 @@ export function BookWorkspace() {
     await loadStudyItems(studySetId, chapterId);
   }
 
+  function discardChapterCaches(ids: string[]) {
+    setChapterDetailById(current => Object.fromEntries(Object.entries(current).filter(([id]) => !ids.includes(id))));
+    setChapterEditById(current => Object.fromEntries(Object.entries(current).filter(([id]) => !ids.includes(id))));
+  }
+
   function handleChapterEdit(chapterId: string, updates: Partial<{ chapterNumber: string; title: string; textContent: string }>) {
+    if (savingChapterId === chapterId) return;
     setChapterEditById((current) => ({
       ...current,
       [chapterId]: {
@@ -2121,40 +2090,45 @@ export function BookWorkspace() {
     setSavingChapterId(chapter.id);
     setStatusMessage("");
 
-    const response = await fetch(`/api/books/${activeBook.id}/chapters/${chapter.id}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        chapterNumber: Number(edit.chapterNumber),
-        title: edit.title,
-        textContent: edit.textContent
-      })
-    });
-    const payload = (await response.json().catch(() => ({}))) as ChapterUpdateResponse;
+    setSaveError("");
+    try {
+      const response = await fetch(`/api/books/${activeBook.id}/chapters/${chapter.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          chapterNumber: Number(edit.chapterNumber),
+          title: edit.title,
+          textContent: edit.textContent
+        })
+      });
+      const payload = (await response.json().catch(() => ({}))) as ChapterUpdateResponse;
 
-    if (!response.ok || !payload.chapter) {
-      setStatusMessage(payload.error || "Could not save this chapter.");
-      setSavingChapterId(null);
-      return;
-    }
-
-    setChapters((current) =>
-      current
-        .map((item) => item.id === chapter.id ? (payload.chapter as ChapterSummary) : item)
-        .sort((a, b) => a.sortOrder - b.sortOrder || a.chapterNumber - b.chapterNumber)
-    );
-    setChapterDetailById((current) => ({
-      ...current,
-      [chapter.id]: {
-        ...(current[chapter.id] || (payload.chapter as ChapterDetail)),
-        ...(payload.chapter as ChapterSummary),
-        textContent: edit.textContent
+      if (!response.ok || !payload.chapter) {
+        throw new Error(payload.error || "Could not save this chapter.");
       }
-    }));
-    setStatusMessage("Chapter saved.");
-    setSavingChapterId(null);
+
+      setChapters((current) =>
+        current
+          .map((item) => item.id === chapter.id ? (payload.chapter as ChapterSummary) : item)
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.chapterNumber - b.chapterNumber)
+      );
+      setChapterDetailById((current) => ({
+        ...current,
+        [chapter.id]: {
+          ...(current[chapter.id] || (payload.chapter as ChapterDetail)),
+          ...(payload.chapter as ChapterSummary),
+          textContent: edit.textContent
+        }
+      }));
+      setStatusMessage("Chapter saved.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not save changes.";
+      setSaveError(`${message} ${t("Your draft is retained. Choose Save to retry.", "수정 내용이 유지됩니다. 저장을 눌러 다시 시도하세요.")}`);
+    } finally {
+      setSavingChapterId(null);
+    }
   }
 
   async function handleDeleteChapter(chapter: ChapterSummary) {
@@ -2467,7 +2441,9 @@ export function BookWorkspace() {
   }
 
   function startEditingStudyItem(kind: StudyItemKind, item: VocabularyItem | MultipleChoiceQuestion | ShortAnswerQuestion) {
+    if (isSavingNewStudyItem) return;
     setEditingStudyItemId(item.id);
+    if (studyItemDraftById[item.id]) return;
 
     if (kind === "vocabulary") {
       const vocabulary = item as VocabularyItem;
@@ -2513,7 +2489,16 @@ export function BookWorkspace() {
     }));
   }
 
+  function cancelStudyItemEdit(itemId: string) {
+    if (savingStudyItemId === itemId) return;
+    setStudyItemDraftById(current => { const next = { ...current }; delete next[itemId]; return next; });
+    setDirtyItemIds(current => current.filter(id => id !== itemId));
+    setEditingStudyItemId(null); setSaveError("");
+  }
+
   function updateStudyItemDraft(itemId: string, updates: Record<string, string>) {
+    if (savingStudyItemId === itemId) return;
+    setDirtyItemIds(current => current.includes(itemId) ? current : [...current, itemId]);
     setStudyItemDraftById((current) => ({
       ...current,
       [itemId]: {
@@ -2583,12 +2568,15 @@ export function BookWorkspace() {
   }
 
   function startCreatingStudyItem(kind: StudyItemKind) {
+    if (isSavingNewStudyItem) return;
+    if (creatingStudyItemKind && !window.confirm(t("Discard the new unsaved item?", "저장되지 않은 새 항목을 버릴까요?"))) return;
     setCreatingStudyItemKind(kind);
     setEditingStudyItemId(null);
     setNewStudyItemDraft(getEmptyStudyItemDraft(kind));
   }
 
   function updateNewStudyItemDraft(updates: Record<string, string>) {
+    if (isSavingNewStudyItem) return;
     setNewStudyItemDraft((current) => ({
       ...current,
       ...updates
@@ -2711,28 +2699,35 @@ export function BookWorkspace() {
     if (selectedChapter?.id) {
       params.set("chapterId", selectedChapter.id);
     }
-    const response = await fetch(`/api/books/${activeBook.id}/study-sets/${selectedStudySetId}/items/${kind}/${itemId}?${params.toString()}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(buildStudyItemPayload(kind, draft))
-    });
-    const payload = (await response.json().catch(() => ({}))) as StudyItemsResponse;
+    setSaveError("");
+    try {
+      const response = await fetch(`/api/books/${activeBook.id}/study-sets/${selectedStudySetId}/items/${kind}/${itemId}?${params.toString()}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(buildStudyItemPayload(kind, draft))
+      });
+      const payload = (await response.json().catch(() => ({}))) as StudyItemsResponse;
 
-    if (!response.ok || !payload.items) {
-      setStatusMessage(payload.error || "Could not save generated item.");
+      if (!response.ok || !payload.items) {
+        throw new Error(payload.error || "Could not save generated item.");
+      }
+
+      setStudyItemsByStudySetId((current) => ({
+        ...current,
+        [cacheKey]: payload.items as StudyItems
+      }));
+      setStudyItemDraftById(current => { const next = { ...current }; delete next[itemId]; return next; });
+      setDirtyItemIds(current => current.filter(id => id !== itemId));
+      setEditingStudyItemId(current => current === itemId ? null : current);
+      setStatusMessage("Generated item saved.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not save changes.";
+      setSaveError(`${message} ${t("Your draft is retained. Choose Save to retry.", "수정 내용이 유지됩니다. 저장을 눌러 다시 시도하세요.")}`);
+    } finally {
       setSavingStudyItemId(null);
-      return;
     }
-
-    setStudyItemsByStudySetId((current) => ({
-      ...current,
-      [cacheKey]: payload.items as StudyItems
-    }));
-    setEditingStudyItemId(null);
-    setStatusMessage("Generated item saved.");
-    setSavingStudyItemId(null);
   }
 
   async function handleCreateStudyItem(kind: StudyItemKind) {
@@ -2744,32 +2739,34 @@ export function BookWorkspace() {
     setStatusMessage("");
 
     const cacheKey = studyItemsCacheKey(selectedStudySetId, selectedChapter?.id);
-    const response = await fetch(`/api/books/${activeBook.id}/study-sets/${selectedStudySetId}/items`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        chapterId: selectedChapter?.id || null,
-        ...buildAppendStudyItemsPayload(kind, buildStudyItemPayload(kind, newStudyItemDraft))
-      })
-    });
-    const payload = (await response.json().catch(() => ({}))) as StudyItemsResponse;
+    setSaveError("");
+    try {
+      const response = await fetch(`/api/books/${activeBook.id}/study-sets/${selectedStudySetId}/items`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          chapterId: selectedChapter?.id || null,
+          ...buildAppendStudyItemsPayload(kind, buildStudyItemPayload(kind, newStudyItemDraft))
+        })
+      });
+      const payload = (await response.json().catch(() => ({}))) as StudyItemsResponse;
 
-    if (!response.ok || !payload.items) {
-      setStatusMessage(payload.error || "Could not add generated item.");
-      setIsSavingNewStudyItem(false);
-      return;
-    }
+      if (!response.ok || !payload.items) {
+        throw new Error(payload.error || "Could not add generated item.");
+      }
 
-    setStudyItemsByStudySetId((current) => ({
-      ...current,
-      [cacheKey]: payload.items as StudyItems
-    }));
-    setCreatingStudyItemKind(null);
-    setNewStudyItemDraft({});
-    setStatusMessage(kind === "vocabulary" ? t("Vocabulary item added.", "단어가 추가되었습니다.") : t("Question added.", "문제가 추가되었습니다."));
-    setIsSavingNewStudyItem(false);
+      setStudyItemsByStudySetId((current) => ({
+        ...current,
+        [cacheKey]: payload.items as StudyItems
+      }));
+      setCreatingStudyItemKind(null);
+      setNewStudyItemDraft({});
+      setStatusMessage(kind === "vocabulary" ? t("Vocabulary item added.", "단어가 추가되었습니다.") : t("Question added.", "문제가 추가되었습니다."));
+    } catch (error) {
+      setSaveError(`${error instanceof Error ? error.message : "Could not save this item."} ${t("Your draft is retained. Check whether the item was saved before retrying.", "수정 내용이 유지됩니다. 다시 시도하기 전에 항목이 저장되었는지 확인하세요.")}`);
+    } finally { setIsSavingNewStudyItem(false); }
   }
 
   async function handleMoveStudyItem(kind: StudyItemKind, itemId: string, direction: "up" | "down") {
@@ -2834,6 +2831,8 @@ export function BookWorkspace() {
       [cacheKey]: items
     }));
     setEditingStudyItemId((current) => current === itemId ? null : current);
+    setDirtyItemIds(current => current.filter(id => id !== itemId));
+    setStudyItemDraftById(current => { const next = { ...current }; delete next[itemId]; return next; });
     setStatusMessage("Generated item deleted.");
     setDeletingId(null);
   }
@@ -2911,8 +2910,7 @@ export function BookWorkspace() {
                   onChange={(event) => updateNewStudyItemDraft({ questionText: event.target.value })}
                 />
               </label>
-              <label>
-                {t("Choices", "선택지")}
+              <fieldset className="mcq-choices"><legend>{t("Choices", "선택지")}</legend>
                 <div className="mcq-choice-field-grid">
                   {[0, 1, 2, 3].map((index) => {
                     const choiceKey = getChoiceDraftKey(index);
@@ -2927,7 +2925,7 @@ export function BookWorkspace() {
                     );
                   })}
                 </div>
-              </label>
+              </fieldset>
               <label>
                 {t("Correct answer", "정답")}
                 <select
@@ -2987,7 +2985,7 @@ export function BookWorkspace() {
           <button type="button" disabled={isSavingNewStudyItem} onClick={() => handleCreateStudyItem(kind)}>
             {isSavingNewStudyItem ? t("Saving...", "저장 중...") : t("Save", "저장")}
           </button>
-          <button type="button" onClick={() => {
+          <button type="button" disabled={isSavingNewStudyItem} onClick={() => {
             setCreatingStudyItemKind(null);
             setNewStudyItemDraft({});
           }}>
@@ -2998,83 +2996,7 @@ export function BookWorkspace() {
     );
   }
 
-  return (
-    <main className={`app-shell ${isLibraryCollapsed ? "library-collapsed" : ""}`}>
-      <aside className="library-panel">
-        <div className="library-panel-top">
-          <div className="brand-block">
-            <span className="brand-mark">TR</span>
-            <div>
-              <h1>TopReading</h1>
-              <p>{t("Study Guide Creator", "학습지 제작 도구")}</p>
-            </div>
-          </div>
-          <button
-            className="collapse-sidebar-button"
-            type="button"
-          aria-label={isLibraryCollapsed ? t("Expand library sidebar", "도서 목록 펼치기") : t("Collapse library sidebar", "도서 목록 접기")}
-          onClick={() => setIsLibraryCollapsed((current) => !current)}
-        >
-          <UiIcon name={isLibraryCollapsed ? "arrowRight" : "arrowLeft"} />
-        </button>
-        </div>
-
-        {!isLibraryCollapsed ? (
-          <div className="library-main">
-            <button className="primary-action" type="button" disabled={isCreating} onClick={handleCreateBook}>
-              {isCreating ? t("Creating...", "생성 중...") : t("New Book", "새 책")}
-            </button>
-
-            <label className="book-search">
-              {t("Search library", "도서 검색")}
-              <input
-                value={bookSearch}
-                onChange={(event) => setBookSearch(event.target.value)}
-                placeholder={t("Title or author", "제목 또는 저자")}
-              />
-            </label>
-
-            <label className="book-sort">
-              {t("Sort books", "도서 정렬")}
-              <select value={bookSortMode} onChange={(event) => setBookSortMode(event.target.value as BookSortMode)}>
-                <option value="newest">{t("Newest", "최신순")}</option>
-                <option value="oldest">{t("Oldest", "오래된순")}</option>
-                <option value="az">{t("A to Z", "가나다순")}</option>
-                <option value="za">{t("Z to A", "가나다 역순")}</option>
-              </select>
-            </label>
-
-            <section className="library-list" aria-label={t("Book library", "도서 목록")}>
-              {isLoading ? <p className="muted-text">{t("Loading library...", "도서 목록을 불러오는 중...")}</p> : null}
-              {!isLoading && books.length === 0 ? <p className="muted-text">{t("No books yet.", "아직 등록된 책이 없습니다.")}</p> : null}
-              {!isLoading && books.length > 0 && filteredBooks.length === 0 ? <p className="muted-text">{t("No matching books.", "검색 결과가 없습니다.")}</p> : null}
-              {filteredBooks.map((book) => (
-                <div
-                  className={`book-row ${book.id === activeBook?.id ? "active" : ""}`}
-                  key={book.id}
-                >
-                  <button
-                    className="book-row-main"
-                    type="button"
-                    onClick={() => setActiveBookId(book.id)}
-                  >
-                    <span className="book-row-title">{book.title}</span>
-                  </button>
-                  <button
-                    className={`book-pin-button ${book.pinnedAt ? "pinned" : ""}`}
-                    type="button"
-                    title={book.pinnedAt ? t("Unpin book", "고정 해제") : t("Pin book", "고정")}
-                    aria-label={book.pinnedAt ? t("Unpin book", "고정 해제") : t("Pin book", "고정")}
-                    onClick={() => void handleToggleBookPin(book)}
-                  >
-                    <UiIcon name={book.pinnedAt ? "starFilled" : "star"} />
-                  </button>
-                </div>
-              ))}
-            </section>
-          </div>
-        ) : null}
-
+  const preferences = (
         <div className="library-user-menu">
           {isUserMenuOpen ? (
             <div className="library-user-popover" role="menu" aria-label={t("User preferences", "사용자 설정")}>
@@ -3141,7 +3063,7 @@ export function BookWorkspace() {
             <span className="user-avatar">
               <UiIcon name="user" />
             </span>
-            {!isLibraryCollapsed ? (
+            {modern || !isLibraryCollapsed ? (
               <>
                 <span className="user-menu-copy">
                   <strong>{currentUserLabel}</strong>
@@ -3154,9 +3076,97 @@ export function BookWorkspace() {
             ) : null}
           </button>
         </div>
-      </aside>
+  );
 
-      <section className="workspace">
+  return (
+    <main className={`app-shell ${modern ? "reading-shell" : isLibraryCollapsed ? "library-collapsed" : ""}`}>
+      {modern && <WorkspaceBar books={books} bookId={activeBook?.id || ""} libraryOpen={libraryOpen}
+        onLibrary={() => setLibraryOpen(true)} onBook={selectBook} preferences={preferences} t={t} />}
+      {modern && libraryOpen && <SavedLibrary books={filteredBooks} total={books.length} search={bookSearch} onSearch={setBookSearch}
+        sort={bookSortMode} onSort={value => setBookSortMode(value as BookSortMode)} onBook={selectBook}
+        onPin={book => { const full = books.find(b => b.id === book.id); if (full) void handleToggleBookPin(full); }}
+        onCreate={() => void handleCreateBook()} creating={isCreating} loading={isLoading} error={libraryError}
+        onRetry={() => window.location.reload()} t={t} />}
+      {!modern && (
+      <aside className="library-panel">
+        <div className="library-panel-top">
+          <div className="brand-block">
+            <span className="brand-mark">TR</span>
+            <div>
+              <h1>TopReading</h1>
+              <p>{t("Study Guide Creator", "학습지 제작 도구")}</p>
+            </div>
+          </div>
+          <button
+            className="collapse-sidebar-button"
+            type="button"
+          aria-label={isLibraryCollapsed ? t("Expand library sidebar", "도서 목록 펼치기") : t("Collapse library sidebar", "도서 목록 접기")}
+          onClick={() => setIsLibraryCollapsed((current) => !current)}
+        >
+          <UiIcon name={isLibraryCollapsed ? "arrowRight" : "arrowLeft"} />
+        </button>
+        </div>
+
+        {!isLibraryCollapsed ? (
+          <div className="library-main">
+            <button className="primary-action" type="button" disabled={isCreating} onClick={handleCreateBook}>
+              {isCreating ? t("Creating...", "생성 중...") : t("New Book", "새 책")}
+            </button>
+
+            <label className="book-search">
+              {t("Search library", "도서 검색")}
+              <input
+                value={bookSearch}
+                onChange={(event) => setBookSearch(event.target.value)}
+                placeholder={t("Title or author", "제목 또는 저자")}
+              />
+            </label>
+
+            <label className="book-sort">
+              {t("Sort books", "도서 정렬")}
+              <select value={bookSortMode} onChange={(event) => setBookSortMode(event.target.value as BookSortMode)}>
+                <option value="newest">{t("Newest", "최신순")}</option>
+                <option value="oldest">{t("Oldest", "오래된순")}</option>
+                <option value="az">{t("A to Z", "가나다순")}</option>
+                <option value="za">{t("Z to A", "가나다 역순")}</option>
+              </select>
+            </label>
+
+            <section className="library-list" aria-label={t("Book library", "도서 목록")}>
+              {isLoading ? <p className="muted-text">{t("Loading library...", "도서 목록을 불러오는 중...")}</p> : null}
+              {!isLoading && books.length === 0 ? <p className="muted-text">{t("No books yet.", "아직 등록된 책이 없습니다.")}</p> : null}
+              {!isLoading && books.length > 0 && filteredBooks.length === 0 ? <p className="muted-text">{t("No matching books.", "검색 결과가 없습니다.")}</p> : null}
+              {filteredBooks.map((book) => (
+                <div
+                  className={`book-row ${book.id === activeBook?.id ? "active" : ""}`}
+                  key={book.id}
+                >
+                  <button
+                    className="book-row-main"
+                    type="button"
+                    onClick={() => selectBook(book.id)}
+                  >
+                    <span className="book-row-title">{book.title}</span>
+                  </button>
+                  <button
+                    className={`book-pin-button ${book.pinnedAt ? "pinned" : ""}`}
+                    type="button"
+                    title={book.pinnedAt ? t("Unpin book", "고정 해제") : t("Pin book", "고정")}
+                    aria-label={book.pinnedAt ? t("Unpin book", "고정 해제") : t("Pin book", "고정")}
+                    onClick={() => void handleToggleBookPin(book)}
+                  >
+                    <UiIcon name={book.pinnedAt ? "starFilled" : "star"} />
+                  </button>
+                </div>
+              ))}
+            </section>
+          </div>
+        ) : null}
+
+        {preferences}
+      </aside>)}
+
+      <section className="workspace" hidden={modern && libraryOpen}>
         <header className="workspace-header">
           <div className="workspace-title-block">
             <h2>{activeBook?.title || t("Create a book to begin", "책을 만들어 시작하세요")}</h2>
@@ -3181,6 +3191,7 @@ export function BookWorkspace() {
                 {t("Edit Book Info", "책 정보 수정")}
               </button>
             ) : null}
+            {!modern && (
             <div className="workspace-tabs" role="tablist" aria-label={t("Book workspace sections", "책 작업 섹션")}>
               <button
                 className={activeWorkspaceTab === "source" ? "active" : ""}
@@ -3251,8 +3262,15 @@ export function BookWorkspace() {
                 {t("Export", "출력")}
               </button>
             </div>
+            )}
           </div>
         </header>
+
+        {modern && <WorkspaceNavigation tab={activeWorkspaceTab} onTab={navigateTo} hasBook={Boolean(activeBook)} hasChapters={hasChapters} hasSources={hasSourceFiles} t={t} />}
+        {modern && <div className="reading-save-state" role="status">
+          {savingChapterId || savingStudyItemId || isSavingNewStudyItem ? t("Saving to server…", "서버에 저장 중…") : hasUnsavedChanges ? t("Unsaved edits — save before leaving this page.", "저장되지 않은 수정 사항 — 페이지를 떠나기 전에 저장하세요.") : t("Changes are saved when you choose Save.", "저장 버튼을 누르면 변경 사항이 저장됩니다.")}
+          {saveError && <span role="alert">{saveError}</span>}
+        </div>}
 
         {activeBook && isBookMetadataOpen ? (
           <div className="modal-backdrop" role="presentation">
@@ -3513,7 +3531,9 @@ export function BookWorkspace() {
         ) : null}
 
         <div className="workspace-scroll">
-        <div className="workspace-stack">
+        {modern && (isLoading || isBookLoading) && <p role="status">{t("Loading saved book…", "저장된 책을 불러오는 중…")}</p>}
+        {modern && (bookLoadError || libraryError) && <p role="alert">{bookLoadError || libraryError} <button type="button" onClick={() => libraryError ? window.location.reload() : setBookLoadAttempt(n => n + 1)}>{t("Retry", "다시 시도")}</button></p>}
+        <div className="workspace-stack" hidden={modern && (isLoading || isBookLoading || Boolean(bookLoadError || libraryError))}>
           {activeWorkspaceTab === "source" || activeWorkspaceTab === "split" ? (
           <section className={activeWorkspaceTab === "split" ? "split-panel" : "source-panel"}>
             <div className="panel-title-row">
@@ -3575,7 +3595,7 @@ export function BookWorkspace() {
                       ) : null}
                     </div>
 
-                    <p className="source-path">{sourceFile.storedPath}</p>
+                    {!modern && <p className="source-path">{sourceFile.storedPath}</p>}
                   </div>
                   ) : null}
 
@@ -3914,6 +3934,11 @@ export function BookWorkspace() {
               </div>
             ) : (
               <div className="generation-plan-panel">
+                {modern && <p className="reading-generation-status" role="status">{generatingRun
+                  ? t(`Generating your guide · ${Number(generatingRun.progress.completedChapters) || 0} of ${Number(generatingRun.progress.totalChapters) || 0} chapters complete`, `학습지 생성 중 · ${Number(generatingRun.progress.totalChapters) || 0}개 중 ${Number(generatingRun.progress.completedChapters) || 0}개 챕터 완료`)
+                  : t("Choose chapters and question counts to create a new guide version.", "챕터와 문항 수를 선택하여 새 학습지 버전을 만드세요.")}</p>}
+                <details className="reading-processing-details" open={!modern}>
+                  <summary>{t("Processing details", "처리 상세 정보")}</summary>
                 <div className="generation-terminal" aria-live="polite">
                   {generationLog.length === 0 ? (
                     <p>$ {t("waiting for generation job...", "생성 작업 대기 중...")}</p>
@@ -3925,6 +3950,7 @@ export function BookWorkspace() {
                     </p>
                   ))}
                 </div>
+                </details>
 
                 <div className="generation-total-strip" aria-label={t("Whole book generation totals", "책 전체 생성 총량")}>
                   <article>
@@ -4057,7 +4083,7 @@ export function BookWorkspace() {
               </div>
             </div>
 
-            {chapters.length === 0 ? (
+            {chapters.length === 0 || !hasStudySets ? (
               <div className="empty-state">
                 <strong>{t("No exports available", "내보낼 자료가 없습니다")}</strong>
                 <p>{t("Create chapters and generate at least one study set before exporting files.", "파일을 내보내기 전에 챕터를 만들고 학습 세트를 하나 이상 생성하세요.")}</p>
@@ -4182,7 +4208,7 @@ export function BookWorkspace() {
                           </div>
                         </div>
 
-                        {!selectedStudySet ? (
+                        {studyLoadError ? <p role="alert">{studyLoadError} <button type="button" onClick={() => void loadStudySets(selectedChapter)}>{t("Retry", "다시 시도")}</button></p> : !selectedStudySet ? (
                           <p className="muted-text">{t("Generate a study set for this chapter before exporting.", "내보내기 전에 이 챕터의 학습 세트를 생성하세요.")}</p>
                         ) : (
                           <div className="export-group-list">
@@ -4262,9 +4288,14 @@ export function BookWorkspace() {
             {chapters.length === 0 ? (
               <div className="empty-state">
                 <strong>{t("No chapters created yet", "아직 생성된 챕터가 없습니다")}</strong>
-                <p>{t("Use the Source tab to extract text and split the book into chapters.", "원본 탭에서 텍스트를 추출하고 챕터를 나누세요.")}</p>
+                <p>{t("Import a source file and prepare chapters to begin.", "원본 파일을 가져와 챕터를 준비하세요.")}</p>
+                {modern && <button type="button" onClick={() => navigateTo("source")}>{t("Import sources", "원본 가져오기")}</button>}
               </div>
             ) : (
+              <>
+              {modern && <label className="reading-chapter-picker">{t("Chapter", "챕터")}<select aria-label={t("Current chapter", "현재 챕터")} value={selectedChapter?.id || ""} onChange={event => { const chapter = chapters.find(c => c.id === event.target.value); if (chapter) handleSelectChapter(chapter); }}>
+                {chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.chapterNumber}. {chapter.title}</option>)}
+              </select></label>}
               <div className="chapter-editor-layout">
                 <div className="chapter-list">
                   {chapters.map((chapter) => (
@@ -4292,6 +4323,19 @@ export function BookWorkspace() {
                   ) : activeWorkspaceTab === "review" ? (
                     <>
                       <div className="study-set-panel">
+                        {modern && <>
+                          <div className="reading-guide-toolbar">
+                            <label>{t("Guide version", "학습지 버전")}<select aria-label={t("Guide version", "학습지 버전")} value={activeBook?.activeGenerationRunId || ""} disabled={switchingVersion || !generationRuns.length}
+                              onChange={event => { if (creatingStudyItemKind) { setSaveError(t("Save or cancel the new item first.", "새 항목을 먼저 저장하거나 취소하세요.")); return; } void handleSelectActiveGenerationRun(event.target.value); }}>
+                              {!activeBook?.activeGenerationRunId && <option value="">{t("Latest available", "사용 가능한 최신 버전")}</option>}
+                              {generationRuns.filter(run => run.status !== "generating").map(run => <option key={run.id} value={run.id}>{run.name} · {formatUiStatus(run.status)}</option>)}
+                            </select></label>
+                            <button type="button" aria-expanded={sourceOpen} onClick={() => setSourceOpen(open => !open)}>{t("Source passage", "원문 보기")}</button>
+                          </div>
+                          <div className="reading-document-heading"><p className="reading-kicker">{t("Chapter", "챕터")} {selectedChapter.chapterNumber}</p><h3>{selectedChapter.title || t("Study guide", "학습지")}</h3></div>
+                          {sourceOpen && <section className="reading-source" aria-label={t("Source passage", "원문")}><h4>{t("Source passage", "원문")}</h4><p>{selectedChapterDetail?.textContent || t("Source text is unavailable. Reopen the book to retry.", "원문을 불러오지 못했습니다. 책을 다시 여세요.")}</p></section>}
+                        </>}
+                        <details className="reading-guide-details"><summary>{t("Guide details", "학습지 상세 정보")}</summary>
                         <div className="study-set-header">
                           <div>
                             <p className="step-label">{t("Selected set", "선택된 세트")}</p>
@@ -4323,8 +4367,10 @@ export function BookWorkspace() {
                           </div>
                         </div>
 
-                        {!selectedStudySet ? (
-                          <p className="muted-text">{t("Generate a study set to review vocabulary and questions.", "단어와 문제를 검토하려면 학습 세트를 생성하세요.")}</p>
+                        </details>
+
+                        {studyLoadError ? <p role="alert">{studyLoadError} <button type="button" onClick={() => void loadStudySets(selectedChapter)}>{t("Retry", "다시 시도")}</button></p> : !selectedStudySet ? (
+                          <div className="empty-state"><p>{t("No guide is available for this chapter and version.", "이 챕터와 버전에 사용할 수 있는 학습지가 없습니다.")}</p><button type="button" onClick={() => navigateTo("generate")}>{t("Generate a guide", "학습지 생성")}</button></div>
                         ) : loadingStudyItemsSetId === selectedStudySet.id ? (
                           <p className="muted-text">{t("Loading generated items...", "생성된 항목을 불러오는 중...")}</p>
                         ) : selectedStudyItems ? (
@@ -4334,8 +4380,10 @@ export function BookWorkspace() {
                               className={activeStudySetView === "multiple-choice" ? "active" : ""}
                               type="button"
                               onClick={() => {
+                                if (isSavingNewStudyItem) return;
+                                if (creatingStudyItemKind && !window.confirm(t("Discard the new unsaved item?", "저장되지 않은 새 항목을 버릴까요?"))) return;
+                                setCreatingStudyItemKind(null); setNewStudyItemDraft({});
                                 setActiveStudySetView("multiple-choice");
-                                setCreatingStudyItemKind(null);
                               }}
                             >
                               {t("Multiple Choice", "객관식")}
@@ -4345,8 +4393,10 @@ export function BookWorkspace() {
                               className={activeStudySetView === "short-answer" ? "active" : ""}
                               type="button"
                               onClick={() => {
+                                if (isSavingNewStudyItem) return;
+                                if (creatingStudyItemKind && !window.confirm(t("Discard the new unsaved item?", "저장되지 않은 새 항목을 버릴까요?"))) return;
+                                setCreatingStudyItemKind(null); setNewStudyItemDraft({});
                                 setActiveStudySetView("short-answer");
-                                setCreatingStudyItemKind(null);
                               }}
                             >
                               {t("Short Answer", "단답형")}
@@ -4356,8 +4406,10 @@ export function BookWorkspace() {
                               className={activeStudySetView === "vocabulary" ? "active" : ""}
                               type="button"
                               onClick={() => {
+                                if (isSavingNewStudyItem) return;
+                                if (creatingStudyItemKind && !window.confirm(t("Discard the new unsaved item?", "저장되지 않은 새 항목을 버릴까요?"))) return;
+                                setCreatingStudyItemKind(null); setNewStudyItemDraft({});
                                 setActiveStudySetView("vocabulary");
-                                setCreatingStudyItemKind(null);
                               }}
                             >
                               {t("Vocabulary", "단어")}
@@ -4410,7 +4462,7 @@ export function BookWorkspace() {
                                     {editingStudyItemId === item.id ? (
                                       <>
                                         <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("vocabulary", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
-                                        <button type="button" onClick={() => setEditingStudyItemId(null)}>{t("Cancel", "취소")}</button>
+                                        <button type="button" onClick={() => cancelStudyItemEdit(item.id)}>{t("Cancel", "취소")}</button>
                                       </>
                                     ) : (
                                       <button type="button" onClick={() => startEditingStudyItem("vocabulary", item)}>{t("Edit", "수정")}</button>
@@ -4434,8 +4486,7 @@ export function BookWorkspace() {
                                         {t("Question", "문제")}
                                         <textarea rows={3} value={studyItemDraftById[item.id]?.questionText || ""} onChange={(event) => updateStudyItemDraft(item.id, { questionText: event.target.value })} />
                                       </label>
-                                      <label>
-                                        {t("Choices", "선택지")}
+                                      <fieldset className="mcq-choices"><legend>{t("Choices", "선택지")}</legend>
                                         <div className="mcq-choice-field-grid">
                                           {[0, 1, 2, 3].map((choiceIndex) => {
                                             const choiceKey = getChoiceDraftKey(choiceIndex);
@@ -4447,7 +4498,7 @@ export function BookWorkspace() {
                                             );
                                           })}
                                         </div>
-                                      </label>
+                                      </fieldset>
                                       <label>
                                         {t("Correct answer", "정답")}
                                         <select value={studyItemDraftById[item.id]?.correctChoiceIndex || "0"} onChange={(event) => updateStudyItemDraft(item.id, { correctChoiceIndex: event.target.value })}>
@@ -4486,7 +4537,7 @@ export function BookWorkspace() {
                                     {editingStudyItemId === item.id ? (
                                       <>
                                         <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("multiple-choice", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
-                                        <button type="button" onClick={() => setEditingStudyItemId(null)}>{t("Cancel", "취소")}</button>
+                                        <button type="button" onClick={() => cancelStudyItemEdit(item.id)}>{t("Cancel", "취소")}</button>
                                       </>
                                     ) : (
                                       <button type="button" onClick={() => startEditingStudyItem("multiple-choice", item)}>{t("Edit", "수정")}</button>
@@ -4530,7 +4581,7 @@ export function BookWorkspace() {
                                     {editingStudyItemId === item.id ? (
                                       <>
                                         <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("short-answer", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
-                                        <button type="button" onClick={() => setEditingStudyItemId(null)}>{t("Cancel", "취소")}</button>
+                                        <button type="button" onClick={() => cancelStudyItemEdit(item.id)}>{t("Cancel", "취소")}</button>
                                       </>
                                     ) : (
                                       <button type="button" onClick={() => startEditingStudyItem("short-answer", item)}>{t("Edit", "수정")}</button>
@@ -4630,6 +4681,7 @@ export function BookWorkspace() {
                   )}
                 </div>
               </div>
+              </>
             )}
           </section>
           ) : null}

@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-Open `/prototype` on that development server. The existing application remains at `/`.
+Open `/prototype` on that development server. The saved-book application at `/` now uses the approved layout; the earlier interface is available at `/legacy`. See [live integration status](live-workspace-integration.md).
 
 Inside a book, the prototype has three destinations: Text, Study guides, and Export. A header book switcher and a separate searchable Library view replace the persistent library sidebar. Only the chapter outline remains beside Text and Study guides; Export uses that space for its settings. It starts with fictional readings and now saves preview books and drafts locally on the device, including across reloads. See [implemented UI behaviors and MCQ quality checks](ui-behaviors-and-mcq-quality.md) for persistence, recovery, version and quality behavior. It makes no API requests, changes no application records, and makes no AI calls.
 

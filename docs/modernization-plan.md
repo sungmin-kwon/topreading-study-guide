@@ -2,7 +2,7 @@
 
 Date: 2026-10-23 (Asia/Seoul)
 
-Status: production backup restored and verified in isolation; UI prototype and PostgreSQL import rehearsal implemented. See [current implementation status](prototype-and-postgres.md). Live deployment, authentication boundary, and the full PostgreSQL application cutover remain pending.
+Status: production backup restored and verified in isolation; UI prototype and PostgreSQL import rehearsal implemented. See [current implementation status](prototype-and-postgres.md). The approved layout is now connected to the existing SQLite application; see [live workspace integration](live-workspace-integration.md). Authentication, durable workers, and the full PostgreSQL application cutover remain pending.
 
 ## Goal and scope
 

@@ -187,3 +187,5 @@ npm run backup
 Use `-- --include-exports` if generated exports should also be copied. For a home server, point `BACKUP_DIR` to a durable folder, ideally one synced by OneDrive, Google Drive, Syncthing, or another backup tool.
 
 See [Deployment Notes](docs/deployment.md) and [Future Work](docs/future-work.md).
+
+See [saved-book workspace integration](docs/live-workspace-integration.md) for the live UI, dependency audit, deployment and remaining migration boundaries.
