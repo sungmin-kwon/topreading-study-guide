@@ -1,4 +1,4 @@
-.shell { --p-ink:#213c37; --p-muted:#64726d; --p-line:#e1e5df; --p-accent:#285b4b; --p-paper:#fbfbf7; display:grid; grid-template-columns:226px minmax(0,1fr); height:100dvh; color:var(--p-ink); background:var(--p-paper); font-size:14px; line-height:1.5; }
+.shell { --p-ink:#213c37; --p-muted:#64726d; --p-line:#e1e5df; --p-accent:#285b4b; --p-paper:#fbfbf7; display:flex; flex-direction:column; height:100dvh; color:var(--p-ink); background:var(--p-paper); font-size:14px; line-height:1.5; }
 .shell button,.dialog button { display:inline-flex; align-items:center; justify-content:center; gap:8px; border:1px solid var(--p-line,#e1e5df); background:white; color:var(--p-ink,#213c37); border-radius:5px; padding:8px 12px; font-size:13px; font-weight:500; }
 .shell button:hover,.dialog button:hover { background:#edf2ec; border-color:#bdcdc0; }
 .shell button:disabled,.dialog button:disabled { opacity:.45; cursor:not-allowed; }
@@ -10,29 +10,40 @@
 .shell .primary,.dialog .primary { background:var(--p-accent,#285b4b); color:white; border-color:var(--p-accent,#285b4b); }
 .shell .primary:hover,.dialog .primary:hover { background:#1e493d; color:white; }
 .quiet { color:var(--p-muted); font-size:13px; }
-.library { display:flex; flex-direction:column; background:#f1f3ed; border-right:1px solid var(--p-line); padding:29px 18px 18px; min-height:0; }
-.brand { display:flex; align-items:center; gap:10px; margin:0 8px 32px; text-decoration:none; font-size:19px; font-weight:650; letter-spacing:-.6px; }
-.brand>svg { width:28px; height:28px; color:var(--p-accent); }
-.brandSub { display:block; font-size:10px; font-weight:400; letter-spacing:.4px; color:var(--p-muted); margin-top:1px; }
-.library .newBook { justify-content:flex-start; padding:10px 12px; background:white; font-weight:600; }
-.search { margin:24px 0; }
-.search>span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
-.search input { background:transparent; border-color:#d7ddd3; width:100%; font-size:12px; padding:9px; }
-.libraryLabel { display:flex; justify-content:space-between; color:#627267; font-size:10px; letter-spacing:1.4px; margin:0 8px 12px; }
-.libraryLabel span { letter-spacing:0; }
-.bookList { overflow-y:auto; flex:1; }
-.bookList>button { justify-content:flex-start; text-align:left; width:100%; padding:12px 8px; margin-bottom:5px; border:1px solid transparent; background:transparent; gap:11px; }
-.bookList>button.activeBook { background:#fff; border-color:#dce3d9; }
-.bookList strong { display:block; font-size:12px; font-weight:600; line-height:1.45; }
-.bookList small { display:block; font-size:10px; font-weight:400; margin-top:6px; color:var(--p-muted); }
-.bookSpine { display:flex; align-items:center; justify-content:center; font:20px Georgia,serif; color:#eaf1e8; background:#54796a; border-left:4px solid #3a6052; width:30px; height:43px; flex:0 0 30px; border-radius:1px 3px 3px 1px; }
+.appBar { display:flex; flex-shrink:0; align-items:center; gap:18px; min-height:64px; padding:10px 28px; border-bottom:1px solid var(--p-line); background:#f1f3ed; }
+.brand { display:flex; align-items:center; gap:9px; font-size:17px; font-weight:650; letter-spacing:-.5px; white-space:nowrap; }
+.brand>svg { width:25px; height:25px; color:var(--p-accent); }
+.shell .libraryButton { background:transparent; border-color:transparent; font-size:13px; }
+.shell .libraryButton[aria-pressed=true] { border-color:#c8d3c4; background:#e7ede2; }
+.bookSwitcher { min-width:0; max-width:300px; flex:1; }
+.bookSwitcher>span,.search>span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
+.bookSwitcher select { width:100%; font-size:12px; background:#fbfcf9; }
+.previewLabel { margin-left:auto; font-size:11px; color:var(--p-muted); }
+.currentApp { font-size:11px; white-space:nowrap; text-underline-offset:3px; }
+.libraryPage { flex:1; min-height:0; overflow-y:auto; background:#fbfcf8; padding:55px 38px; }
+.libraryInner { max-width:980px; margin:auto; }
+.libraryHeading { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:35px; }
+.libraryHeading h1 { font:38px/1.25 Georgia,serif; margin:0; }
+/* Route headings receive focus for announcements, but are not controls. */
+.bookHeading h1:focus,.libraryHeading h1:focus { outline:none; }
+.libraryHeading p:not(.chapterKicker) { color:var(--p-muted); font-size:13px; margin:12px 0 0; }
+.libraryTools { display:flex; align-items:center; justify-content:space-between; gap:20px; padding-bottom:20px; border-bottom:1px solid var(--p-line); }
+.libraryTools>span { font-size:12px; color:var(--p-muted); white-space:nowrap; }
+.search { width:min(370px,100%); }
+.search input { width:100%; font-size:13px; }
+.bookList>button { display:flex; justify-content:flex-start; text-align:left; width:100%; padding:23px 8px; border:0; border-bottom:1px solid var(--p-line); border-radius:0; background:transparent; gap:22px; }
+.bookDetails { flex:1; min-width:0; }
+.bookList strong { display:block; font:22px/1.4 Georgia,serif; overflow-wrap:anywhere; }
+.bookList small { display:block; font-size:12px; font-weight:400; margin-top:6px; color:var(--p-muted); }
+.bookMeta { flex:0 0 140px; font-size:12px; font-weight:400; }
+.openBook { display:flex; align-items:center; justify-content:flex-end; gap:12px; min-width:90px; font-size:12px; }
+.bookSpine { display:flex; align-items:center; justify-content:center; font:26px Georgia,serif; color:#eaf1e8; background:#54796a; border-left:5px solid #3a6052; width:45px; height:62px; flex:0 0 45px; border-radius:1px 3px 3px 1px; }
 .bookSpine.ochre { background:#b69762; border-color:#947542; color:#fff9eb; }
-.libraryFooter { border-top:1px solid #d9e0d5; padding:19px 8px 0; font-size:11px; }
-.libraryFooter p { font-size:10px; color:var(--p-muted); margin:7px 0 17px; max-width:160px; }
-.libraryFooter a { display:flex; justify-content:space-between; font-size:11px; text-decoration:none; }
+.libraryFooter { display:flex; align-items:center; justify-content:space-between; gap:20px; padding-top:28px; }
+.libraryFooter p { font-size:11px; color:var(--p-muted); }
 .previewDot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#819675; margin-right:7px; }
-.workspace { display:flex; flex-direction:column; min-width:0; min-height:0; }
-.header { display:flex; align-items:center; gap:16px; justify-content:space-between; padding:26px 38px 21px; background:white; }
+.workspace { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; }
+.header { display:flex; align-items:center; gap:16px; justify-content:space-between; padding:20px 38px 17px; background:white; }
 .bookHeading { min-width:0; }
 .bookHeading p { color:var(--p-muted); font-size:11px; margin:0 0 5px; }
 .bookHeading h1 { font-size:25px; line-height:1.2; letter-spacing:-.7px; margin:0; font-weight:600; overflow-wrap:anywhere; }
@@ -161,9 +172,8 @@
 .dialog>.primary { margin-top:18px; }
 .toast { position:fixed; bottom:24px; left:50%; transform:translate(-50%,20px); max-width:min(560px,calc(100vw - 32px)); color:white; background:#274b3e; padding:12px 20px; border-radius:6px; font-size:12px; opacity:0; pointer-events:none; transition:opacity .15s,transform .15s; z-index:50; }
 .toastVisible { opacity:1; transform:translate(-50%,0); }
-.mobileMenu,.mobileClose,.chapterPicker,.scrim { display:none!important; }
+.chapterPicker { display:none!important; }
 @media (max-width:1200px) {
- .shell { grid-template-columns:195px minmax(0,1fr); }
  .outline { flex-basis:185px; padding-left:8px; padding-right:8px; }
  .header { padding-left:28px; padding-right:28px; }
  .navigation { padding:0 28px; }
@@ -174,16 +184,29 @@
  .printable { padding:30px; }
 }
 @media (max-width:950px) {
- .shell { grid-template-columns:1fr; }
- .library { display:none; }
- .library.libraryVisible { display:flex; position:fixed; top:0; bottom:0; left:0; width:270px; z-index:100; box-shadow:15px 0 50px #203d352b; }
- .mobileMenu,.mobileClose { display:inline-flex!important; }
- .mobileClose { margin-top:20px; }
- .scrim { display:block!important; position:fixed; inset:0; width:100%; height:100%; border:0!important; background:#17372a70!important; z-index:90; border-radius:0!important; }
- .headerStatus { margin-left:auto; }
- .header { justify-content:flex-start; }
+ .previewLabel { display:none; }
+ .currentApp { margin-left:auto; }
+ .appBar { gap:12px; padding-left:20px; padding-right:20px; }
 }
 @media (max-width:650px) {
+ .appBar { min-height:58px; padding:10px 16px; gap:8px; }
+ .brandName,.currentApp { display:none; }
+ .brand>svg { width:22px; height:22px; }
+ .shell .libraryButton { padding:8px; font-size:12px; }
+ .bookSwitcher { max-width:none; }
+ .bookSwitcher select { font-size:12px; padding:8px; }
+ .libraryPage { padding:30px 20px; }
+ .libraryHeading { flex-wrap:wrap; gap:18px; margin-bottom:25px; }
+ .libraryHeading h1 { font-size:32px; }
+ .bookList>button { display:grid; grid-template-columns:35px minmax(0,1fr); gap:7px 15px; padding:22px 0; }
+ .bookSpine { grid-row:1/3; width:35px; height:50px; font-size:23px; }
+ .bookList strong { font-size:20px; }
+ .bookList small { font-size:11px; }
+ .bookMeta { grid-column:2; font-size:11px; color:var(--p-muted); }
+ .bookMeta small { display:inline; margin-left:10px; }
+ .openBook { display:none; }
+ .libraryFooter { flex-direction:column; align-items:flex-start; gap:8px; }
+
  .header { padding:18px 17px 16px; gap:12px; }
  .bookHeading p { font-size:9px; }
  .bookHeading h1 { font-size:20px; }
@@ -227,7 +250,7 @@
 @media print {
  :global(html):has(.shell),:global(body):has(.shell) { height:auto!important; overflow:visible!important; background:white!important; }
  .shell,.workspace,.content,.exportWorkspace,.printStage { display:block!important; height:auto!important; overflow:visible!important; padding:0!important; background:white!important; }
- .library,.header,.navigation,.exportSettings,.printLabel,.toast,.dialog,.scrim { display:none!important; }
+ .appBar,.libraryPage,.header,.navigation,.exportSettings,.printLabel,.toast,.dialog { display:none!important; }
  .printable { border:0; padding:0; max-width:none; min-height:0; }
  .printChapter h3,.printChapter h4 { break-after:avoid; }
  .printItem { break-inside:avoid; }

@@ -35,6 +35,8 @@ export function ReadingPrototype() {
   const [splitPosition, setSplitPosition] = useState(0);
   const dialog = useRef<HTMLDialogElement>(null);
   const chapterText = useRef<HTMLTextAreaElement>(null);
+  const readingPositions = useRef(new Map<string, { chapterId: string; guideId: string; view: View; kind: ItemKind; draft: Item | null; sourceOpen: boolean }>());
+  const pageHeading = useRef<HTMLHeadingElement>(null);
   const book = books.find(b => b.id === bookId) || books[0];
   const chapter = book.chapters.find(c => c.id === chapterId) || book.chapters[0];
   const guide = book.guides.find(g => g.id === guideId) || book.guides[0];
@@ -53,12 +55,24 @@ export function ReadingPrototype() {
     return () => clearTimeout(timer);
   }, [message]);
 
+  useEffect(() => {
+    pageHeading.current?.focus();
+  }, [libraryOpen, bookId]);
+
   function updateBook(update: (b: Book) => Book) {
     setBooks(previous => previous.map(b => b.id === book.id ? update(b) : b));
   }
   function selectBook(next: Book) {
-    setBookId(next.id); setChapterId(next.chapters[0].id); setGuideId(next.guides[0]?.id || "");
-    setView(next.guides.length ? "guides" : "text"); setDraft(null); setLibraryOpen(false); setSplitPosition(0);
+    setLibraryOpen(false);
+    if (next.id === book.id) return;
+    readingPositions.current.set(book.id, { chapterId: chapter.id, guideId: guide?.id || "", view, kind, draft, sourceOpen });
+    const position = readingPositions.current.get(next.id);
+    setBookId(next.id);
+    setChapterId(next.chapters.find(c => c.id === position?.chapterId)?.id || next.chapters[0].id);
+    setGuideId(next.guides.find(g => g.id === position?.guideId)?.id || next.guides[0]?.id || "");
+    setView(position?.view || (next.guides.length ? "guides" : "text"));
+    setKind(position?.kind || "multiple-choice"); setDraft(position?.draft || null);
+    setSourceOpen(position?.sourceOpen || false); setSplitPosition(0);
   }
   function selectChapter(id: string) {
     setChapterId(id); setDraft(null); setSplitPosition(0);
@@ -122,21 +136,24 @@ export function ReadingPrototype() {
   }
 
   return <main className={s.shell}>
-    <aside className={`${s.library} ${libraryOpen ? s.libraryVisible : ""}`} aria-label="Book library">
-      <a href="/prototype" className={s.brand}><Mark name="book" /><span>TopReading<span className={s.brandSub}>Study guide editor</span></span></a>
-      <button className={s.newBook} onClick={() => { setImportError(""); setModal("import"); }}><Mark name="plus" />Import a book</button>
-      <label className={s.search}><span>Find a book</span><input placeholder="Search your library" value={search} onChange={e => setSearch(e.target.value)} /></label>
-      <div className={s.libraryLabel}>YOUR LIBRARY <span>{books.length}</span></div>
-      <div className={s.bookList}>{books.filter(b => b.title.toLowerCase().includes(search.toLowerCase())).map((b, i) => <button key={b.id} className={b.id === book.id ? s.activeBook : ""} aria-pressed={b.id === book.id} onClick={() => selectBook(b)}><span className={`${s.bookSpine} ${i % 2 ? s.ochre : ""}`}>{b.title.slice(0, 1)}</span><span><strong>{b.title}</strong><small>{b.chapters.length} chapters · {b.guides.length ? "Guide ready" : "Text ready"}</small></span></button>)}{!books.some(b => b.title.toLowerCase().includes(search.toLowerCase())) ? <p className={s.quiet}>No books match your search.</p> : null}</div>
-      <footer className={s.libraryFooter}><span className={s.previewDot} />Design preview<p>Sample content. Changes stay in this tab.</p><a href="/">Open current application <span aria-hidden="true">↗</span></a></footer>
-      <button className={s.mobileClose} onClick={() => setLibraryOpen(false)}>Close library</button>
-    </aside>
-    {libraryOpen ? <button className={s.scrim} aria-label="Close library" onClick={() => setLibraryOpen(false)} /> : null}
-    <section className={s.workspace} aria-label="Selected book">
+    <header className={s.appBar}>
+      <span className={s.brand}><Mark name="book" /><span className={s.brandName}>TopReading</span></span>
+      <button className={s.libraryButton} aria-pressed={libraryOpen} onClick={() => setLibraryOpen(true)}>Library</button>
+      <label className={s.bookSwitcher}><span>Current book</span><select aria-label="Current book" value={book.id} onChange={e => selectBook(books.find(b => b.id === e.target.value)!)}>{books.map(b => <option key={b.id} value={b.id}>{b.title}</option>)}</select></label>
+      <span className={s.previewLabel}>Design preview · Reload resets changes</span>
+      <a className={s.currentApp} href="/">Current app ↗</a>
+    </header>
+    {libraryOpen ? <section className={s.libraryPage} aria-label="Book library">
+      <div className={s.libraryInner}>
+        <div className={s.libraryHeading}><div><p className={s.chapterKicker}>Your reading workspace</p><h1 ref={pageHeading} tabIndex={-1}>Library</h1><p>Choose a book to continue, or bring in a new reading.</p></div><button className={s.primary} onClick={() => { setImportError(""); setModal("import"); }}><Mark name="plus" />Import a book</button></div>
+        <div className={s.libraryTools}><label className={s.search}><span>Find a book</span><input placeholder="Search by title or author" value={search} onChange={e => setSearch(e.target.value)} /></label><span>{books.length} {books.length === 1 ? "book" : "books"}</span></div>
+        <div className={s.bookList}>{books.filter(b => `${b.title} ${b.author}`.toLowerCase().includes(search.toLowerCase())).map((b, i) => <button key={b.id} aria-label={`Open ${b.title}`} onClick={() => selectBook(b)}><span className={`${s.bookSpine} ${i % 2 ? s.ochre : ""}`}>{b.title.slice(0, 1)}</span><span className={s.bookDetails}><strong>{b.title}</strong><small>{b.author}</small></span><span className={s.bookMeta}>{b.chapters.length} {b.chapters.length === 1 ? "chapter" : "chapters"}<small>{b.guides.length ? `${b.guides.length} guide ${b.guides.length === 1 ? "version" : "versions"}` : "Text ready"}</small></span><span className={s.openBook}>{b.id === book.id ? "Continue" : "Open"}<Mark name="arrow" /></span></button>)}{!books.some(b => `${b.title} ${b.author}`.toLowerCase().includes(search.toLowerCase())) ? <p className={s.empty}>No books match your search.</p> : null}</div>
+        <footer className={s.libraryFooter}><button onClick={() => setLibraryOpen(false)}>Return to {book.title}</button><p>Changes stay in this preview tab. Reloading resets the library.</p></footer>
+      </div>
+    </section> : <section className={s.workspace} aria-label="Selected book">
       <header className={s.header}>
-        <button className={s.mobileMenu} aria-label="Open library" aria-expanded={libraryOpen} onClick={() => setLibraryOpen(true)}><Mark name="menu" /></button>
-        <div className={s.bookHeading}><p>{book.author}</p><h1>{book.title}</h1></div>
-        <span className={s.headerStatus}><span className={s.previewDot} />Sample workspace</span>
+        <div className={s.bookHeading}><p>{book.author}</p><h1 ref={pageHeading} tabIndex={-1}>{book.title}</h1></div>
+        <span className={s.headerStatus}><span className={s.previewDot} />Preview · Changes stay in this tab</span>
       </header>
       <nav className={s.navigation} aria-label="Book sections">{([['text', 'Text'], ['guides', 'Study guides'], ['export', 'Export']] as const).map(([id, label]) => <button key={id} className={view === id ? s.activeNav : ""} aria-pressed={view === id} onClick={() => { setView(id); setDraft(null); }}>{label}</button>)}<span>{book.chapters.length} chapters<span className={s.dot}>·</span>{book.chapters.reduce((sum, c) => sum + words(c.text), 0).toLocaleString()} words</span></nav>
 
@@ -168,7 +185,7 @@ export function ReadingPrototype() {
           <div className={s.printStage}><div className={s.printLabel}>HANDOUT PREVIEW <span>{exportCount} items</span></div><article className={s.printable}><header><span>TOPREADING · {includeAnswers ? "TEACHER COPY" : "READING PRACTICE"}</span><h2>{book.title}</h2><p>{guide?.name || "Choose a study guide"}</p>{!includeAnswers ? <p className={s.studentLine}>Name _______________________ &nbsp; Date ____________</p> : null}</header>{!exportCount ? <p className={s.quiet}>Create a guide and select content to preview a handout.</p> : selectedExportChapters.map((c, index) => <section className={s.printChapter} key={c.id}><h3>{book.chapters.findIndex(v => v.id === c.id) + 1}. {c.title}</h3>{kinds.filter(k => exportKinds.includes(k)).map(k => { const collection = guide.items.filter(i => i.chapterId === c.id && i.kind === k); return collection.length ? <section key={k}><h4>{labels[k]}</h4>{collection.map((item, i) => <div className={s.printItem} key={item.id}><span>{i + 1}.</span><div>{itemBody(item, includeAnswers)}</div></div>)}</section> : null; })}{index < selectedExportChapters.length - 1 ? <hr /> : null}</section>)}</article></div>
         </div>}
       </div>
-    </section>
+    </section>}
     <div role="status" className={`${s.toast} ${message ? s.toastVisible : ""}`}>{message}</div>
     <dialog ref={dialog} className={s.dialog} aria-labelledby="prototype-dialog-title" onClose={() => setModal(null)}><header><h2 id="prototype-dialog-title">{modal === "import" ? "Bring in a reading" : modal === "generate" ? "Create a sample guide" : "Guide versions"}</h2><button aria-label="Close dialog" onClick={() => setModal(null)}><Mark name="close" /></button></header>
       {modal === "import" ? <><p>Try the import and chapter-review workflow with a text file. Nothing is uploaded to a server.</p><label className={s.dropzone}><Mark name="book" /><strong>{importing ? "Reading your file…" : "Choose a text file"}</strong><span>TXT · up to 2 MB</span><input type="file" accept=".txt,text/plain" aria-label="Import text file" disabled={importing} onChange={e => void importFile(e.target.files?.[0])} /></label><p className={s.quiet}>PDF and EPUB importing will use the extraction pipeline in the finished application.</p>{importError ? <p role="alert" className={s.error}>{importError}</p> : null}</> : modal === "generate" ? <form onSubmit={e => { e.preventDefault(); createGuide(); }}><p>This preview creates sample questions and a summary for each chapter so you can try editing and exporting. It does not call an AI service.</p><label>Guide name<input autoFocus required value={guideName} onChange={e => setGuideName(e.target.value)} /></label><div className={s.guideSummary}><span>{book.chapters.length} chapters</span><span>Questions + summaries</span></div><button className={s.primary}>Create sample guide <Mark name="arrow" /></button></form> : modal === "versions" ? <><p>Each version keeps its own edits. Choose the one you want to work on.</p>{book.guides.map(g => <div className={s.versionRow} key={g.id}><label>Version name<input aria-label={`Name for ${g.name}`} value={g.name} onChange={e => updateBook(b => ({ ...b, guides: b.guides.map(v => v.id === g.id ? { ...v, name: e.target.value } : v) }))} /><small>{g.date} · {g.items.length} items</small></label><button onClick={() => { setGuideId(g.id); setDraft(null); setModal(null); }}>{g.id === guide?.id ? "Continue editing" : "Use version"}</button></div>)}<button className={s.primary} onClick={() => setModal("generate")}><Mark name="plus" />New sample guide</button></> : null}

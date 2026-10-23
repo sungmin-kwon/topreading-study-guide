@@ -13,20 +13,32 @@ npm run dev
 
 Open `/prototype` on that development server. The existing application remains at `/`.
 
-The prototype has three destinations: Text, Study guides, and Export. It uses fictional sample readings and keeps changes in browser memory. Reloading resets everything. It makes no API requests, changes no application records, and makes no AI calls.
+Inside a book, the prototype has three destinations: Text, Study guides, and Export. A header book switcher and a separate searchable Library view replace the persistent library sidebar. Only the chapter outline remains beside Text and Study guides; Export uses that space for its settings. It uses fictional sample readings and keeps changes in browser memory. Reloading resets everything. It makes no API requests, changes no application records, and makes no AI calls.
 
 Try these tasks:
 
 1. Import a UTF-8 TXT file (up to 2 MB). Review suggested chapters, including any opening pages. Edit titles and text, split at the cursor, and merge adjacent chapters.
 2. Choose a guide version. Edit a question and its correct answer, add an item, and switch versions to check that their edits stay separate. Open the source text beside the questions. Create a new sample guide through Text or Manage.
 3. Choose Export, select chapters and content, and toggle answers. Use the browser print dialog to print or save a PDF.
-4. On a phone, open the library from the menu and change chapters using the picker.
+4. Open Library from the header and search by title or author. Return to the current book, or switch books using the header selector. Within this tab, each book retains its chapter, guide version, content type, source visibility, and question draft. On a phone, use the same header controls and the chapter picker.
 
 This slice establishes layout and interactions. It does not yet implement persistent saving, actual AI generation, PDF/EPUB extraction, DOCX export, Korean UI, dark mode, or job recovery states. Those remain in the [modernization plan](modernization-plan.md). Sample questions created from imported text are placeholders for exercising the workflow.
 
 ![Desktop study guide](prototype/desktop.png)
 
-[Phone layout](prototype/mobile.png) · [Handout preview](prototype/export.png)
+[Library view](prototype/library.png) · [Phone layout](prototype/mobile.png) · [Handout preview](prototype/export.png)
+
+## Design decisions before backend integration
+
+The single-sidebar layout is implemented. The following are recommended behavior defaults for the next implementation slice, not claims about completed prototype features:
+
+- **Saving and navigation:** show persistent Saving / Saved / Could not save feedback near the editor; preserve failed edits with a Retry action. Keep unsaved question drafts when navigating, and make reload/leave protection explicit. Restore book, task, chapter, and guide through URL state in the real app. The prototype only remembers book context in memory; changing a task/chapter/version can still discard an open question draft.
+- **Reversible chapter changes:** offer immediate Undo after splitting or merging, plus revision history. Review proposed boundaries before replacing the chapter structure. Each operation must be atomic and preserve the text; confirmation is appropriate for replacement or deletion rather than every ordinary edit.
+- **Generation and source changes:** generate into a new guide version by default, preserving manual edits. Separate Queued / Generating / Ready / Failed from Needs review after a source edit. Record the source revision each generated item used; retry failed work without duplicating completed items. Legacy provenance remains unknown.
+- **Output intent:** name student handouts and teacher copies explicitly, show the selected guide/chapter scope, and make answer inclusion visible in the preview. Preserve the existing standalone answer-key formats when production exports are connected.
+- **Accessibility and language:** check keyboard focus, readable contrast, touch targets, long titles, Korean text, and dark mode before replacing the current UI. Keep source comparison optional and within the workspace; do not add another permanent navigation sidebar.
+
+These behaviors guide the data-access, revision, and job APIs. Further visual polish can happen alongside implementation; the layout does not need another major redesign before those foundations begin.
 
 ## PostgreSQL scope
 
@@ -81,7 +93,7 @@ This is a bootstrap importer, not an ongoing synchronization process. Later sche
 
 ## Verification evidence
 
-The production build and TypeScript checks pass. Chromium workflow checks pass at desktop (1440 × 1080) and phone (390 × 844) sizes, covering version-specific edits, dialog dismissal, TXT import, split/merge, sample guide creation, mobile chapter/library navigation, and printing. There were no browser page errors or prototype API requests. The generated two-page PDF contains the selected questions and answers and excludes application navigation. All 17 Python tests pass against the isolated PostgreSQL instance.
+The production build and TypeScript checks pass. Chromium workflow checks pass at desktop (1440 × 1080) and phone (390 × 844) sizes, covering version-specific edits, dialog dismissal, TXT import, split/merge, sample guide creation, mobile chapter/library navigation, and printing. The single-sidebar revision also passed library title/author search, empty-search results, return-to-book behavior, draft preservation across book switches, and overflow checks at 320 px width. There were no browser page errors or prototype API requests. The generated two-page PDF contains the selected questions and answers and excludes application navigation. All 17 Python tests pass against the isolated PostgreSQL instance.
 
 The 2026-10-23 production backup was imported into an isolated local PostgreSQL 17 instance. All 12 legacy tables reconciled by row count and normalized content checksum:
 
