@@ -3,7 +3,7 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { allocateCountByWordWeight, deriveBookGenerationPlan } from "@topreading/core";
 
-import { WorkspaceBar, SavedLibrary, WorkspaceNavigation } from "./workspace-navigation";
+import { QuietMenu, WorkspaceBar, SavedLibrary, WorkspaceNavigation } from "./workspace-navigation";
 import "./live-workspace.css";
 
 type BookSummary = {
@@ -724,6 +724,9 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   const [isGenerationModalOpen, setIsGenerationModalOpen] = useState(false);
   const [renamingGenerationRunId, setRenamingGenerationRunId] = useState<string | null>(null);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [exportType, setExportType] = useState<PdfExportType>("multiple-choice");
+  const [exportFormat, setExportFormat] = useState<"pdf" | "docx">("pdf");
+  const [exportScope, setExportScope] = useState<"all" | "chapter">("all");
   const [showSingleChapterExport, setShowSingleChapterExport] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
   const [uiLanguage, setUiLanguage] = useState<UiLanguage>("en");
@@ -1220,10 +1223,10 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   }, [activeBook?.id, bookLoadAttempt]);
 
   useEffect(() => {
-    if ((activeWorkspaceTab === "export" || activeWorkspaceTab === "review") && selectedChapter) {
+    if ((activeWorkspaceTab === "export" || activeWorkspaceTab === "review" || (modern && activeWorkspaceTab === "sets")) && selectedChapter) {
       void loadStudySets(selectedChapter);
     }
-  }, [activeWorkspaceTab, selectedChapter?.id, activeBook?.activeGenerationRunId]);
+  }, [activeWorkspaceTab, selectedChapter?.id, activeBook?.activeGenerationRunId, modern]);
 
   useEffect(() => {
     if (!activeBook?.id || !generatingRun) {
@@ -2862,6 +2865,16 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
     );
   }
 
+  function renderSecondaryStudyActions(kind: StudyItemKind, itemId: string, index: number, count: number) {
+    const deleteButton = <button className="danger-button" type="button" disabled={deletingId === itemId || savingStudyItemId === itemId} onClick={() => handleDeleteStudyItem(kind, itemId)}>{deletingId === itemId ? t("Deleting...", "삭제 중...") : t("Delete", "삭제")}</button>;
+    if (!modern) return <>{renderMoveStudyItemButtons(kind, itemId, index, count)}{deleteButton}</>;
+    return <QuietMenu label={t("More", "더 보기")}>
+      <button type="button" disabled={index === 0 || Boolean(movingStudyItemId) || Boolean(savingStudyItemId)} onClick={() => handleMoveStudyItem(kind, itemId, "up")}>{t("Move up", "위로 이동")}</button>
+      <button type="button" disabled={index === count - 1 || Boolean(movingStudyItemId) || Boolean(savingStudyItemId)} onClick={() => handleMoveStudyItem(kind, itemId, "down")}>{t("Move down", "아래로 이동")}</button>
+      {deleteButton}
+    </QuietMenu>;
+  }
+
   function renderNewStudyItemForm(kind: StudyItemKind) {
     if (creatingStudyItemKind !== kind) {
       return null;
@@ -3063,7 +3076,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
             <span className="user-avatar">
               <UiIcon name="user" />
             </span>
-            {modern || !isLibraryCollapsed ? (
+            {!modern && !isLibraryCollapsed ? (
               <>
                 <span className="user-menu-copy">
                   <strong>{currentUserLabel}</strong>
@@ -3267,10 +3280,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
         </header>
 
         {modern && <WorkspaceNavigation tab={activeWorkspaceTab} onTab={navigateTo} hasBook={Boolean(activeBook)} hasChapters={hasChapters} hasSources={hasSourceFiles} t={t} />}
-        {modern && <div className="reading-save-state" role="status">
-          {savingChapterId || savingStudyItemId || isSavingNewStudyItem ? t("Saving to server…", "서버에 저장 중…") : hasUnsavedChanges ? t("Unsaved edits — save before leaving this page.", "저장되지 않은 수정 사항 — 페이지를 떠나기 전에 저장하세요.") : t("Changes are saved when you choose Save.", "저장 버튼을 누르면 변경 사항이 저장됩니다.")}
-          {saveError && <span role="alert">{saveError}</span>}
-        </div>}
+        {modern && saveError && <div className="reading-save-error" role="alert">{saveError}</div>}
 
         {activeBook && isBookMetadataOpen ? (
           <div className="modal-backdrop" role="presentation">
@@ -4010,12 +4020,44 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
           <section className="sets-panel">
             <div className="panel-title-row">
               <div>
-                <h3>{t("Study sets", "학습 세트")}</h3>
-                <p className="muted-text">
+                <h3>{modern ? t("Guide versions", "학습지 버전") : t("Study sets", "학습 세트")}</h3>
+                {!modern && <p className="muted-text">
                   {t("Choose the active version, rename sets, or remove generated material you no longer need.", "활성 버전을 선택하고, 세트 이름을 바꾸거나 필요 없는 생성 자료를 삭제합니다.")}
-                </p>
+                </p>}
               </div>
             </div>
+
+            {modern && selectedChapter && <section className="reading-version-detail"><h4>{t("Current chapter", "현재 챕터")}: {selectedChapter?.title}</h4>
+                        <div className="study-set-header">
+                          <div>
+                            <p className="step-label">{t("Selected set", "선택된 세트")}</p>
+                            {selectedStudySet ? (
+                              <div className="study-set-meta-row">
+                                <span>{formatUiStatus(selectedStudySet.status)}</span>
+                                <span>{formatDateTime(selectedStudySet.createdAt)}</span>
+                                {selectedStudySet.model ? <span>{selectedStudySet.model}</span> : null}
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="study-set-controls">
+                            {loadingStudySetsChapterId === selectedChapter?.id ? (
+                              <span>{t("Loading...", "불러오는 중...")}</span>
+                            ) : selectedChapterStudySets.length > 1 ? (
+                              <select aria-label={t("Chapter guide version", "챕터 학습지 버전")}
+                                value={selectedStudySetId || ""}
+                                onChange={(event) => selectedChapter && void handleSelectStudySet(selectedChapter.id, event.target.value)}
+                              >
+                                {selectedChapterStudySets.map((studySet) => (
+                                  <option key={studySet.id} value={studySet.id}>
+                                    {studySet.title}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        </section>}
 
             {generationRuns.length === 0 ? (
               <div className="empty-state">
@@ -4088,6 +4130,34 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                 <strong>{t("No exports available", "내보낼 자료가 없습니다")}</strong>
                 <p>{t("Create chapters and generate at least one study set before exporting files.", "파일을 내보내기 전에 챕터를 만들고 학습 세트를 하나 이상 생성하세요.")}</p>
               </div>
+            ) : modern ? (
+              <form className="reading-export-form" onSubmit={event => {
+                event.preventDefault();
+                if (exportScope === "all") handleExportBook(exportType, exportFormat);
+                else handleExportStudySet(exportType, exportFormat);
+              }}>
+                <label>{t("Guide version", "학습지 버전")}<select aria-label={t("Guide version", "학습지 버전")} value={activeBook?.activeGenerationRunId || ""} disabled={switchingVersion} onChange={event => void handleSelectActiveGenerationRun(event.target.value)}>
+                  {!activeBook?.activeGenerationRunId && <option value="">{t("Latest available", "사용 가능한 최신 버전")}</option>}
+                  {generationRuns.filter(run => run.status !== "generating").map(run => <option key={run.id} value={run.id}>{run.name}</option>)}
+                </select></label>
+                <label>{t("Chapters", "챕터")}<select aria-label={t("Chapters", "챕터")} value={exportScope === "all" ? "all" : selectedChapter?.id || ""} onChange={event => {
+                  setExportScope(event.target.value === "all" ? "all" : "chapter");
+                  const chapter = chapters.find(chapter => chapter.id === event.target.value);
+                  if (chapter) handleSelectChapter(chapter);
+                }}>
+                  <option value="all">{t("All chapters", "전체 챕터")}</option>
+                  {chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.chapterNumber}. {chapter.title}</option>)}
+                </select></label>
+                {exportScope === "chapter" && selectedChapterStudySets.length > 1 && <label>{t("Chapter guide version", "챕터 학습지 버전")}<select aria-label={t("Chapter guide version", "챕터 학습지 버전")} value={selectedStudySetId || ""} onChange={event => { if (selectedChapter) void handleSelectStudySet(selectedChapter.id, event.target.value); }}>
+                  {selectedChapterStudySets.map(set => <option key={set.id} value={set.id}>{set.title}</option>)}
+                </select></label>}
+                <label>{t("Content", "내용")}<select aria-label={t("Content", "내용")} value={exportType} onChange={event => setExportType(event.target.value as PdfExportType)}>
+                  {exportOptionGroups.map(group => <optgroup key={group.title} label={group.title}>{group.options.map(option => <option key={option.type} value={option.type}>{group.title === option.label ? option.label : `${group.title} · ${option.label}`}</option>)}</optgroup>)}
+                </select></label>
+                <label>{t("Format", "형식")}<select aria-label={t("Format", "형식")} value={exportFormat} onChange={event => setExportFormat(event.target.value as "pdf" | "docx")}><option value="pdf">PDF</option><option value="docx">Word (.docx)</option></select></label>
+                {exportScope === "chapter" && (studyLoadError ? <p role="alert">{studyLoadError} <button type="button" onClick={() => selectedChapter && void loadStudySets(selectedChapter)}>{t("Retry", "다시 시도")}</button></p> : !selectedStudySet && !loadingStudySetsChapterId && <p>{t("No guide is available for this chapter and version.", "이 챕터와 버전에 사용할 수 있는 학습지가 없습니다.")}</p>)}
+                <button className="primary-action" type="submit" disabled={switchingVersion || (exportScope === "chapter" && (!selectedStudySet || Boolean(loadingStudySetsChapterId) || Boolean(studyLoadError)))}>{t("Export", "내보내기")}</button>
+              </form>
             ) : (
               <div className="export-page-stack">
                 <div className="export-workspace">
@@ -4273,7 +4343,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                   <p className="muted-text">{t("Version:", "버전:")} {activeGenerationRun.name}</p>
                 ) : null}
               </div>
-              {activeWorkspaceTab === "chapters" ? (
+              {!modern && activeWorkspaceTab === "chapters" ? (
                 <button
                   className="danger-button"
                   type="button"
@@ -4330,11 +4400,14 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                               {!activeBook?.activeGenerationRunId && <option value="">{t("Latest available", "사용 가능한 최신 버전")}</option>}
                               {generationRuns.filter(run => run.status !== "generating").map(run => <option key={run.id} value={run.id}>{run.name} · {formatUiStatus(run.status)}</option>)}
                             </select></label>
+                            <button type="button" onClick={() => navigateTo("sets")}>{t("Manage versions", "버전 관리")}</button>
+                            <button type="button" onClick={() => navigateTo("generate")}>{t("Generate a guide", "학습지 생성")}</button>
                             <button type="button" aria-expanded={sourceOpen} onClick={() => setSourceOpen(open => !open)}>{t("Source passage", "원문 보기")}</button>
                           </div>
                           <div className="reading-document-heading"><p className="reading-kicker">{t("Chapter", "챕터")} {selectedChapter.chapterNumber}</p><h3>{selectedChapter.title || t("Study guide", "학습지")}</h3></div>
                           {sourceOpen && <section className="reading-source" aria-label={t("Source passage", "원문")}><h4>{t("Source passage", "원문")}</h4><p>{selectedChapterDetail?.textContent || t("Source text is unavailable. Reopen the book to retry.", "원문을 불러오지 못했습니다. 책을 다시 여세요.")}</p></section>}
                         </>}
+                        {!modern && <>
                         <details className="reading-guide-details"><summary>{t("Guide details", "학습지 상세 정보")}</summary>
                         <div className="study-set-header">
                           <div>
@@ -4368,14 +4441,15 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                         </div>
 
                         </details>
+                        </>}
 
                         {studyLoadError ? <p role="alert">{studyLoadError} <button type="button" onClick={() => void loadStudySets(selectedChapter)}>{t("Retry", "다시 시도")}</button></p> : !selectedStudySet ? (
-                          <div className="empty-state"><p>{t("No guide is available for this chapter and version.", "이 챕터와 버전에 사용할 수 있는 학습지가 없습니다.")}</p><button type="button" onClick={() => navigateTo("generate")}>{t("Generate a guide", "학습지 생성")}</button></div>
+                          <div className="empty-state"><p>{t("No guide is available for this chapter and version.", "이 챕터와 버전에 사용할 수 있는 학습지가 없습니다.")}</p>{!modern && <button type="button" onClick={() => navigateTo("generate")}>{t("Generate a guide", "학습지 생성")}</button>}</div>
                         ) : loadingStudyItemsSetId === selectedStudySet.id ? (
                           <p className="muted-text">{t("Loading generated items...", "생성된 항목을 불러오는 중...")}</p>
                         ) : selectedStudyItems ? (
                           <>
-                          <div className="study-set-subtabs" role="tablist" aria-label={t("Study set item type", "학습 세트 항목 종류")}>
+                          <div className="reading-item-toolbar"><div className="study-set-subtabs" role="tablist" aria-label={t("Study set item type", "학습 세트 항목 종류")}>
                             <button
                               className={activeStudySetView === "multiple-choice" ? "active" : ""}
                               type="button"
@@ -4423,7 +4497,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                             >
                               {getAddStudyItemLabel(activeStudySetView)}
                             </button>
-                          </div>
+                          </div></div>
 
                           {activeStudySetView === "vocabulary" ? (
                           <div className="study-items-grid single-column">
@@ -4458,16 +4532,16 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                                     </>
                                   )}
                                   <div className="study-item-actions">
-                                    {renderMoveStudyItemButtons("vocabulary", item.id, index, selectedStudyItems.vocabularyItems.length)}
                                     {editingStudyItemId === item.id ? (
                                       <>
+                                        {modern && dirtyItemIds.includes(item.id) && <span className="reading-unsaved" role="status">{t("Unsaved changes", "저장되지 않은 변경")}</span>}
                                         <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("vocabulary", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
                                         <button type="button" onClick={() => cancelStudyItemEdit(item.id)}>{t("Cancel", "취소")}</button>
                                       </>
                                     ) : (
                                       <button type="button" onClick={() => startEditingStudyItem("vocabulary", item)}>{t("Edit", "수정")}</button>
                                     )}
-                                    <button className="danger-button" type="button" disabled={deletingId === item.id} onClick={() => handleDeleteStudyItem("vocabulary", item.id)}>{deletingId === item.id ? t("Deleting...", "삭제 중...") : t("Delete", "삭제")}</button>
+                                    {renderSecondaryStudyActions("vocabulary", item.id, index, selectedStudyItems.vocabularyItems.length)}
                                   </div>
                                 </article>
                               ))}
@@ -4533,16 +4607,16 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                                     </>
                                   )}
                                   <div className="study-item-actions">
-                                    {renderMoveStudyItemButtons("multiple-choice", item.id, index, selectedStudyItems.multipleChoiceQuestions.length)}
                                     {editingStudyItemId === item.id ? (
                                       <>
+                                        {modern && dirtyItemIds.includes(item.id) && <span className="reading-unsaved" role="status">{t("Unsaved changes", "저장되지 않은 변경")}</span>}
                                         <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("multiple-choice", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
                                         <button type="button" onClick={() => cancelStudyItemEdit(item.id)}>{t("Cancel", "취소")}</button>
                                       </>
                                     ) : (
                                       <button type="button" onClick={() => startEditingStudyItem("multiple-choice", item)}>{t("Edit", "수정")}</button>
                                     )}
-                                    <button className="danger-button" type="button" disabled={deletingId === item.id} onClick={() => handleDeleteStudyItem("multiple-choice", item.id)}>{deletingId === item.id ? t("Deleting...", "삭제 중...") : t("Delete", "삭제")}</button>
+                                    {renderSecondaryStudyActions("multiple-choice", item.id, index, selectedStudyItems.multipleChoiceQuestions.length)}
                                   </div>
                                 </article>
                               ))}
@@ -4577,16 +4651,16 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                                     </>
                                   )}
                                   <div className="study-item-actions">
-                                    {renderMoveStudyItemButtons("short-answer", item.id, index, selectedStudyItems.shortAnswerQuestions.length)}
                                     {editingStudyItemId === item.id ? (
                                       <>
+                                        {modern && dirtyItemIds.includes(item.id) && <span className="reading-unsaved" role="status">{t("Unsaved changes", "저장되지 않은 변경")}</span>}
                                         <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("short-answer", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
                                         <button type="button" onClick={() => cancelStudyItemEdit(item.id)}>{t("Cancel", "취소")}</button>
                                       </>
                                     ) : (
                                       <button type="button" onClick={() => startEditingStudyItem("short-answer", item)}>{t("Edit", "수정")}</button>
                                     )}
-                                    <button className="danger-button" type="button" disabled={deletingId === item.id} onClick={() => handleDeleteStudyItem("short-answer", item.id)}>{deletingId === item.id ? t("Deleting...", "삭제 중...") : t("Delete", "삭제")}</button>
+                                    {renderSecondaryStudyActions("short-answer", item.id, index, selectedStudyItems.shortAnswerQuestions.length)}
                                   </div>
                                 </article>
                               ))}
@@ -4610,6 +4684,16 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                   ) : (
                     <>
                       <div className="chapter-document-editor">
+                        {modern ? <>
+                          <div className="reading-chapter-toolbar"><span>{t("Chapter", "챕터")} {selectedChapter.chapterNumber} · {t(`${selectedChapterWordCount.toLocaleString()} words`, `${selectedChapterWordCount.toLocaleString()}단어`)}</span>
+                            <QuietMenu label={t("Chapter settings", "챕터 설정")}>
+                              <label>{t("Number", "번호")}<input min="1" type="number" value={selectedChapterEdit.chapterNumber} onChange={event => handleChapterEdit(selectedChapter.id, { chapterNumber: event.target.value })} /></label>
+                              <button type="button" className="danger-button" disabled={Boolean(deletingId) || Boolean(savingChapterId)} onClick={() => handleDeleteChapter(selectedChapter)}>{t("Delete Chapter", "챕터 삭제")}</button>
+                              <button type="button" className="danger-button" disabled={Boolean(deletingId) || Boolean(savingChapterId)} onClick={handleClearChapters}>{t("Clear All Chapters", "모든 챕터 삭제")}</button>
+                            </QuietMenu>
+                          </div>
+                          <input className="reading-chapter-title" aria-label={t("Title", "제목")} value={selectedChapterEdit.title} onChange={event => handleChapterEdit(selectedChapter.id, { title: event.target.value })} placeholder={`${t("Chapter", "챕터")} ${selectedChapter.chapterNumber}`} />
+                        </> : <>
                         <div className="chapter-editor-header">
                           <div>
                             <p className="step-label">{t("Editing", "편집 중")}</p>
@@ -4647,8 +4731,10 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                           </label>
                         </div>
 
+                        </>}
+
                         <label className="chapter-text-field">
-                          <span>{t("Chapter text", "챕터 텍스트")}</span>
+                          <span className={modern ? "visually-hidden" : undefined}>{t("Chapter text", "챕터 텍스트")}</span>
                           <textarea
                             rows={22}
                             value={selectedChapterEdit.textContent}
@@ -4658,6 +4744,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                       </div>
 
                       <div className="button-group editor-actions chapter-editor-actions">
+                        {modern && selectedChapterHasUnsavedChanges && <span className="reading-unsaved" role="status">{t("Unsaved changes", "저장되지 않은 변경")}</span>}
                         <button
                           type="button"
                           disabled={savingChapterId === selectedChapter.id}
@@ -4665,7 +4752,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                         >
                           {savingChapterId === selectedChapter.id ? t("Saving...", "저장 중...") : t("Save Chapter", "챕터 저장")}
                         </button>
-                        {activeWorkspaceTab === "chapters" ? (
+                        {!modern && activeWorkspaceTab === "chapters" ? (
                           <button
                             className="danger-button"
                             type="button"

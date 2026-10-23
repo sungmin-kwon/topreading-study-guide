@@ -24,6 +24,7 @@ if (!base || process.env.ALLOW_TEST_WRITES !== '1' || !['localhost', '127.0.0.1'
     await page.getByRole('button', { name: 'Upload Source', exact: true }).click();
     await page.getByRole('button', { name: 'Extract Text', exact: true }).click();
     await page.getByText('Source text extracted and saved.', { exact: true }).waitFor();
+    await page.locator('.reading-navigation summary').click();
     await page.getByRole('button', { name: 'Chapter boundaries', exact: true }).click();
     await page.getByRole('button', { name: /Heading detection/ }).click();
     await page.getByRole('button', { name: 'Create Chapters from Headings', exact: true }).click();

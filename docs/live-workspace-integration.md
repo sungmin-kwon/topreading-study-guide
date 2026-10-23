@@ -9,12 +9,24 @@ The main application at `/` now applies the approved editorial layout to the **e
 - Header book switcher and separate searchable, sortable, pinnable Library view.
 - Three primary destinations: Text, Study guides, Export. Text contains chapter editing, source import and boundary tools; Study guides contains review, versions and generation.
 - One chapter outline on desktop; a compact chapter picker on mobile.
-- Saved guide selection, source passage alongside review, quieter document-style question cards, and expandable generation metadata.
+- Saved guide selection, source passage alongside review, quieter document-style question cards, and generation metadata in version management.
 - Existing source upload/extraction, chapter preparation, generation controls, question editing, and PDF/DOCX exporters remain connected to their real endpoints.
 - English/Korean controls, dark mode, visible focus and properly grouped MCQ answer-choice fields.
 - Book/chapter/destination IDs are reflected in the URL for reloads. Switching books remembers the chapter and destination during the current session.
 
 `/prototype` remains an isolated sample-data design playground. `/legacy` temporarily provides the earlier interface against the same live database as `/`—it is **not** a backup or a separate data copy.
+
+## UI subtraction pass
+
+The saved-book workspace now removes the permanent save-instruction strip, secondary navigation rows, repeated chapter headings, library introductions and missing-author placeholders. Save errors remain visible, with unsaved/saving feedback beside the relevant Save action.
+
+- Text import and chapter boundaries are under **Text tools**. The chapter title is an editable heading; numbering, deletion and Clear All Chapters are under **Chapter settings**.
+- **Manage versions** and generation sit beside the guide selector. Version metadata and alternate chapter sets are in management. Question cards show Edit and a keyboard-accessible More disclosure for reorder/delete; Add sits beside content tabs.
+- Export uses version, chapter scope, content and format selectors with one Export button. All eight existing content types and both PDF/Word formats remain available for a whole book or one chapter.
+- The header uses an avatar menu for preferences. Library has a correctly sized New book button and quieter book links.
+- The sample prototype also drops its idle save strip, redundant library introduction, export helper text and duplicate answer toggle. Copy type controls answer inclusion; save failures still offer Retry.
+
+Verification covers keyboard disclosure/Escape behavior, relocated import tools, and both full-book and single-chapter PDF/Word downloads, in addition to the existing save/recovery checks. This pass makes no database or authentication changes.
 
 ## Saving and recovery boundaries
 

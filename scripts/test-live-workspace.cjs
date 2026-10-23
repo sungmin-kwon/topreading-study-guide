@@ -89,7 +89,7 @@ fs.mkdirSync(evidence, { recursive: true });
     assert.equal(await page.getByRole('textbox', { name: 'Question', exact: true }).inputValue(), draft);
     await cards.first().getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.getByRole('button', { name: 'Text', exact: true }).click();
-    const title = page.locator('.chapter-form-grid').getByLabel('Title', { exact: true });
+    const title = page.getByRole('textbox', { name: 'Title', exact: true });
     await title.fill(chapter.title + ' [UI check]');
     const failChapter = route => route.request().method() === 'PATCH' ? route.abort('failed') : route.continue();
     await page.route(`**/chapters/${chapter.id}`, failChapter);
@@ -99,7 +99,7 @@ fs.mkdirSync(evidence, { recursive: true });
     await page.unroute(`**/chapters/${chapter.id}`, failChapter);
     await page.getByRole('button', { name: 'Save Chapter', exact: true }).click();
     await page.getByRole('button', { name: 'Save Chapter', exact: true }).waitFor();
-    await page.waitForFunction(() => !document.querySelector('.reading-save-state').textContent.includes('Unsaved edits'));
+    await page.locator('.chapter-editor-actions .reading-unsaved').waitFor({ state: 'hidden' });
     await page.reload({ waitUntil: 'networkidle' });
     await title.waitFor();
     assert.equal(await title.inputValue(), chapter.title + ' [UI check]');
@@ -120,16 +120,41 @@ fs.mkdirSync(evidence, { recursive: true });
     await page.getByText('No guide is available for this chapter and version.', { exact: true }).waitFor();
     await page.getByRole('combobox', { name: 'Guide version', exact: true }).selectOption(book.activeGenerationRunId || '');
     await cards.first().getByText(draft, { exact: true }).waitFor();
-    // The existing PDF/DOCX exporters must still use the selected version.
+    await page.getByRole('button', { name: 'Manage versions', exact: true }).click();
+    await page.locator('.reading-version-detail').waitFor();
+    assert.equal(await page.locator('.reading-guide-details').count(), 0);
+    await page.getByRole('button', { name: 'Study guides', exact: true }).click();
+    await cards.first().waitFor();
+    assert.equal(await page.getByText('Changes are saved when you choose Save.', { exact: true }).count(), 0);
+    assert.equal(await cards.first().getByRole('button', { name: 'Delete', exact: true }).isVisible(), false);
+    await cards.first().locator('summary').focus();
+    await page.keyboard.press('Enter');
+    await cards.first().getByRole('button', { name: 'Delete', exact: true }).waitFor();
+    assert(await cards.first().getByRole('button', { name: 'Move up', exact: true }).isDisabled());
+    await page.keyboard.press('Escape');
+    assert.equal(await cards.first().getByRole('button', { name: 'Delete', exact: true }).isVisible(), false);
+    // The compact form preserves full-book and single-chapter PDF/DOCX export.
     await page.getByRole('button', { name: 'Export', exact: true }).click();
-    for (const [format, label, signature] of [['pdf', 'Export Answer Key as PDF', '%PDF'], ['docx', 'Export Answer Key as Word', 'PK']]) {
-      const [download] = await Promise.all([
-        page.waitForEvent('download', { timeout: 60000 }),
-        page.getByRole('button', { name: label, exact: true }).first().click()
-      ]);
-      const file = path.join(evidence, `live-answer-key.${format}`);
-      await download.saveAs(file);
-      assert(fs.readFileSync(file).subarray(0, signature.length).toString() === signature);
+    const exportForm = page.locator('.reading-export-form');
+    await exportForm.waitFor();
+    assert.equal(await exportForm.getByLabel('Content', { exact: true }).locator('option').count(), 8);
+    await exportForm.getByLabel('Content', { exact: true }).selectOption('multiple-choice-concise-key');
+    for (const scope of ['all', chapter.id]) {
+      await exportForm.getByLabel('Chapters', { exact: true }).selectOption(scope);
+      for (const [format, signature] of [['pdf', '%PDF'], ['docx', 'PK']]) {
+        await exportForm.getByLabel('Format', { exact: true }).selectOption(format);
+        const [download] = await Promise.all([
+          page.waitForEvent('download', { timeout: 60000 }),
+          exportForm.getByRole('button', { name: 'Export', exact: true }).click()
+        ]);
+        const file = path.join(evidence, `live-${scope === 'all' ? 'book' : 'chapter'}-answer-key.${format}`);
+        await download.saveAs(file);
+        assert(fs.readFileSync(file).subarray(0, signature.length).toString() === signature);
+        const downloadUrl = new URL(download.url());
+        assert.equal(downloadUrl.searchParams.get('format'), format);
+        if (scope !== 'all') assert.equal(downloadUrl.searchParams.get('chapterId'), chapter.id);
+        else assert.equal(downloadUrl.searchParams.get('generationRunId'), book.activeGenerationRunId);
+      }
     }
     await page.getByRole('button', { name: 'Study guides', exact: true }).click();
     await cards.first().waitFor();

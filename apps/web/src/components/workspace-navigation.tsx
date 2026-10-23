@@ -9,7 +9,7 @@ export function WorkspaceBar({ books, bookId, libraryOpen, onLibrary, onBook, pr
   onBook: (id: string) => void; preferences: ReactNode; t: Translate;
 }) {
   return <header className="reading-topbar">
-    <span className="reading-brand">TopReading<span>{t("Reading & study", "독서와 학습")}</span></span>
+    <span className="reading-brand">TopReading</span>
     <button type="button" onClick={onLibrary} aria-pressed={libraryOpen}>{t("Library", "도서관")}</button>
     <label className="reading-book-switcher"><span className="visually-hidden">{t("Current book", "현재 책")}</span>
       <select value={bookId} onChange={e => onBook(e.target.value)} disabled={!books.length}>
@@ -29,9 +29,7 @@ export function SavedLibrary({ books, total, search, onSearch, sort, onSort, onB
   return <section className="reading-library" aria-labelledby="saved-library-title">
     <div className="reading-library-inner">
       <div className="reading-library-heading"><div>
-        <p className="reading-kicker">{t("Your collection", "내 컬렉션")}</p>
         <h1 id="saved-library-title">{t("Library", "도서관")}</h1>
-        <p>{t("Open a book to prepare text, review a guide, or export a handout.", "책을 열어 텍스트를 준비하고 학습지를 검토하거나 내보내세요.")}</p>
       </div><button className="primary-action" type="button" disabled={creating || loading} onClick={onCreate}>{creating ? t("Creating…", "생성 중…") : t("New book", "새 책")}</button></div>
       <div className="reading-library-tools">
         <label>{t("Search library", "도서 검색")}<input value={search} onChange={e => onSearch(e.target.value)} placeholder={t("Title or author", "제목 또는 저자")} /></label>
@@ -44,8 +42,8 @@ export function SavedLibrary({ books, total, search, onSearch, sort, onSort, onB
       <div className="reading-book-list">{books.map((book, index) => <article key={book.id}>
         <button className="reading-open-book" type="button" onClick={() => onBook(book.id)}>
           <span className={`reading-spine ${index % 2 ? "ochre" : ""}`} aria-hidden="true">{book.title.slice(0, 1)}</span>
-          <span><strong>{book.title}</strong><small>{book.author || t("No author provided", "저자 정보 없음")}</small></span>
-          <span className="reading-open-label">{t("Open book", "책 열기")} →</span>
+          <span><strong>{book.title}</strong>{book.author && <small>{book.author}</small>}</span>
+          <span className="reading-open-label" aria-hidden="true">→</span>
         </button>
         <button className="reading-pin" type="button" aria-label={`${book.pinnedAt ? t("Unpin", "고정 해제") : t("Pin", "고정")} ${book.title}`} aria-pressed={Boolean(book.pinnedAt)} onClick={() => onPin(book)}>{book.pinnedAt ? "★" : "☆"}</button>
       </article>)}</div>
@@ -64,15 +62,23 @@ export function WorkspaceNavigation({ tab, onTab, hasBook, hasChapters, hasSourc
       <button type="button" aria-current={guides ? "page" : undefined} disabled={!hasBook} onClick={() => onTab("review")}>{t("Study guides", "학습지")}</button>
       <button type="button" aria-current={tab === "export" ? "page" : undefined} disabled={!hasBook} onClick={() => onTab("export")}>{t("Export", "내보내기")}</button>
     </nav>
-    {text && <nav className="reading-text-tools" aria-label={t("Text tools", "텍스트 도구")}>
+    {text && <QuietMenu label={t("Text tools", "텍스트 도구")}>
       <button type="button" aria-current={tab === "chapters" ? "page" : undefined} disabled={!hasChapters} onClick={() => onTab("chapters")}>{t("Chapters", "챕터")}</button>
       <button type="button" aria-current={tab === "source" ? "page" : undefined} onClick={() => onTab("source")}>{t("Import sources", "원본 가져오기")}</button>
       <button type="button" aria-current={tab === "split" ? "page" : undefined} disabled={!hasSources} onClick={() => onTab("split")}>{t("Chapter boundaries", "챕터 경계")}</button>
-    </nav>}
-    {guides && <nav className="reading-text-tools" aria-label={t("Guide tools", "학습지 도구")}>
-      <button type="button" aria-current={tab === "review" ? "page" : undefined} onClick={() => onTab("review")}>{t("Review guide", "학습지 검토")}</button>
-      <button type="button" aria-current={tab === "sets" ? "page" : undefined} onClick={() => onTab("sets")}>{t("Versions", "버전")}</button>
-      <button type="button" aria-current={tab === "generate" ? "page" : undefined} disabled={!hasChapters} onClick={() => onTab("generate")}>{t("Generate a guide", "학습지 생성")}</button>
-    </nav>}
+    </QuietMenu>}
+
   </div>;
+}
+
+/** Native disclosure keeps infrequent actions reachable with keyboard and touch. */
+export function QuietMenu({ label, children }: { label: string; children: ReactNode }) {
+  return <details className="reading-menu" onKeyDown={event => {
+    if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
+  }}>
+    <summary>{label}</summary>
+    <div className="reading-menu-content" onClick={event => {
+      if ((event.target as HTMLElement).closest("button")) event.currentTarget.closest("details")?.removeAttribute("open");
+    }}>{children}</div>
+  </details>;
 }
