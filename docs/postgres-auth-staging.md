@@ -62,7 +62,7 @@ Retain the tunnel or restrict origin ingress to the intended proxy. Confirm that
 
 ## Google setup on the existing staging site
 
-The user confirmed that `top-staging.dubugimchi.com` opens the Library, question edits survive reload, and PDF/DOCX downloads look correct. Multiple-version switching has passed the local disposable rehearsal but remains untested on Ubuntu because the user has only one saved guide version. Actual denied-account/disabled-account checks remain release gates; do not infer them from a successful family login.
+The user confirmed that `top-staging.dubugimchi.com` opens the Library, question edits survive reload, and PDF/DOCX downloads look correct. Multiple-version switching has passed the local disposable rehearsal but remains untested on Ubuntu because the user has only one saved guide version. Subsequently, the user confirmed real Google login/sign-out, rejection of an uninvited Google account after OAuth, and denied library access after disabling an already signed-in member.
 
 ### Create a staging OAuth client
 
@@ -304,7 +304,23 @@ Browser checks require Playwright/Chromium; `PLAYWRIGHT_MODULE` and `CHROMIUM_EX
 
 - The user confirmed successful live staging access, the Library landing page, persistent question edits and working PDF/DOCX downloads. Ubuntu version switching remains unchecked because there is only one saved version; the earlier local fixture check is still the available evidence.
 - The simplified book-info modal passed a production build/type check and desktop/mobile browser checks for light/dark themes, Korean labels, initial focus, keyboard isolation, focus return, Escape/cancel, failed-save retry and persistence. Disposable metadata edits were restored.
-- Google staging configuration was rehearsed with dummy OAuth credentials: invalid-client refusal left configuration untouched, secret files retained mode 0600, database/upload settings were preserved, Cloudflare fallback and Google credential reuse worked, and local requests confirmed the staging HTTPS callback and secure session resolution using a temporary seeded session. No real Google provider round trip was performed; OAuth client creation and real browser sign-in remain pending.
+- Google staging configuration was rehearsed with dummy OAuth credentials: invalid-client refusal left configuration untouched, secret files retained mode 0600, database/upload settings were preserved, Cloudflare fallback and Google credential reuse worked, and local requests confirmed the staging HTTPS callback and secure session resolution using a temporary seeded session. That local rehearsal did not contact Google. The subsequent Ubuntu browser results are recorded below.
+
+## Admin update and live authentication results (2026-10-24, Asia/Seoul)
+
+The user completed the real Google callback and sign-out/sign-in tests on Ubuntu. A Google account absent from TopReading was rejected after OAuth. After adding that account as a member it could load the library; disabling it denied library loading on reload of its existing signed-in window. These live checks confirm the invitation and disabled-session boundary. Cloudflare Access still runs as an additional gate; it has not been removed by this update.
+
+Admin now shares the library's visual style, persistent light/dark and language controls, a searchable user list, inline editors, and a separate Generation settings view. Add-user fields appear on demand. Failed saves retain drafts and can be retried; Cancel discards user edits. Adding a user grants an invitation immediately but does not send email.
+
+To remove an account, first **Edit → Status: Disabled → Save**, then choose **Delete user** and confirm. Deletion removes the user, library memberships, linked Google account and sessions. Shared libraries/books/guides remain; retained job records lose their requester reference. Disable alone remains reversible. Re-adding a deleted email creates a new account.
+
+Both API and UI prevent self-deletion and changing one's own role/status. The API refuses deletion of active accounts. Access changes are serialized and recheck the acting administrator inside the transaction; the last active administrator cannot be disabled/demoted even under concurrent changes. All account cleanup is transactional. No database migration is required for this update.
+
+Validation passed: production build/type checking, the isolated deletion/authorization/rollback/concurrency checks, and desktop/mobile browser checks for add/edit/cancel/retry, saved changes, disable/delete confirmation, search, generation settings and persistent dark/Korean preferences. All test accounts lived in a temporary schema that was removed afterward.
+
+Deploy with the staging-only pull/stop/build/start command in the Google setup section. This preserves Google mode and credentials; do not rerun the starter with `--aud` unless intentionally switching back to Cloudflare authentication.
+
+The regression script `scripts/test-admin-users.cjs` creates and drops its own random `test_admin_*` schema in a **disposable localhost PostgreSQL database**. Supply `ADMIN_TEST_OWNER_URL` and `ADMIN_TEST_APP_URL` through the local environment, plus `ALLOW_TEST_WRITES=1`. The app account needs no schema ownership; the owner provisions test schema access. It checks authorization, same-origin protection, self/active-user restrictions, final/concurrent administrator protection, rollback after a forced delete failure, account/session removal and retained shared data, then exercises the Admin UI in Playwright. The existing production build is required. Never point test connections at the production database.
 
 ## Backups and remaining gates
 
@@ -312,4 +328,4 @@ Browser checks require Playwright/Chromium; `PLAYWRIGHT_MODULE` and `CHROMIUM_EX
 
 This branch keeps local files and request-bound extraction/generation/export. It does **not** complete durable worker jobs, object storage, non-destructive chapter-boundary revisions, stale-guide notices, VPS provisioning, automated off-server backup/restore, or production cutover. Existing explicit chapter/book deletion removes corresponding revision history. Re-splitting remains destructive and needs the later import-workflow overhaul.
 
-Next: configure and verify the real authentication boundary in staging, implement durable jobs and private file storage, then complete workflow/recovery checks and a VPS restore rehearsal before the production maintenance window. Preserve the home service for rollback; after new cloud writes, rollback requires data reconciliation rather than only changing DNS.
+Next: simplify staging to the verified application Google login, implement durable jobs and private file storage, then complete workflow/recovery checks and a VPS restore rehearsal before the production maintenance window. Preserve the home service for rollback; after new cloud writes, rollback requires data reconciliation rather than only changing DNS.

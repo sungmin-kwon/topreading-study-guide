@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { atomic, db } from "@/lib/db/client";
-import { authSessions, libraryMemberships, users, type User } from "@/lib/db/schema";
+import { appSchema, authSessions, libraryMemberships, users, type User } from "@/lib/db/schema";
 
 export type UserRole = "admin" | "member";
 export type UserStatus = "active" | "disabled";
@@ -103,19 +103,39 @@ export async function createUser(input: Record<string, unknown>, libraryId: stri
   });
 }
 
-export async function updateUser(userId: string, input: Record<string, unknown>) {
+// Serialize access changes so concurrent administrators cannot remove the final
+// active administrator. Recheck the acting administrator after acquiring the lock.
+async function lockUserAdministration(actorId?: string) {
+  await db.execute(sql`SELECT pg_advisory_xact_lock(763524119)`);
+  if (actorId) {
+    const actor = await getUserById(actorId);
+    if (!actor || actor.status !== "active" || actor.role !== "admin") throw new Error("Active administrator required.");
+  }
+}
+
+export async function updateUser(userId: string, input: Record<string, unknown>, actorId?: string) {
   return atomic(async () => {
+    await lockUserAdministration(actorId);
     const [existing] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
     if (!existing) {
       return null;
+    }
+    const role = input.role === undefined ? existing.role : normalizeRole(input.role);
+    const status = input.status === undefined ? existing.status : normalizeStatus(input.status);
+    if (actorId === userId && (role !== existing.role || status !== existing.status)) {
+      throw new Error("You cannot change your own role or access status.");
+    }
+    if (existing.role === "admin" && existing.status === "active" && (role !== "admin" || status !== "active")) {
+      const administrators = await db.select({ id: users.id }).from(users).where(and(eq(users.role, "admin"), eq(users.status, "active")));
+      if (administrators.length <= 1) throw new Error("Keep at least one active administrator.");
     }
 
     await db
       .update(users)
       .set({
         displayName: input.displayName === undefined ? existing.displayName : asNullableString(input.displayName),
-        role: input.role === undefined ? existing.role : normalizeRole(input.role),
-        status: input.status === undefined ? existing.status : normalizeStatus(input.status),
+        role,
+        status,
         notes: input.notes === undefined ? existing.notes : asNullableString(input.notes),
         updatedAt: nowIso()
       })
@@ -130,5 +150,21 @@ export async function updateUser(userId: string, input: Record<string, unknown>)
 
     const [updated] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
     return updated || null;
+  });
+}
+
+export async function deleteUser(userId: string, actorId: string) {
+  return atomic(async () => {
+    await lockUserAdministration(actorId);
+    if (actorId === userId) throw new Error("You cannot delete your own account.");
+    const existing = await getUserById(userId);
+    if (!existing) return false;
+    if (existing.status !== "disabled") throw new Error("Disable this user before deleting them.");
+    // Books belong to libraries, not users. Retain job history with an anonymous
+    // requester; authentication records cascade when the account is removed.
+    await db.execute(sql`UPDATE ${sql.identifier(appSchema.schemaName)}.jobs SET requested_by=NULL WHERE requested_by=${userId}::uuid`);
+    await db.delete(libraryMemberships).where(eq(libraryMemberships.userId, userId));
+    await db.delete(users).where(eq(users.id, userId));
+    return true;
   });
 }

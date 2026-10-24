@@ -2,7 +2,7 @@
 
 Date: 2026-10-23 (Asia/Seoul)
 
-Status: baseline restored and verified; approved UI is connected to the SQLite service, including the library landing page. The isolated `modernization/postgres-auth` branch implements PostgreSQL runtime, membership checks, verified Cloudflare identity and invite-only Google sessions; see [staging implementation and release gates](postgres-auth-staging.md). Ubuntu Cloudflare staging now serves the migrated library, with persistent question edits and PDF/DOCX downloads confirmed by the user. Real Google-provider login and remaining access-denial checks, durable workers, object storage, VPS deployment and production cutover remain pending.
+Status: baseline restored and verified; approved UI is connected to the SQLite service, including the library landing page. The isolated `modernization/postgres-auth` branch implements PostgreSQL runtime, membership checks, verified Cloudflare identity and invite-only Google sessions; see [staging implementation and release gates](postgres-auth-staging.md). Ubuntu staging now serves the migrated library. The user confirmed persistent question edits, PDF/DOCX downloads, real Google sign-in/sign-out, rejection of an uninvited Google account, and revoked access after disabling a signed-in member. Cloudflare Access still adds a separate gate; simplifying that gate, durable workers, object storage, VPS deployment and production cutover remain pending.
 
 ## Goal and scope
 
