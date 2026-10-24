@@ -60,15 +60,73 @@ A passing key check confirms reachability and key availability only. The release
 
 Retain the tunnel or restrict origin ingress to the intended proxy. Confirm that a direct request with only an email header is denied and that the signed Access login works through the complete proxy chain before release.
 
-## Google setup
+## Google setup on the existing staging site
 
-1. Create a Google OAuth **Web application** client. During Google consent-screen testing, add the intended Google test users.
-2. Register the exact authorized redirect URI for each environment, for example `https://top.dubugimchi.com/api/auth/callback/google`. Use a separate staging hostname/client before production.
-3. Set `AUTH_MODE=google`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` and a random `AUTH_SECRET` of at least 32 characters. Set `AUTH_URL` and `APP_BASE_URL` to the same trusted HTTPS origin, without a trailing slash. Generate the secret locally, for example `openssl rand -base64 48`.
-4. Review imported users and memberships, including the initial admin, before enabling access. Existing active imported members are already invited. An administrator can pre-create additional users in Admin; they sign in with that exact Google-verified address.
-5. Configure the proxy to preserve the public host/protocol, and test login, refresh, sign-out, an uninvited account and a disabled account through staging. Keep Cloudflare Access protection in place until the Google flow is verified; its login policy remains an independent gate if retained.
+The user confirmed that `top-staging.dubugimchi.com` opens the Library, question edits survive reload, and PDF/DOCX downloads look correct. Multiple-version switching has passed the local disposable rehearsal but remains untested on Ubuntu because the user has only one saved guide version. Actual denied-account/disabled-account checks remain release gates; do not infer them from a successful family login.
 
-The app pins the trusted OAuth origin using `AUTH_URL`. Use production HTTPS so Auth.js issues secure cookies. Real Google consent/callback and live proxy tests require configured credentials and remain release gates. Local tests seed sessions and exercise the adapter/admission logic without contacting Google.
+### Create a staging OAuth client
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/), create/select a project for TopReading staging, then open **Google Auth Platform**. Creating an OAuth client does not move your hosting to GCP.
+2. Under **Branding** (or **Get started**), name the app **TopReading Staging**, choose your support email and developer contact email. If asked for an authorized domain, use `dubugimchi.com`.
+3. Under **Audience**, choose **External** for personal/family Google accounts and keep the app in **Testing**. Add your Google email and the family accounts you intend to test under **Test users**. Use the same exact email as an existing active TopReading user. For a different email, add that user through TopReading Admin while Cloudflare mode still works; the administrator-created user and library membership are the invitation for this phase.
+4. Under **Clients → Create client**, choose **Web application**, name it **TopReading staging**, and add this exact **Authorized redirect URI**:
+
+   ```text
+   https://top-staging.dubugimchi.com/api/auth/callback/google
+   ```
+
+   Authorized JavaScript origins are not needed for this server-side Auth.js flow. No production callback is needed for this staging client.
+5. Save the client ID and client secret securely. Google may show the secret only at creation; use it directly on Ubuntu, not in chat or Git. Only basic identity scopes (`openid`, `email`, `profile`) are needed; no Drive/Gmail scopes or API keys.
+
+Google's [OpenID Connect setup documentation](https://developers.google.com/identity/openid-connect/openid-connect) describes the OAuth client and exact redirect URI requirement.
+
+### Update the staging build, then switch authentication
+
+For the book-info UI update, stop **only** staging while rebuilding its current `.next` directory. Production stays running. Run as the normal checkout owner:
+
+```bash
+(
+  set -e
+  cd /home/sungmin-kwon/topreading-staging
+  git pull --ff-only
+  sudo systemctl stop topreading-staging.service
+  NODE_OPTIONS=--max-old-space-size=3072 nice -n 10 npm run build
+  sudo systemctl start topreading-staging.service
+  systemctl is-active topreading-staging.service
+)
+```
+
+This update has no dependency or database migration changes. If the build fails, leave staging stopped, inspect the build error and rerun after fixing it; production is unaffected. Do not rerun the initial importer or remove staging data. Verify the simplified Edit Book Info dialog before switching login.
+
+Once the Google client is ready:
+
+```bash
+cd /home/sungmin-kwon/topreading-staging
+python3 scripts/start-ubuntu-staging.py --google
+```
+
+The helper prompts for missing client credentials directly in the terminal, hides the secret input, preserves the database/upload paths and Cloudflare identifiers, generates a strong `AUTH_SECRET` if absent, pins both `AUTH_URL` and `APP_BASE_URL` to `https://top-staging.dubugimchi.com`, and restarts **only** staging. Credentials stay in the Git-ignored mode-0600 `.env.local`. Existing nonempty Google credentials are reused; correct them locally if necessary. It checks unauthenticated-origin rejection and the provider callback URL. Those checks cannot validate the Google secret or complete the provider round trip.
+
+Keep the existing Cloudflare Access policy and tunnel/proxy routes. In a private browser window, pass the Family Access gate, then choose **Continue with Google**. The application now trusts its own Google session; Cloudflare still controls public entry. These can be two separate sign-in prompts.
+
+Check the following before declaring Google login complete:
+
+- An existing invited Google account reaches the library and remains signed in after reload.
+- Sign-out revokes the app session; signing in again works. Cloudflare's independent session may remain active.
+- An account admitted by Cloudflare and Google testing but absent from TopReading is denied by the application. An account blocked by Cloudflare cannot test the app's invitation boundary.
+- Disabling a temporary test member in Admin denies their existing session. Keep a separate active administrator signed in; do not disable your only administrator.
+- Members cannot access Admin; another library's resources and private downloads are denied (automated local coverage already exists).
+
+If Google configuration needs troubleshooting, switch **only the app** back to the verified Cloudflare mode:
+
+```bash
+python3 scripts/start-ubuntu-staging.py \
+  --aud 7615ba6c2c501dc8c6aee94fe09ca10d6fac8b4776dda968df9e5683cb986788
+```
+
+This retains the Google credentials and all staging data for a later retry. Once Google is active, use `--google` when invoking the starter; `--aud` deliberately selects Cloudflare mode.
+
+Common errors: `redirect_uri_mismatch` means the Google client redirect must exactly match the HTTPS callback above; `invalid_client` usually means the client ID/secret or client type is wrong; an application invitation error requires an active matching email and library membership. Share error names only, without callback query strings, cookies, secrets or JWTs.
 
 ## First browser staging test on the existing Ubuntu host
 
@@ -241,6 +299,12 @@ Browser checks require Playwright/Chromium; `PLAYWRIGHT_MODULE` and `CHROMIUM_EX
 - Failed item replacement/insertion rolled back; same-book constraints, populated-book deletion cascades and chapter-revision provenance passed. Migration reruns were a no-op.
 - Seven synthetic migration tests and 13 mocked MCQ/preview regression tests passed.
 - The library retained 8 books, 174 chapters, 7 guide runs, 7 study sets, 2,422 MCQs, 1,157 short answers, 2,989 vocabulary items, 156 summaries, 8 sources and 2,144 parsed pages. Temporary authorization fixtures were removed.
+
+## Follow-up validation (2026-10-24, Asia/Seoul)
+
+- The user confirmed successful live staging access, the Library landing page, persistent question edits and working PDF/DOCX downloads. Ubuntu version switching remains unchecked because there is only one saved version; the earlier local fixture check is still the available evidence.
+- The simplified book-info modal passed a production build/type check and desktop/mobile browser checks for light/dark themes, Korean labels, initial focus, keyboard isolation, focus return, Escape/cancel, failed-save retry and persistence. Disposable metadata edits were restored.
+- Google staging configuration was rehearsed with dummy OAuth credentials: invalid-client refusal left configuration untouched, secret files retained mode 0600, database/upload settings were preserved, Cloudflare fallback and Google credential reuse worked, and local requests confirmed the staging HTTPS callback and secure session resolution using a temporary seeded session. No real Google provider round trip was performed; OAuth client creation and real browser sign-in remain pending.
 
 ## Backups and remaining gates
 

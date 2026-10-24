@@ -6,11 +6,13 @@ installing or starting a system service. No production, tunnel or proxy edits.
 """
 import argparse
 import fcntl
+import getpass
 import json
 import os
 from pathlib import Path
 import pwd
 import re
+import secrets
 import shutil
 import socket
 import subprocess
@@ -82,9 +84,20 @@ def origin_checks(port=3100):
     print('PASS: unsigned requests, spoofed email headers and malformed tokens are rejected (HTTP 401).')
 
 
+def google_checks(port=3100):
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(f'http://127.0.0.1:{port}/api/auth/providers', timeout=5) as response:
+        provider = json.load(response).get('google', {})
+    if provider.get('callbackUrl') != 'https://top-staging.dubugimchi.com/api/auth/callback/google':
+        raise StartError('Google callback URL is not the expected staging HTTPS URL.')
+    print('PASS: Google provider uses the staging HTTPS callback. Real Google sign-in still needs a browser test.')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--aud', required=True)
+    authentication = parser.add_mutually_exclusive_group(required=True)
+    authentication.add_argument('--aud', help='Use Cloudflare Access with this staging AUD')
+    authentication.add_argument('--google', action='store_true', help='Use Google login; prompt locally for missing OAuth credentials')
     parser.add_argument('--prepare-only', action='store_true')
     args = parser.parse_args()
     os.umask(0o077)
@@ -94,7 +107,7 @@ def main():
         raise StartError('Use a staging checkout path without spaces or special characters.')
     if os.geteuid() == 0:
         raise StartError('Run as the normal staging checkout owner, without sudo. Only service installation needs sudo.')
-    if not re.fullmatch('[0-9a-f]{64}', args.aud) or args.aud == PRODUCTION_AUD:
+    if not args.google and (not re.fullmatch('[0-9a-f]{64}', args.aud) or args.aud == PRODUCTION_AUD):
         raise StartError('Supply the NEW staging Access application AUD, not the production application AUD.')
     if not PRIVATE.is_dir():
         raise StartError('Run setup-ubuntu-staging.py successfully first.')
@@ -146,12 +159,27 @@ def main():
                 if not DESTINATION.exists() or subprocess.run(['systemctl', 'is-active', '--quiet', SERVICE]).returncode:
                     raise StartError('Port 3100 is occupied by another process. Nothing was stopped.')
 
-    values.update({
-        'AUTH_MODE': 'cloudflare_access', 'ALLOW_INSECURE_LOCAL_AUTH': 'false',
-        'APP_BASE_URL': 'https://top-staging.dubugimchi.com',
-        'CLOUDFLARE_ACCESS_TEAM_DOMAIN': 'supervenience.cloudflareaccess.com',
-        'CLOUDFLARE_ACCESS_AUD': args.aud
-    })
+    origin = 'https://top-staging.dubugimchi.com'
+    values.update({'ALLOW_INSECURE_LOCAL_AUTH': 'false', 'APP_BASE_URL': origin})
+    if args.google:
+        for key, prompt in [('AUTH_GOOGLE_ID', 'Google OAuth client ID: '), ('AUTH_GOOGLE_SECRET', 'Google OAuth client secret (hidden): ')]:
+            if not values.get(key):
+                if not sys.stdin.isatty():
+                    raise StartError('Run interactively on Ubuntu to enter Google credentials. Do not supply them as command arguments.')
+                values[key] = (getpass.getpass(prompt) if key.endswith('SECRET') else input(prompt)).strip()
+        if not re.fullmatch(r'[A-Za-z0-9_-]+\.apps\.googleusercontent\.com', values['AUTH_GOOGLE_ID']):
+            raise StartError('Enter the client ID from a Google OAuth Web application client.')
+        if not re.fullmatch(r'[A-Za-z0-9_-]{10,}', values['AUTH_GOOGLE_SECRET']):
+            raise StartError('The Google client secret is missing or has an unexpected format.')
+        values.update({'AUTH_MODE': 'google', 'AUTH_URL': origin})
+        if len(values.get('AUTH_SECRET', '')) < 32:
+            values['AUTH_SECRET'] = secrets.token_urlsafe(48)
+    else:
+        values.update({
+            'AUTH_MODE': 'cloudflare_access',
+            'CLOUDFLARE_ACCESS_TEAM_DOMAIN': 'supervenience.cloudflareaccess.com',
+            'CLOUDFLARE_ACCESS_AUD': args.aud
+        })
     # Validate the already-prepared DB connection before modifying service/config.
     run([str(node), 'scripts/check-staging-runtime.mjs'], env={**os.environ, **values})
     pending = PRIVATE / 'environment.pending'
@@ -198,6 +226,8 @@ WantedBy=multi-user.target
     for attempt in range(30):
         try:
             origin_checks()
+            if args.google:
+                google_checks()
             break
         except (urllib.error.URLError, TimeoutError, ConnectionError):
             time.sleep(1)
@@ -205,7 +235,10 @@ WantedBy=multi-user.target
         raise StartError('Staging did not become reachable. Check sudo journalctl -u topreading-staging.service -n 50 --no-pager locally.')
     run(['systemctl', 'is-active', '--quiet', SERVICE])
     print('STAGING SERVICE READY: topreading-staging.service on port 3100.')
-    print('Next: add the staging proxy host and Cloudflare tunnel route, then test browser sign-in.')
+    if args.google:
+        print('Google login configured. Keep the existing Access policy and staging route; test a real browser sign-in next.')
+    else:
+        print('Next: add the staging proxy host and Cloudflare tunnel route if needed, then test browser sign-in.')
 
 
 if __name__ == '__main__':

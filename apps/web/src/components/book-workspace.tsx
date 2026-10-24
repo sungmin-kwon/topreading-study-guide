@@ -721,6 +721,8 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   const [activeStudySetView, setActiveStudySetView] = useState<StudySetView>("multiple-choice");
   const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(false);
   const [isBookMetadataOpen, setIsBookMetadataOpen] = useState(false);
+  const bookDialogRef = useRef<HTMLDialogElement>(null);
+  const [bookMetadataError, setBookMetadataError] = useState("");
   const [isGenerationModalOpen, setIsGenerationModalOpen] = useState(false);
   const [renamingGenerationRunId, setRenamingGenerationRunId] = useState<string | null>(null);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -1464,34 +1466,44 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
     } finally { setSwitchingVersion(false); }
   }
 
+  useEffect(() => {
+    const dialog = bookDialogRef.current;
+    if (isBookMetadataOpen && dialog && !dialog.open) {
+      dialog.showModal();
+      dialog.querySelector("input")?.focus();
+    }
+  }, [isBookMetadataOpen]);
+
+  function openBookMetadata() {
+    if (!activeBook) return;
+    setBookMetadataEdit({ title: activeBook.title, author: activeBook.author || "", readingLevel: activeBook.readingLevel || "" });
+    setBookMetadataError("");
+    setIsBookMetadataOpen(true);
+  }
+
   async function handleSaveBookMetadata(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeBook) {
       return;
     }
 
+    if (isSavingBookMetadata || deletingId === activeBook.id) return;
     setIsSavingBookMetadata(true);
-    setStatusMessage("");
-
-    const response = await fetch(`/api/books/${activeBook.id}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(bookMetadataEdit)
-    });
-    const payload = (await response.json().catch(() => ({}))) as BookResponse;
-
-    if (!response.ok || !payload.book) {
-      setStatusMessage(payload.error || "Could not save book details.");
-      setIsSavingBookMetadata(false);
-      return;
-    }
-
-    updateBookInState(payload.book);
-    setStatusMessage("Book details saved.");
-    setIsBookMetadataOpen(false);
-    setIsSavingBookMetadata(false);
+    setBookMetadataError("");
+    try {
+      const response = await fetch(`/api/books/${activeBook.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bookMetadataEdit)
+      });
+      const payload = (await response.json().catch(() => ({}))) as BookResponse;
+      if (!response.ok || !payload.book) throw new Error(payload.error || t("Could not save book details. Try again.", "책 정보를 저장하지 못했습니다. 다시 시도하세요."));
+      updateBookInState(payload.book);
+      setStatusMessage(t("Book details saved.", "책 정보가 저장되었습니다."));
+      bookDialogRef.current?.close();
+      setIsBookMetadataOpen(false);
+    } catch (error) {
+      setBookMetadataError(error instanceof Error && !(error instanceof TypeError) ? error.message : t("Could not save book details. Your changes are kept here; try again.", "책 정보를 저장하지 못했습니다. 수정한 내용은 유지됩니다. 다시 시도하세요."));
+    } finally { setIsSavingBookMetadata(false); }
   }
 
   async function handleDeleteBook() {
@@ -1502,13 +1514,18 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
     setDeletingId(activeBook.id);
     setStatusMessage("");
 
-    const response = await fetch(`/api/books/${activeBook.id}`, {
-      method: "DELETE"
-    });
+    let response: Response;
+    try {
+      response = await fetch(`/api/books/${activeBook.id}`, { method: "DELETE" });
+    } catch {
+      setBookMetadataError(t("Could not delete book. Try again.", "책을 삭제하지 못했습니다. 다시 시도하세요."));
+      setDeletingId(null);
+      return;
+    }
 
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
-      setStatusMessage(payload.error || "Could not delete book.");
+      setBookMetadataError(payload.error || t("Could not delete book. Try again.", "책을 삭제하지 못했습니다. 다시 시도하세요."));
       setDeletingId(null);
       return;
     }
@@ -3214,7 +3231,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
           </div>
           <div className="workspace-header-actions">
             {activeBook ? (
-              <button type="button" onClick={() => setIsBookMetadataOpen(true)}>
+              <button type="button" onClick={openBookMetadata}>
                 {t("Edit Book Info", "책 정보 수정")}
               </button>
             ) : null}
@@ -3297,67 +3314,42 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
         {modern && saveError && <div className="reading-save-error" role="alert">{saveError}</div>}
 
         {activeBook && isBookMetadataOpen ? (
-          <div className="modal-backdrop" role="presentation">
-            <section className="metadata-dialog" role="dialog" aria-modal="true" aria-labelledby="book-details-title">
-              <div className="dialog-header">
-                <div>
-                  <p className="eyebrow">{t("Book Details", "책 정보")}</p>
-                  <h3 id="book-details-title">{activeBook.title}</h3>
-                </div>
-                <button type="button" onClick={() => setIsBookMetadataOpen(false)}>
-                  {t("Close", "닫기")}
+          <dialog ref={bookDialogRef} className="metadata-dialog reading-book-dialog" aria-labelledby="book-details-title"
+            onCancel={(event) => { if (isSavingBookMetadata || deletingId === activeBook.id) event.preventDefault(); }}
+            onClose={() => setIsBookMetadataOpen(false)}>
+            <header className="dialog-header">
+              <h3 id="book-details-title">{t("Edit book info", "책 정보 수정")}</h3>
+              <button type="button" aria-label={t("Close", "닫기")} disabled={isSavingBookMetadata || deletingId === activeBook.id}
+                onClick={() => bookDialogRef.current?.close()}>×</button>
+            </header>
+            <form className="metadata-form" onSubmit={handleSaveBookMetadata}>
+              <label>
+                {t("Title", "제목")}
+                <input value={bookMetadataEdit.title} required disabled={isSavingBookMetadata || deletingId === activeBook.id}
+                  onChange={(event) => setBookMetadataEdit((current) => ({ ...current, title: event.target.value }))} />
+              </label>
+              <label>
+                {t("Author", "저자")}
+                <input value={bookMetadataEdit.author} placeholder={t("Optional", "선택 사항")} disabled={isSavingBookMetadata || deletingId === activeBook.id}
+                  onChange={(event) => setBookMetadataEdit((current) => ({ ...current, author: event.target.value }))} />
+              </label>
+              <label>
+                {t("Reading level", "읽기 수준")}
+                <input value={bookMetadataEdit.readingLevel} placeholder={t("Optional", "선택 사항")} disabled={isSavingBookMetadata || deletingId === activeBook.id}
+                  onChange={(event) => setBookMetadataEdit((current) => ({ ...current, readingLevel: event.target.value }))} />
+              </label>
+              {bookMetadataError && <p className="reading-book-error" role="alert">{bookMetadataError}</p>}
+              <footer className="dialog-actions">
+                <button className="reading-book-delete" type="button" disabled={isSavingBookMetadata || deletingId === activeBook.id} onClick={handleDeleteBook}>
+                  {deletingId === activeBook.id ? t("Deleting...", "삭제 중...") : t("Delete book", "책 삭제")}
                 </button>
-              </div>
-              <form className="metadata-form" onSubmit={handleSaveBookMetadata}>
-                <label>
-                  {t("Title", "제목")}
-                  <input
-                    value={bookMetadataEdit.title}
-                    onChange={(event) => setBookMetadataEdit((current) => ({ ...current, title: event.target.value }))}
-                    required
-                  />
-                </label>
-                <label>
-                  {t("Author", "저자")}
-                  <input
-                    value={bookMetadataEdit.author}
-                    onChange={(event) => setBookMetadataEdit((current) => ({ ...current, author: event.target.value }))}
-                    placeholder={t("Optional", "선택 사항")}
-                  />
-                </label>
-                <label>
-                  {t("Reading level", "읽기 수준")}
-                  <input
-                    value={bookMetadataEdit.readingLevel}
-                    onChange={(event) => setBookMetadataEdit((current) => ({ ...current, readingLevel: event.target.value }))}
-                    placeholder={t("Optional", "선택 사항")}
-                  />
-                </label>
-                <div className="dialog-actions">
-                  <button type="submit" disabled={isSavingBookMetadata}>
-                    {isSavingBookMetadata ? t("Saving...", "저장 중...") : t("Save Details", "정보 저장")}
-                  </button>
-                  <button type="button" onClick={() => setIsBookMetadataOpen(false)}>
-                    {t("Cancel", "취소")}
-                  </button>
-                </div>
-              </form>
-              <div className="dialog-danger-zone">
-                <div>
-                  <strong>{t("Delete book", "책 삭제")}</strong>
-                  <p className="muted-text">{t("Removes the source files, extracted text, chapters, and generated sets for this book.", "이 책의 원본 파일, 추출된 텍스트, 챕터, 생성된 학습 세트를 모두 삭제합니다.")}</p>
-                </div>
-                <button
-                  className="danger-button"
-                  type="button"
-                  disabled={deletingId === activeBook.id}
-                  onClick={handleDeleteBook}
-                >
-                  {deletingId === activeBook.id ? t("Deleting...", "삭제 중...") : t("Delete Book", "책 삭제")}
+                <button type="button" disabled={isSavingBookMetadata || deletingId === activeBook.id} onClick={() => bookDialogRef.current?.close()}>{t("Cancel", "취소")}</button>
+                <button type="submit" disabled={isSavingBookMetadata || deletingId === activeBook.id}>
+                  {isSavingBookMetadata ? t("Saving...", "저장 중...") : t("Save", "저장")}
                 </button>
-              </div>
-            </section>
-          </div>
+              </footer>
+            </form>
+          </dialog>
         ) : null}
 
         {!modern && activeBook && isGenerationModalOpen ? (
