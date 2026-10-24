@@ -261,3 +261,35 @@
   .reading-shell select:not([multiple]):not([size]) { appearance:auto; background-image:none; }
   .reading-menu summary::after { background:none; width:7px; height:7px; border-right:2px solid currentColor; border-bottom:2px solid currentColor; transform:translateY(-2px) rotate(45deg); }
 }
+
+/* Text occupies the remaining workspace height. Only the chapter navigator and
+   text field scroll; headers and the save action stay outside those scrollports. */
+.reading-text-view>.workspace { overflow:hidden; }
+.reading-text-view .workspace-scroll { display:flex; flex-direction:column; overflow:hidden; }
+.reading-text-view .workspace-stack { flex:1; min-height:0; display:flex; flex-direction:column; }
+.reading-text-view .chapter-panel { flex:1; min-height:0; display:flex; flex-direction:column; }
+.reading-text-view .chapter-panel>.panel-title-row { display:none; }
+.reading-text-view .reading-chapter-picker { flex-shrink:0; }
+.reading-text-view .chapter-editor-layout { flex:1; min-height:0; grid-template-rows:minmax(0,1fr); align-items:stretch; }
+.reading-text-view .chapter-list { position:static; min-height:0; max-height:none; align-content:start; grid-auto-rows:max-content; overscroll-behavior-y:contain; }
+.reading-text-view .chapter-editor { display:flex; flex-direction:column; min-height:0; padding-bottom:12px; }
+.reading-text-view .chapter-document-editor { flex:1; min-height:0; grid-template-rows:auto auto minmax(0,1fr); }
+.reading-text-view .chapter-text-field { display:block; min-height:0; }
+.reading-text-view .chapter-text-field textarea { display:block; height:100%; min-height:0; overflow-y:auto; overscroll-behavior-y:contain; }
+.reading-text-view .chapter-editor-actions { flex-shrink:0; margin-top:0; padding-top:12px; border-top:1px solid var(--line); }
+.reading-text-view .empty-editor,.reading-text-view .empty-state { overflow:auto; }
+@media(max-width:760px) {
+  .reading-text-view .chapter-editor { padding-bottom:10px; }
+  .reading-text-view .chapter-document-editor { padding-top:12px; }
+}
+/* Keep a useful editing area in short windows and landscape layouts. */
+.reading-text-view .workspace-header { flex-direction:row; }
+@media(max-height:520px) {
+  .reading-text-view .workspace-header { padding-top:8px; padding-bottom:8px; }
+  .reading-text-view .workspace-header h2 { font-size:20px; }
+  .reading-text-view .workspace-subtitle { display:none; }
+  .reading-text-view .chapter-editor { gap:8px; padding-bottom:8px; }
+  .reading-text-view .chapter-document-editor { padding-top:8px; gap:6px; }
+  .reading-text-view input.reading-chapter-title { font-size:22px; padding-top:4px; padding-bottom:4px; }
+  .reading-text-view .chapter-editor-actions { padding-top:8px; }
+}

@@ -3117,7 +3117,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   );
 
   return (
-    <main className={`app-shell ${modern ? "reading-shell" : isLibraryCollapsed ? "library-collapsed" : ""}`}>
+    <main className={`app-shell ${modern ? `reading-shell${activeWorkspaceTab === "chapters" ? " reading-text-view" : ""}` : isLibraryCollapsed ? "library-collapsed" : ""}`}>
       {modern && <WorkspaceBar books={books} bookId={activeBook?.id || ""} libraryOpen={libraryOpen}
         onLibrary={() => setLibraryOpen(true)} onBook={selectBook} preferences={<>
           <button className="reading-theme-toggle" type="button" aria-label={t("Toggle dark mode", "다크 모드 전환")} aria-pressed={themeMode === "dark"} onClick={() => setThemeMode(current => current === "dark" ? "light" : "dark")}>
@@ -4776,7 +4776,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                         <label className="chapter-text-field">
                           <span className={modern ? "visually-hidden" : undefined}>{t("Chapter text", "챕터 텍스트")}</span>
                           <textarea
-                            rows={22}
+                            rows={modern ? undefined : 22}
                             value={selectedChapterEdit.textContent}
                             onChange={(event) => handleChapterEdit(selectedChapter.id, { textContent: event.target.value })}
                           />
