@@ -6,12 +6,12 @@ import "./admin-console.css";
 
 type AdminUser = {
   id: string; email: string; displayName: string | null; role: string; status: string;
-  notes: string | null; createdAt: string;
+  createdAt: string;
 };
-type UserDraft = { displayName: string; role: string; status: string; notes: string };
-type AdminSetting = { key: string; label: string; kind: "text" | "number"; value: string; placeholder?: string };
+type UserDraft = { displayName: string; role: string; status: string };
+type AdminSetting = { key: string; label: string; kind: "select" | "number"; value: string; options?: string[] };
 type Notice = { text: string; error?: boolean };
-const draftFor = (user: AdminUser): UserDraft => ({ displayName: user.displayName || "", role: user.role, status: user.status, notes: user.notes || "" });
+const draftFor = (user: AdminUser): UserDraft => ({ displayName: user.displayName || "", role: user.role, status: user.status });
 const emptyUser = { email: "", displayName: "", role: "member" };
 class RequestError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -76,7 +76,7 @@ export function AdminConsole() {
     setBusy("create"); setNotice(null);
     try {
       const { user } = await request<{ user: AdminUser }>("/api/admin/users", "POST", newUser);
-      setUsers(current => [...current, user].sort((a, b) => a.email.localeCompare(b.email)));
+      setUsers(current => [...current, user]);
       setUserDrafts(current => ({ ...current, [user.id]: draftFor(user) }));
       setNewUser(emptyUser); setAdding(false); setSearch("");
       setNotice({ text: t("User added.", "사용자가 추가되었습니다.") });
@@ -124,7 +124,8 @@ export function AdminConsole() {
   function settingLabel(setting: AdminSetting) {
     return ({ OPENAI_MODEL: t("Generation model", "생성 모델"), MAX_GENERATION_CHAPTERS: t("Maximum chapters per run", "실행당 최대 챕터 수"), MAX_GENERATION_ITEMS: t("Maximum items per run", "실행당 최대 문항 수") } as Record<string, string>)[setting.key] || setting.label;
   }
-  const filteredUsers = users.filter(user => `${user.email} ${user.displayName || ""}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const filteredUsers = users.filter(user => `${user.email} ${user.displayName || ""}`.toLowerCase().includes(search.trim().toLowerCase()))
+    .sort((a, b) => Number(b.role === "admin") - Number(a.role === "admin") || a.email.localeCompare(b.email));
 
   return <main className="reading-shell admin-console">
     <header className="reading-topbar admin-topbar">
@@ -176,7 +177,6 @@ export function AdminConsole() {
                   <label>{t("Name", "이름")}<input value={draft.displayName} onChange={event => changeDraft(user.id, "displayName", event.target.value)} /></label>
                   <label>{t("Role", "역할")}<select disabled={own} value={draft.role} onChange={event => changeDraft(user.id, "role", event.target.value)}><option value="member">{t("Member", "회원")}</option><option value="admin">{t("Admin", "관리자")}</option></select></label>
                   <label>{t("Status", "상태")}<select disabled={own} value={draft.status} onChange={event => changeDraft(user.id, "status", event.target.value)}><option value="active">{t("Active", "활성")}</option><option value="disabled">{t("Disabled", "비활성")}</option></select></label>
-                  <label className="admin-wide">{t("Notes", "메모")}<textarea rows={2} value={draft.notes} onChange={event => changeDraft(user.id, "notes", event.target.value)} /></label>
                 </fieldset>
                 {own ? <p className="admin-hint">{t("Another administrator must change your role or access.", "본인의 역할이나 접근 권한은 다른 관리자가 변경해야 합니다.")}</p> : user.status !== "disabled" && <p className="admin-hint">{t("Disable the account before deleting it.", "계정을 삭제하려면 먼저 비활성화하세요.")}</p>}
                 <div className="admin-actions">
@@ -191,7 +191,10 @@ export function AdminConsole() {
         </section> : <form className="admin-generation" onSubmit={saveSettings}>
           <p className="admin-hint">{t("Applies to new generation requests.", "새로운 생성 요청에 적용됩니다.")}</p>
           <fieldset disabled={Boolean(busy)}>{settings.map(setting => <label key={setting.key}>
-            <span>{settingLabel(setting)}</span><input type={setting.kind === "number" ? "number" : "text"} min={setting.kind === "number" ? 1 : undefined} max={setting.key === "MAX_GENERATION_CHAPTERS" ? 500 : setting.key === "MAX_GENERATION_ITEMS" ? 10000 : undefined} required value={settingDrafts[setting.key] ?? setting.value} onChange={event => setSettingDrafts(current => ({ ...current, [setting.key]: event.target.value }))} />
+            <span>{settingLabel(setting)}</span>
+            {setting.kind === "select" ? <select value={settingDrafts[setting.key] ?? setting.value} onChange={event => setSettingDrafts(current => ({ ...current, [setting.key]: event.target.value }))}>
+              {setting.options?.map(model => <option key={model} value={model}>{model === "gpt-6-luna" ? `${model} ${t("(default)", "(기본값)")}` : model}</option>)}
+            </select> : <input type="number" min={1} max={setting.key === "MAX_GENERATION_CHAPTERS" ? 500 : 10000} required value={settingDrafts[setting.key] ?? setting.value} onChange={event => setSettingDrafts(current => ({ ...current, [setting.key]: event.target.value }))} />}
           </label>)}</fieldset>
           <div className="admin-actions"><button className="admin-primary" type="submit" disabled={Boolean(busy)}>{busy === "settings" ? t("Saving…", "저장 중…") : t("Save settings", "설정 저장")}</button></div>
         </form>}

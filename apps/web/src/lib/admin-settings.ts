@@ -1,17 +1,25 @@
 import { pool } from "@/lib/db/client";
 import { authTable } from "@/lib/auth-sessions";
-export type AdminSettingDefinition = { key: string; label: string; description: string; kind: "text" | "number" | "secret"; value: string; placeholder?: string; isSet?: boolean };
+export type AdminSettingDefinition = { key: string; label: string; description: string; kind: "select" | "number"; value: string; options?: string[] };
+const generationModels = ["gpt-6-luna", "gpt-5-nano"];
 const definitions = {
-  OPENAI_MODEL: { label: "Generation model", fallback: "gpt-5-mini", max: 0 },
+  OPENAI_MODEL: { label: "Generation model", fallback: generationModels[0], max: 0 },
   MAX_GENERATION_CHAPTERS: { label: "Maximum chapters per run", fallback: "80", max: 500 },
   MAX_GENERATION_ITEMS: { label: "Maximum items per run", fallback: "2500", max: 10000 }
 };
 export async function getRuntimeSetting(key: keyof typeof definitions) {
   const result = await pool.query(`SELECT value FROM ${authTable("app_settings")} WHERE key=$1`, [key]);
-  return result.rows[0]?.value || process.env[key] || definitions[key].fallback;
+  const value = result.rows[0]?.value || process.env[key] || definitions[key].fallback;
+  // Upgrade the previous default even when it was saved to the database or
+  // copied into .env.local. Other explicit model overrides remain intact.
+  return key === "OPENAI_MODEL" && value === "gpt-5-mini" ? definitions.OPENAI_MODEL.fallback : value;
 }
 export async function listAdminSettings(): Promise<AdminSettingDefinition[]> {
-  return Promise.all((Object.keys(definitions) as Array<keyof typeof definitions>).map(async key => ({ key, label: definitions[key].label, description: "Applies to new generation requests.", kind: key === "OPENAI_MODEL" ? "text" : "number", value: await getRuntimeSetting(key) })));
+  return Promise.all((Object.keys(definitions) as Array<keyof typeof definitions>).map(async key => {
+    const value = await getRuntimeSetting(key);
+    return { key, label: definitions[key].label, description: "Applies to new generation requests.", kind: key === "OPENAI_MODEL" ? "select" : "number", value,
+      ...(key === "OPENAI_MODEL" ? { options: [...new Set([...generationModels, value])] } : {}) };
+  }));
 }
 export async function updateAdminSettings(input: Record<string, unknown>) {
   const values = Object.entries(input).map(([key, value]) => {

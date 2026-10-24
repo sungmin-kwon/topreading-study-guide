@@ -113,6 +113,9 @@ async function api(route, token, method = 'GET', body, origin = base) {
     await owner.query(`UPDATE ${table('users')} SET status='active' WHERE id=$1`, [admin.id]);
     await owner.query(`UPDATE ${table('users')} SET status='disabled' WHERE id=$1`, [secondAdmin.id]);
     const browserToken = await tokenFor(admin.id);
+    const { getRuntimeSetting } = load('admin-settings');
+    await owner.query(`INSERT INTO ${table('app_settings')}(key,value) VALUES('OPENAI_MODEL','gpt-5-mini')`);
+    assert.equal(await getRuntimeSetting('OPENAI_MODEL'), 'gpt-6-luna', 'Legacy saved default upgrades without a migration');
     console.log('PASS: admin-only deletion, CSRF, self/active-account guards, final-admin and concurrent-admin protection, atomic rollback, session/account removal, preserved shared book/job');
 
     browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
@@ -121,6 +124,8 @@ async function api(route, token, method = 'GET', body, origin = base) {
     const page = await context.newPage(); const errors = []; page.on('pageerror', error => errors.push(error.message));
     await page.goto(base + '/admin', { waitUntil: 'networkidle' });
     await page.getByRole('heading', { name: 'Administration', exact: true }).waitFor();
+    const roles = page.locator('.admin-person-role');
+    assert.deepEqual(await roles.allTextContents(), ['Admin', 'Admin', 'Member']);
     const evidence = path.join(root, 'backups/admin-ui-check'); fs.mkdirSync(evidence, { recursive: true });
     await page.screenshot({ path: path.join(evidence, 'desktop.png'), fullPage: true });
     await page.getByRole('button', { name: 'Add user', exact: true }).click();
@@ -130,11 +135,13 @@ async function api(route, token, method = 'GET', body, origin = base) {
     await add.getByRole('button', { name: 'Add', exact: true }).click();
     const row = page.locator('.admin-person').filter({ hasText: 'browser-reader@example.test' });
     await row.getByRole('button', { name: 'Edit', exact: true }).click();
+    assert.equal(await row.locator('textarea').count(), 0);
     await row.getByLabel('Name', { exact: true }).fill('Discard this');
     await row.getByRole('button', { name: 'Cancel', exact: true }).click();
     await row.getByRole('button', { name: 'Edit', exact: true }).click();
     assert.equal(await row.getByLabel('Name', { exact: true }).inputValue(), 'Browser reader');
     await row.getByLabel('Name', { exact: true }).fill('Saved reader');
+    await row.getByRole('combobox', { name: 'Role', exact: true }).selectOption('admin');
     const failure = route => route.request().method() === 'PATCH' ? route.abort('failed') : route.continue();
     await page.route('**/api/admin/users/*', failure);
     await row.getByRole('button', { name: 'Save', exact: true }).click();
@@ -143,6 +150,7 @@ async function api(route, token, method = 'GET', body, origin = base) {
     await page.unroute('**/api/admin/users/*', failure);
     await row.getByRole('button', { name: 'Save', exact: true }).click();
     await row.getByRole('heading', { name: 'Saved reader', exact: true }).waitFor();
+    assert.deepEqual(await roles.allTextContents(), ['Admin', 'Admin', 'Admin', 'Member']);
     await page.reload({ waitUntil: 'networkidle' });
     await row.getByRole('button', { name: 'Edit', exact: true }).click();
     assert.equal(await row.getByLabel('Name', { exact: true }).inputValue(), 'Saved reader');
@@ -158,12 +166,23 @@ async function api(route, token, method = 'GET', body, origin = base) {
     await row.getByRole('button', { name: 'Delete user', exact: true }).click();
     await row.waitFor({ state: 'detached' });
     await page.getByRole('button', { name: 'Generation settings', exact: true }).click();
+    const model = page.getByRole('combobox', { name: 'Generation model', exact: true });
+    assert.equal(await model.inputValue(), 'gpt-6-luna');
+    assert.deepEqual(await model.locator('option').evaluateAll(options => options.map(option => option.value)), ['gpt-6-luna', 'gpt-5-nano']);
+    await model.selectOption('gpt-5-nano');
     await page.getByLabel('Maximum chapters per run', { exact: true }).fill('77');
     await page.getByRole('button', { name: 'Save settings', exact: true }).click();
     await page.getByRole('status').filter({ hasText: 'Settings saved.' }).waitFor();
     await page.reload({ waitUntil: 'networkidle' });
     await page.getByRole('button', { name: 'Generation settings', exact: true }).click();
     assert.equal(await page.getByLabel('Maximum chapters per run', { exact: true }).inputValue(), '77');
+    assert.equal(await model.inputValue(), 'gpt-5-nano');
+    assert.equal(await getRuntimeSetting('OPENAI_MODEL'), 'gpt-5-nano');
+    await model.selectOption('gpt-6-luna');
+    await page.getByRole('button', { name: 'Save settings', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: 'Settings saved.' }).waitFor();
+    assert.equal(await getRuntimeSetting('OPENAI_MODEL'), 'gpt-6-luna');
+    await page.screenshot({ path: path.join(evidence, 'generation-models.png'), fullPage: true });
     await page.getByRole('button', { name: 'Users', exact: true }).click();
     await page.getByLabel('Search users', { exact: true }).fill('member@example.test');
     assert.equal(await page.locator('.admin-person').count(), 1);
@@ -177,7 +196,7 @@ async function api(route, token, method = 'GET', body, origin = base) {
     await page.getByRole('heading', { name: '관리', exact: true }).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
     assert.deepEqual(errors, []);
-    console.log('PASS: Admin desktop/mobile, theme/language persistence, add/edit/cancel, network retry, reload persistence, disable/delete confirmation, search and generation settings');
+    console.log('PASS: Admin desktop/mobile, theme/language persistence, add/edit/cancel, network retry, reload persistence, disable/delete confirmation, search, administrator ordering and persistent model selection');
   } finally {
     if (browser) await browser.close();
     if (server && server.exitCode === null) { server.kill('SIGTERM'); await new Promise(resolve => server.once('exit', resolve)); }

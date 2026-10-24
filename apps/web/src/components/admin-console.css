@@ -9,7 +9,7 @@
 .admin-content button { border:1px solid var(--line); border-radius:4px; padding:7px 12px; color:var(--ink); background:transparent; font-size:13px; }
 .admin-content button:disabled { opacity:.5; cursor:not-allowed; }
 .admin-content button.admin-primary { background:var(--accent-strong); border-color:var(--accent-strong); color:var(--surface); }
-.admin-content input,.admin-content select,.admin-content textarea { width:100%; min-width:0; border:1px solid var(--line); border-radius:4px; background:var(--surface); color:var(--ink); padding:9px 10px; font-size:14px; }
+.admin-content input,.admin-content select { width:100%; min-width:0; border:1px solid var(--line); border-radius:4px; background:var(--surface); color:var(--ink); padding:9px 10px; font-size:14px; }
 .admin-content fieldset { border:0; padding:0; margin:0; min-width:0; }
 .admin-content label { display:grid; gap:8px; color:var(--muted); font-size:12px; }
 .admin-sections { display:flex; gap:28px; border-bottom:1px solid var(--line); margin-bottom:26px; }
@@ -25,7 +25,6 @@
 .admin-editor { padding:24px 0; }
 .admin-person .admin-editor { padding-top:0; }
 .admin-fields { display:grid; grid-template-columns:2fr 1fr 1fr; gap:20px; }
-.admin-wide { grid-column:1/-1; }
 .admin-actions { display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:10px; margin-top:20px; }
 .admin-actions .admin-delete { color:var(--danger-ink); border:0; padding-left:0; margin-right:auto; }
 .admin-hint { margin:16px 0; font-size:12px; color:var(--muted); line-height:1.7; }
@@ -45,5 +44,5 @@
   .admin-fields { grid-template-columns:1fr 1fr; gap:16px; }
   .admin-fields label:first-child { grid-column:1/-1; }
   .admin-generation label { grid-template-columns:1fr; gap:10px; }
-  .admin-content input,.admin-content select,.admin-content textarea { font-size:16px; }
+  .admin-content input,.admin-content select { font-size:16px; }
 }

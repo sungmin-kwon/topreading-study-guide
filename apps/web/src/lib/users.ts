@@ -65,7 +65,7 @@ export async function getUserByEmail(email: string) {
 }
 
 export async function listUsers() {
-  return db.select().from(users).orderBy(asc(users.email));
+  return db.select().from(users).orderBy(asc(users.role), asc(users.email));
 }
 
 export async function getUserById(id: string) {

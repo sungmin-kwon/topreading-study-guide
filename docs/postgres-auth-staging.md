@@ -312,6 +312,10 @@ The user completed the real Google callback and sign-out/sign-in tests on Ubuntu
 
 Admin now shares the library's visual style, persistent light/dark and language controls, a searchable user list, inline editors, and a separate Generation settings view. Add-user fields appear on demand. Failed saves retain drafts and can be retried; Cancel discards user edits. Adding a user grants an invitation immediately but does not send email.
 
+Administrators appear before members, with email ordering within each group; role changes reorder the list immediately. The Notes field is removed from the editor. Existing stored notes are retained and are not overwritten by user edits.
+
+Generation model is now a dropdown with `gpt-6-luna` as the default and `gpt-5-nano` as the alternative. The previous `gpt-5-mini` default resolves to `gpt-6-luna` even when present in an existing database/environment setting; other explicit model overrides are retained as a current dropdown option. Selecting and saving a model persists the override in PostgreSQL for new generation requests. No schema migration or paid generation request is involved in this update.
+
 To remove an account, first **Edit → Status: Disabled → Save**, then choose **Delete user** and confirm. Deletion removes the user, library memberships, linked Google account and sessions. Shared libraries/books/guides remain; retained job records lose their requester reference. Disable alone remains reversible. Re-adding a deleted email creates a new account.
 
 Both API and UI prevent self-deletion and changing one's own role/status. The API refuses deletion of active accounts. Access changes are serialized and recheck the acting administrator inside the transaction; the last active administrator cannot be disabled/demoted even under concurrent changes. All account cleanup is transactional. No database migration is required for this update.
