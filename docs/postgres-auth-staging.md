@@ -121,12 +121,63 @@ The script prints `STAGING PREPARATION PASSED` when complete. It leaves the stag
 
 If Python reports that `venv`/`ensurepip` is unavailable, install the Ubuntu `python3-venv` package and rerun. If a native npm dependency needs a compiler, install `build-essential`. Do not run the whole helper with `sudo`; it requests sudo for Docker only when necessary. No cleanup command removes the database automatically.
 
-After preparation:
+### Start the prepared staging service
 
-1. Review the preparation result and imported library counts. The existing four users and their roles/memberships are imported; confirm the intended administrator account during sign-in.
-2. Configure a separate staging service on port 3100 after the staging Access settings are ready. Leave its OpenAI key unset while checking login, reading, editing and export.
-3. Create a separate self-hosted Cloudflare Access application for a staging hostname (proposed: `top-staging.dubugimchi.com`) with the same family admission rules. Protect it before publishing its tunnel route. Use that application's **own** AUD, the existing team domain, and the staging hostname as `APP_BASE_URL`. The supplied production AUD belongs to `topreading` and must not be assumed to cover the new application.
-4. Route only the staging hostname through the tunnel/proxy to the staging port. Test a real family-member login, an account excluded by policy, a disabled application user, and direct-origin requests without a signed assertion. Confirm library data and exports before planning the VPS deployment.
+**Ubuntu result reported by the user:** `STAGING PREPARATION PASSED`; PostgreSQL is bound only to `127.0.0.1:55433`. The user also supplied the separate staging application's non-secret AUD:
+
+```dotenv
+APP_BASE_URL=https://top-staging.dubugimchi.com
+CLOUDFLARE_ACCESS_TEAM_DOMAIN=supervenience.cloudflareaccess.com
+CLOUDFLARE_ACCESS_AUD=7615ba6c2c501dc8c6aee94fe09ca10d6fac8b4776dda968df9e5683cb986788
+```
+
+Run this as the normal Ubuntu checkout owner:
+
+```bash
+(
+  set -e
+  cd /home/sungmin-kwon/topreading-staging
+  git pull --ff-only
+  python3 scripts/start-ubuntu-staging.py \
+    --aud 7615ba6c2c501dc8c6aee94fe09ca10d6fac8b4776dda968df9e5683cb986788
+)
+```
+
+The helper checks the prepared database and restricted application role, updates only staging authentication settings, installs **topreading-staging.service**, and starts the existing build on **port 3100**. It uses sudo only for installing/managing this separate unit. It leaves the production service, its files and port 3000 unchanged. OpenAI remains unconfigured; generation is not part of this test.
+
+The service reads the private staging environment file, checks database readiness before each start, and has a 1.5 GiB memory limit. The helper refuses the production AUD, a mismatched database, or an unrelated service/port conflict. Its direct-origin probes must reject missing assertions, forged email headers and malformed tokens with HTTP 401 before it prints `STAGING SERVICE READY`. Those negative checks do not prove a genuine signed login works.
+
+The service binds to `0.0.0.0:3100` so the existing Docker-based Nginx Proxy Manager can reach the native Ubuntu application. Do not add router port forwarding for 3100; public access uses the existing tunnel. PostgreSQL remains loopback-only.
+
+If startup fails, inspect these locally and share only relevant error lines, with any tokens/credentials removed:
+
+```bash
+systemctl is-active topreading-staging.service
+sudo journalctl -u topreading-staging.service -n 50 --no-pager
+```
+
+To stop only staging: `sudo systemctl stop topreading-staging.service`. Starting this helper again preserves the database and uploads. It starts the prepared build; it is not a general deployment/rebuild command for future application changes.
+
+### Route the staging hostname
+
+Before adding its public tunnel route, confirm the separate **Self-hosted** Access application covers **top-staging.dubugimchi.com** and uses the intended **Family Access** policy. The production hostname/application remains unchanged.
+
+1. In **Nginx Proxy Manager → Hosts → Proxy Hosts → Add Proxy Host**, set:
+   - Domain Names: `top-staging.dubugimchi.com`
+   - Scheme: `http`
+   - Forward Hostname / IP: copy the value from the existing working `top.dubugimchi.com` proxy host. This reaches the native Ubuntu host from Docker; do not substitute `127.0.0.1`, which would address the NPM container itself.
+   - Forward Port: `3100`
+   - SSL certificate: None; Force SSL: off for this internal HTTP origin. Cloudflare serves public HTTPS through the tunnel.
+2. In **Cloudflare Zero Trust → Networking → Tunnels**, select the existing tunnel and add a **Published application** route (some dashboard versions call this **Public Hostnames** or **Published application routes**):
+   - Hostname: `top-staging.dubugimchi.com`
+   - Service: `http://<existing Nginx Proxy Manager host>:80`. Reuse the NPM hostname/IP reachable from the existing tunnel. This is the proxy address, not necessarily the forward address used in step 1.
+   - If configuring **HTTP Host Header**, use `top-staging.dubugimchi.com`; do not copy an override for the production hostname.
+   - If the tunnel's optional **Protect with Access** setting is enabled, select the staging application/AUD.
+3. Open **https://top-staging.dubugimchi.com** in a private browser window. Sign in as an existing imported family member. Confirm the library contains **8 books**, open a saved guide and source passage, make a small staging edit and reload, then try an export. Changes made in production after the baseline snapshot are intentionally absent from this rehearsal.
+
+The existing four users and their roles/memberships were imported. Confirm the intended administrator account during sign-in. Also test an account excluded by the Access policy and a disabled application account before release. Never paste Access JWTs, cookies, `.env.local` or the setup state into chat.
+
+References: [Cloudflare tunnel setup](https://developers.cloudflare.com/tunnel/get-started/) and [HTTP Host Header origin setting](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/origin-parameters/).
 
 These steps do not establish Google OAuth; its real-provider test follows the separate Google setup above. Cloudflare and Google checks are distinct release gates.
 
@@ -182,6 +233,7 @@ Browser checks require Playwright/Chromium; `PLAYWRIGHT_MODULE` and `CHROMIUM_EX
 
 - Production build and type checking passed.
 - The Ubuntu staging helper passed an end-to-end disposable rehearsal: dependency installation, copied-backup verification/import, PostgreSQL role restrictions and production build. A second run retained staging writes, files and configuration. Changed-backup, unrelated-container/volume, missing-configuration, simultaneous-run and wrong-checkout refusals were exercised.
+- The staging startup helper passed a disposable database/configuration rehearsal and a real production-build startup with the staging Access settings. Unsigned requests, forged identity headers and malformed assertions returned HTTP 401. Production-AUD, unrelated-service, symlink-unit and mismatched-database refusals preserved configuration. `systemd-analyze verify` passed with a Docker dependency stub; this workspace has no systemd manager, so actual unit installation/start and real Cloudflare browser login remain Ubuntu checks.
 - The restored PostgreSQL library passed browser checks for saved-book navigation, default library landing, chapter/question edits, failed-save retry, reload persistence, guide versions, PDF/DOCX export, and Korean/dark mobile layouts.
 - A temporary TXT book passed upload, extraction, two-chapter creation, generation-setup and deletion checks without calling an AI model.
 - All 40 book-resource handlers rejected another library's user and anonymous access. Actual Auth.js session retrieval and CSRF-protected sign-out passed; forged headers/cookies, expired/revoked sessions, disabled admins and uninvited/unverified Google identities were rejected.
