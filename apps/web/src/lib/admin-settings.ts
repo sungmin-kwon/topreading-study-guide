@@ -9,10 +9,7 @@ const definitions = {
 };
 export async function getRuntimeSetting(key: keyof typeof definitions) {
   const result = await pool.query(`SELECT value FROM ${authTable("app_settings")} WHERE key=$1`, [key]);
-  const value = result.rows[0]?.value || process.env[key] || definitions[key].fallback;
-  // Upgrade the previous default even when it was saved to the database or
-  // copied into .env.local. Other explicit model overrides remain intact.
-  return key === "OPENAI_MODEL" && value === "gpt-5-mini" ? definitions.OPENAI_MODEL.fallback : value;
+  return result.rows[0]?.value || definitions[key].fallback;
 }
 export async function listAdminSettings(): Promise<AdminSettingDefinition[]> {
   return Promise.all((Object.keys(definitions) as Array<keyof typeof definitions>).map(async key => {

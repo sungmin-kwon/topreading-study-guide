@@ -114,8 +114,22 @@ async function api(route, token, method = 'GET', body, origin = base) {
     await owner.query(`UPDATE ${table('users')} SET status='disabled' WHERE id=$1`, [secondAdmin.id]);
     const browserToken = await tokenFor(admin.id);
     const { getRuntimeSetting } = load('admin-settings');
+    process.env.OPENAI_MODEL = 'gpt-5-nano';
+    await owner.query(`DELETE FROM ${table('app_settings')} WHERE key='OPENAI_MODEL'`);
+    assert.equal(await getRuntimeSetting('OPENAI_MODEL'), 'gpt-6-luna', 'Environment cannot override the built-in default');
     await owner.query(`INSERT INTO ${table('app_settings')}(key,value) VALUES('OPENAI_MODEL','gpt-5-mini')`);
-    assert.equal(await getRuntimeSetting('OPENAI_MODEL'), 'gpt-6-luna', 'Legacy saved default upgrades without a migration');
+    assert.equal(await getRuntimeSetting('OPENAI_MODEL'), 'gpt-5-mini', 'Runtime must return the stored model without hidden translation');
+    const settingsMigration = fs.readFileSync(path.join(root, 'database/migrations/0004_generation_settings.sql'), 'utf8');
+    const migrator = await owner.connect();
+    try {
+      await migrator.query(`SET search_path TO "${schema}",pg_catalog`);
+      await migrator.query(settingsMigration);
+      assert.equal(await getRuntimeSetting('OPENAI_MODEL'), 'gpt-6-luna');
+      await migrator.query(`UPDATE app_settings SET value='gpt-5-nano' WHERE key='OPENAI_MODEL'`);
+      await migrator.query(settingsMigration);
+      assert.equal(await getRuntimeSetting('OPENAI_MODEL'), 'gpt-5-nano', 'Migration retains an explicitly selected alternative');
+      await migrator.query(`UPDATE app_settings SET value='gpt-6-luna' WHERE key='OPENAI_MODEL'`);
+    } finally { migrator.release(); }
     console.log('PASS: admin-only deletion, CSRF, self/active-account guards, final-admin and concurrent-admin protection, atomic rollback, session/account removal, preserved shared book/job');
 
     browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });

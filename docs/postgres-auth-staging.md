@@ -90,13 +90,14 @@ For the book-info UI update, stop **only** staging while rebuilding its current 
   cd /home/sungmin-kwon/topreading-staging
   git pull --ff-only
   sudo systemctl stop topreading-staging.service
+  python3 scripts/migrate-ubuntu-staging.py
   NODE_OPTIONS=--max-old-space-size=3072 nice -n 10 npm run build
   sudo systemctl start topreading-staging.service
   systemctl is-active topreading-staging.service
 )
 ```
 
-This update has no dependency or database migration changes. If the build fails, leave staging stopped, inspect the build error and rerun after fixing it; production is unaffected. Do not rerun the initial importer or remove staging data. Verify the simplified Edit Book Info dialog before switching login.
+The migration helper applies pending controlled migrations to the prepared staging database before the build. It uses the existing private setup credentials; there is no need to copy passwords into the shell or chat. If the build fails, leave staging stopped, inspect the build error and rerun after fixing it; production is unaffected. Do not rerun the initial importer or remove staging data. Verify the simplified Edit Book Info dialog before switching login.
 
 Once the Google client is ready:
 
@@ -314,13 +315,19 @@ Admin now shares the library's visual style, persistent light/dark and language 
 
 Administrators appear before members, with email ordering within each group; role changes reorder the list immediately. The Notes field is removed from the editor. Existing stored notes are retained and are not overwritten by user edits.
 
-Generation model is now a dropdown with `gpt-6-luna` as the default and `gpt-5-nano` as the alternative. The previous `gpt-5-mini` default resolves to `gpt-6-luna` even when present in an existing database/environment setting; other explicit model overrides are retained as a current dropdown option. Selecting and saving a model persists the override in PostgreSQL for new generation requests. No schema migration or paid generation request is involved in this update.
+Generation model is a dropdown with `gpt-6-luna` as the default and `gpt-5-nano` as the alternative. The model and the two editable generation limits now come only from PostgreSQL, with built-in defaults when a setting is absent. `.env.local` holds secrets and deployment configuration; `OPENAI_MODEL`, `MAX_GENERATION_CHAPTERS` and `MAX_GENERATION_ITEMS` no longer affect runtime settings.
+
+Migration `0004_generation_settings.sql` seeds missing defaults and updates an old saved `gpt-5-mini` model to `gpt-6-luna` once. Existing alternatives such as `gpt-5-nano`, custom model choices and saved generation limits are preserved. Runtime reads return the stored value directly, without translating model names. Select and save changes through Admin.
+
+Use the pull/stop/**migrate**/build/start command in the Google setup section above. `scripts/migrate-ubuntu-staging.py` applies the checksummed migrations using the existing private owner credentials, checks the restricted app connection, and removes the three obsolete keys from staging `.env.local`. Other configuration, including Google and database credentials, is preserved. Reruns are safe. It neither imports the SQLite baseline again nor restarts a service. For another deployment, use the general `db:migrate` command with its own migration credentials, and remove the obsolete environment keys locally.
+
+Dropdown disclosures and select controls now share the same SVG chevron, including Text tools, Chapter settings, language and model selectors. Native select semantics, keyboard operation and forced-colors fallback are preserved.
 
 To remove an account, first **Edit → Status: Disabled → Save**, then choose **Delete user** and confirm. Deletion removes the user, library memberships, linked Google account and sessions. Shared libraries/books/guides remain; retained job records lose their requester reference. Disable alone remains reversible. Re-adding a deleted email creates a new account.
 
-Both API and UI prevent self-deletion and changing one's own role/status. The API refuses deletion of active accounts. Access changes are serialized and recheck the acting administrator inside the transaction; the last active administrator cannot be disabled/demoted even under concurrent changes. All account cleanup is transactional. No database migration is required for this update.
+Both API and UI prevent self-deletion and changing one's own role/status. The API refuses deletion of active accounts. Access changes are serialized and recheck the acting administrator inside the transaction; the last active administrator cannot be disabled/demoted even under concurrent changes. All account cleanup is transactional. The user-deletion change itself does not require a schema change; the settings cleanup above uses migration 0004.
 
-Validation passed: production build/type checking, the isolated deletion/authorization/rollback/concurrency checks, and desktop/mobile browser checks for add/edit/cancel/retry, saved changes, disable/delete confirmation, search, generation settings and persistent dark/Korean preferences. All test accounts lived in a temporary schema that was removed afterward.
+Validation passed: settings migration and rerun, environment cleanup with credentials/library counts preserved, database-only model reads and alternative selection, shared-chevron checks in light/dark/mobile/forced-colors modes, production build/type checking, the isolated deletion/authorization/rollback/concurrency checks, and desktop/mobile browser checks for add/edit/cancel/retry, saved changes, disable/delete confirmation, search, generation settings and persistent dark/Korean preferences. All test accounts lived in a temporary schema that was removed afterward.
 
 Deploy with the staging-only pull/stop/build/start command in the Google setup section. This preserves Google mode and credentials; do not rerun the starter with `--aud` unless intentionally switching back to Cloudflare authentication.
 
