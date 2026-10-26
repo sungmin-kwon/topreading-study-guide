@@ -46,7 +46,7 @@ This document contains operational identifiers and paths, but no passwords, OAut
 - Production has not been switched to the PostgreSQL/Google-login staging deployment.
 - Production and staging are separate data stores. Changes made in either one do **not** automatically appear in the other.
 - Durable background workers, private object storage, and automated PostgreSQL backup/restore are future work.
-- The final DNS configuration has been written persistently and works now, but a **further reboot after the final `DNSDefaultRoute=yes` correction has not yet been verified**.
+- **Post-reboot recovery is verified:** Docker and staging are enabled/active; Ethernet retains `+DefaultRoute` and the staging DNS route; the tunnel, NPM and PostgreSQL are running; origin/public checks passed without a manual recovery step.
 - The broad Tailscale split-DNS rule still exists. The staging-hostname exception works around it; it does not repair that rule for every other `dubugimchi.com` hostname.
 
 ### How to read verification claims
@@ -289,7 +289,7 @@ Use a separate browser session and a non-administrator test account:
 3. Keep that member signed in, disable it from an administrator session, and reload the member's library.
 4. Protected resources must be denied. The observed UI message was “Could not load the book library.” A friendlier dedicated disabled-account screen is not established by that message.
 
-These tests passed on Ubuntu before the staging Access gate was removed. Fresh Google sign-in/out and anonymous public denial passed after removal; a separate post-removal repetition of the two account tests has not been reported.
+These tests passed on Ubuntu before the staging Access gate was removed. Fresh Google sign-in/out and anonymous public denial passed after removal. In the final operational-check response the operator reported that everything worked normally and supplied post-reboot terminal checks; individual post-removal account-test outcomes were not itemized. Preserve that evidence distinction rather than inferring individual test results from the terminal probes.
 
 ## 5. Configuration and generation settings
 
@@ -784,9 +784,11 @@ Allow time for it to register a connection, then run the public checker. Restart
 
 **Latest reported outcome:** the Cloudflare endpoint resolved, the tunnel was restarted, and `PUBLIC GOOGLE ACCESS CHECK PASSED` was printed.
 
-### 10.5 Pending reboot verification
+### 10.5 Verified reboot recovery and repeatable checks
 
-At a suitable maintenance time, test a reboot after the final correction. Then check:
+The operator subsequently rebooted after the final correction and supplied passing results: Docker/staging enabled and active, Ethernet `+DefaultRoute` with `~top-staging.dubugimchi.com`, successful staging/Cloudflare-endpoint resolution, all three containers running with `unless-stopped`, and both access checkers passing. The operator also reported that everything appeared to work normally. This closes the recorded DNS persistence/startup incident.
+
+For future planned reboot checks, use:
 
 ```bash
 resolvectl --no-pager status enp2s0
@@ -953,7 +955,7 @@ Choose a new report filename each time. `--include-content` adds private questio
 | Latest UI review | Build/type checks and local browser review passed; earlier UI changes also confirmed live by operator |
 | Staging Access application removal / Protect with Access off | Confirmed by operator |
 | Origin and public anonymous-access checks | Passed on Ubuntu, including public check after final DNS correction |
-| Final corrected DNS/tunnel behavior after another reboot | Pending |
+| Final corrected DNS/tunnel behavior after another reboot | Passed on Ubuntu: persistent DNS routing, automatic startup and both access checks |
 | Automated PostgreSQL backup and isolated restore rehearsal | Pending implementation |
 | Real-world improvement from new MCQ reviewer | Not established by mocked tests; teacher evaluation needed |
 | VPS / object storage / production cutover | Not performed |
@@ -979,7 +981,7 @@ Dates below describe the recorded work, not a guarantee that every commit was de
 | 2026-10-26 — Access gate removal | Removed only staging's Access application; kept tunnel/HTTPS and production Access; real Google login worked without double sign-in. |
 | 2026-10-26 — first DNS issue | Public checker failed DNS lookup; identified Tailscale domain route to the Ubuntu server; staging-specific Ethernet exception restored the public check. |
 | 2026-10-26 — reboot / tunnel failure | Incomplete persistent DNS exception left no appropriate default DNS route for Cloudflare endpoint lookup; tunnel crash-looped and public requests returned HTTP 530. |
-| 2026-10-26 — corrected DNS | Added persistent and runtime `DNSDefaultRoute=yes`, verified endpoint lookup, restarted tunnel, obtained public checker PASS. Further reboot verification remains open. |
+| 2026-10-26 — corrected DNS | Added persistent and runtime `DNSDefaultRoute=yes`, verified endpoint lookup, restarted tunnel, obtained public checker PASS. A subsequent reboot passed DNS, automatic startup and origin/public checks. |
 
 ### Useful commit references
 
@@ -1009,7 +1011,7 @@ The final host DNS change was applied manually on Ubuntu. It is host configurati
 
 ### 15.1 Close the operational milestone
 
-- Verify one further reboot with the final DNS drop-in.
+- Completed: reboot with the final DNS drop-in; automatic startup, DNS and origin/public checks passed.
 - Record current running/build versions and preserve recovery information.
 - Repeat uninvited/disabled-member and signed-in download checks after gate removal when closing release acceptance.
 - Investigate the broader Tailscale split-DNS rule without disrupting other homelab services.
@@ -1105,7 +1107,7 @@ Staging DNS uses a systemd-networkd exception with BOTH:
   Domains=~top-staging.dubugimchi.com
   DNSDefaultRoute=yes
 Latest live public check passed after correcting DNS and restarting cloudflared.
-Another reboot after the final correction is not yet recorded as verified.
+A subsequent reboot verified the corrected DNS, automatic startup and both access checks.
 Next: PostgreSQL backup/restore, durable jobs, private file storage, VPS rehearsal.
 Read docs/admin-runbook.md and check the actual branch/service/configuration first.
 ```

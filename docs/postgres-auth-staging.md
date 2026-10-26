@@ -352,7 +352,7 @@ sudo resolvectl default-route enp2s0 yes
 sudo resolvectl flush-caches
 ```
 
-**Remaining checks:** another reboot after this final correction has not yet been verified. The underlying broad Tailscale split-DNS rule remains; identify dependent services before repairing/narrowing it. No Docker Compose DNS override was applied. See the [full incident and recovery procedure](admin-runbook.md#10-dns-configuration-and-the-reboot-incident).
+**Reboot verified:** the operator subsequently supplied output showing Docker/staging enabled and active, Ethernet `+DefaultRoute` and the staging route preserved, successful DNS resolution, all three containers running, and origin/public checkers passing. The operator reported normal operation; individual browser/account/download results were not itemized. The underlying broad Tailscale split-DNS rule remains; identify dependent services before repairing/narrowing it. No Docker Compose DNS override was applied. See the [full incident and recovery procedure](admin-runbook.md#10-dns-configuration-and-the-reboot-incident).
 
 The procedure below is retained for reference; the staging Access application has already been removed.
 
@@ -404,4 +404,4 @@ This update does not change database schema, authentication rules, environment s
 
 This branch keeps local files and request-bound extraction/generation/export. It does **not** complete durable worker jobs, object storage, non-destructive chapter-boundary revisions, stale-guide notices, VPS provisioning, automated off-server backup/restore, or production cutover. Existing explicit chapter/book deletion removes corresponding revision history. Re-splitting remains destructive and needs the later import-workflow overhaul.
 
-Next: verify reboot persistence of the corrected DNS settings, implement PostgreSQL backup/restore support, then durable jobs and private file storage, then complete workflow/recovery checks and a VPS restore rehearsal before the production maintenance window. Preserve the home service for rollback; after new cloud writes, rollback requires data reconciliation rather than only changing DNS.
+Next: implement PostgreSQL backup/restore support, then durable jobs and private file storage, then complete workflow/recovery checks and a VPS restore rehearsal before the production maintenance window. Preserve the home service for rollback; after new cloud writes, rollback requires data reconciliation rather than only changing DNS.

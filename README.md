@@ -21,7 +21,7 @@ This branch, `modernization/postgres-auth`, requires PostgreSQL and explicit aut
 
 Production and staging are independent data stores. Do not deploy this backend over the production SQLite environment. No VPS is live yet.
 
-The shared Cloudflare Tunnel and nginx Proxy Manager remain in use. The current host DNS fix requires both the staging hostname route and `DNSDefaultRoute=yes`; read the manual before changing network settings. Another reboot after the final correction remains to be verified.
+The shared Cloudflare Tunnel and nginx Proxy Manager remain in use. The current host DNS fix requires both the staging hostname route and `DNSDefaultRoute=yes`; read the manual before changing network settings. A subsequent reboot verified the corrected DNS routing, automatic service/container startup and both access checks.
 
 ## Current application workflow
 
