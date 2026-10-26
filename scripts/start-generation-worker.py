@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import shutil
 import sys
 from urllib.parse import urlsplit
@@ -14,6 +15,41 @@ spec = importlib.util.spec_from_file_location('starter', ROOT / 'scripts/start-u
 starter = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(starter)
 
+
+def unit_path(value):
+    # WorkingDirectory is a single path, not an ExecStart-style quoted word.
+    # Keep deployment paths simple rather than ambiguously escaping directives.
+    value = str(value)
+    if not re.fullmatch(r'/[A-Za-z0-9_./-]+', value):
+        raise starter.StartError('Worker paths must be absolute and contain only letters, digits, slash, dot, underscore or hyphen.')
+    return value
+
+
+def render_unit(root, config, node, username):
+    q = starter.unit_value
+    return f'''# Managed by TopReading start-generation-worker.py
+[Unit]
+Description=TopReading staging generation worker
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+[Service]
+Type=simple
+User={username}
+WorkingDirectory={unit_path(root)}
+EnvironmentFile={unit_path(config)}
+Environment=NODE_ENV=production
+ExecStart={q(node)} {q(root / 'dist/generation-worker.mjs')}
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=900
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+MemoryMax=1024M
+[Install]
+WantedBy=multi-user.target
+'''
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -40,36 +76,14 @@ def main():
     if not (ROOT / 'dist/generation-worker.mjs').is_file():
         raise starter.StartError('Run npm run build first.')
     starter.run([node, 'scripts/check-staging-runtime.mjs', '--require-worker'], env={**os.environ, **values})
-    q = starter.unit_value
-    unit = f'''# Managed by TopReading start-generation-worker.py
-[Unit]
-Description=TopReading staging generation worker
-After=network-online.target docker.service
-Wants=network-online.target
-Requires=docker.service
-[Service]
-Type=simple
-User={pwd.getpwuid(os.getuid()).pw_name}
-WorkingDirectory={q(ROOT)}
-EnvironmentFile={q(config)}
-Environment=NODE_ENV=production
-ExecStart={q(node)} {q(ROOT / 'dist/generation-worker.mjs')}
-Restart=on-failure
-RestartSec=5
-TimeoutStopSec=900
-UMask=0077
-NoNewPrivileges=true
-PrivateTmp=true
-MemoryMax=1024M
-[Install]
-WantedBy=multi-user.target
-'''
+    unit = render_unit(ROOT, config, node, pwd.getpwuid(os.getuid()).pw_name)
     pending = private / 'topreading-staging-worker.service'
     pending.write_text(unit)
     service = pending.name
     destination = Path('/etc/systemd/system') / service
     if destination.exists() and ('# Managed by TopReading start-generation-worker.py' not in destination.read_text() or str(ROOT) not in destination.read_text()):
         raise starter.StartError('Refusing to replace an unrelated worker unit.')
+    starter.run(['systemd-analyze', 'verify', '--man=no', str(pending)])
     if args.prepare_only:
         print(f'Worker unit prepared: {pending}'); return
     starter.run(['sudo', 'install', '-m', '644', str(pending), str(destination)])
