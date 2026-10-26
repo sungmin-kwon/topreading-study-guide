@@ -333,6 +333,40 @@ Deploy with the staging-only pull/stop/build/start command in the Google setup s
 
 The regression script `scripts/test-admin-users.cjs` creates and drops its own random `test_admin_*` schema in a **disposable localhost PostgreSQL database**. Supply `ADMIN_TEST_OWNER_URL` and `ADMIN_TEST_APP_URL` through the local environment, plus `ALLOW_TEST_WRITES=1`. The app account needs no schema ownership; the owner provisions test schema access. It checks authorization, same-origin protection, self/active-user restrictions, final/concurrent administrator protection, rollback after a forced delete failure, account/session removal and retained shared data, then exercises the Admin UI in Playwright. The existing production build is required. Never point test connections at the production database.
 
+## Remove the extra staging Access gate
+
+The user has authorized this step after confirming Google login/sign-out, invitation enforcement and disabled-session rejection. The Cloudflare dashboard change and the post-change public/browser checks are still pending. No production changes are included.
+
+1. On Ubuntu, update the staging checkout and check the running origin:
+
+   ```bash
+   cd /home/sungmin-kwon/topreading-staging
+   git pull --ff-only
+   python3 scripts/check-staging-google-access.py
+   ```
+
+   Require `ORIGIN GOOGLE ACCESS CHECK PASSED` before changing the gate. This uses only unauthenticated GET requests to localhost:3100. It checks the Google provider/callback, app login page, navigation redirects, library/Admin/download denial and forged-header/session rejection. It does not read secrets or change configuration. This helper itself needs no build or service restart.
+
+2. In Zero Trust → Networking → Tunnels (sometimes Networks → Connectors), open the existing tunnel, then the published application/public hostname route for **top-staging.dubugimchi.com**. If **Protect with Access** is enabled under its additional application settings, turn it off **for this staging route only** and save. Keep the hostname, NPM service URL, HTTP Host Header and all other routes unchanged. Cloudflare's edge Access application remains in place until the next step.
+
+3. Open Zero Trust → Access controls → Applications. Select the self-hosted application whose only destination is **top-staging.dubugimchi.com**, with AUD `7615ba6c2c501dc8c6aee94fe09ca10d6fac8b4776dda968df9e5683cb986788`. Record its current policy assignment/settings for rollback, then delete that staging Access application. If it has other destinations, remove only the staging destination rather than deleting the shared application. Keep the production `topreading` application for **top.dubugimchi.com**, the shared **Family Access** policy, tunnel, DNS records and HTTPS settings. Do not disable the tunnel.
+
+4. Run the same checker through public HTTPS, without any login cookies:
+
+   ```bash
+   python3 scripts/check-staging-google-access.py --public
+   ```
+
+   Require `PUBLIC GOOGLE ACCESS CHECK PASSED`. Redirects and non-JSON edge responses fail the check; an existing Cloudflare browser session cannot mask a remaining Access gate. HTTPS certificate validation and configured proxies are preserved. The public hostname is fixed to staging; the tool cannot be pointed at production.
+
+5. In a fresh private window, open `https://top-staging.dubugimchi.com`. The first screen should be TopReading's **Continue with Google**, with no Cloudflare/team sign-in. Confirm invited sign-in, library access and one download, then sign out and confirm library access requires login again. Check an uninvited Google account; for a conclusive application-membership check, it must be allowed by the Google OAuth client's Testing audience first. Recheck a disabled member's existing session. Google account selection/consent is part of the one application sign-in and may still appear.
+
+No `.env.local`, OAuth callback or app authentication changes are required. Keep `AUTH_MODE=google`. Unused Cloudflare team/AUD identifiers may remain in the file. Do not rerun the starter with `--aud`: that would switch the application back to requiring Access assertions.
+
+If the public checker fails, restore the staging self-hosted Access application with the saved hostname/policy assignment while diagnosing. Recreating an application gives it a new AUD. If also re-enabling the tunnel's optional Protect with Access validation, select that new application/AUD. Keep TopReading in Google mode throughout rollback. A broad/wildcard Access application may also cover staging; narrow its scope deliberately without removing protection from other hostnames.
+
+The checker is a deployment smoke check, not a replacement for the real Google sign-in and membership tests above. Local validation used the built app in Google mode with dummy OAuth credentials; it made no Google requests and changed no library data.
+
 ## UI consistency review
 
 The live workspace, Admin and sign-in/out pages share the same control typography, colors and appearance toggle. The account disclosure uses plain icons and regular-weight labels; it closes on Escape, outside clicks or focus leaving it. The import and chapter-boundary tools use the same document column and reduced card styling as the guide pages. Parser implementation names no longer appear in the live source-file metadata.
