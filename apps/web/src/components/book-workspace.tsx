@@ -5,6 +5,7 @@ import { allocateCountByWordWeight, deriveBookGenerationPlan } from "@topreading
 
 import { QuietMenu, WorkspaceBar, SavedLibrary, WorkspaceNavigation } from "./workspace-navigation";
 import "./live-workspace.css";
+import { ThemeToggle } from "./theme-toggle";
 
 type BookSummary = {
   id: string;
@@ -722,9 +723,12 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(false);
   const [isBookMetadataOpen, setIsBookMetadataOpen] = useState(false);
   const bookDialogRef = useRef<HTMLDialogElement>(null);
+  const renameDialogRef = useRef<HTMLDialogElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const [bookMetadataError, setBookMetadataError] = useState("");
   const [isGenerationModalOpen, setIsGenerationModalOpen] = useState(false);
   const [renamingGenerationRunId, setRenamingGenerationRunId] = useState<string | null>(null);
+  const [renameError, setRenameError] = useState("");
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [exportType, setExportType] = useState<PdfExportType>("multiple-choice");
   const [exportFormat, setExportFormat] = useState<"pdf" | "docx">("pdf");
@@ -1473,6 +1477,32 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
       dialog.querySelector("input")?.focus();
     }
   }, [isBookMetadataOpen]);
+
+  useEffect(() => {
+    const dialog = renameDialogRef.current;
+    if (renamingGenerationRunId && dialog && !dialog.open) dialog.showModal();
+  }, [renamingGenerationRunId]);
+
+  useEffect(() => {
+    if (!isUserMenuOpen) return;
+    const menu = userMenuRef.current;
+    const dismiss = (event: PointerEvent | FocusEvent) => {
+      if (event.target instanceof Node && !menu?.contains(event.target)) setIsUserMenuOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setIsUserMenuOpen(false);
+      menu?.querySelector<HTMLButtonElement>(".library-user-button")?.focus();
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("focusin", dismiss);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("focusin", dismiss);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [isUserMenuOpen]);
 
   function openBookMetadata() {
     if (!activeBook) return;
@@ -2386,54 +2416,40 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   }
 
   function openGenerationRunRenameModal(run: GenerationRunSummary) {
+    setRenameError("");
     setGenerationRunDraftById((current) => ({
       ...current,
-      [run.id]: current[run.id] ?? run.name
+      [run.id]: run.name
     }));
     setRenamingGenerationRunId(run.id);
   }
 
   async function handleSaveGenerationRunName(run: GenerationRunSummary) {
-    if (!activeBook) {
-      return;
-    }
-
+    if (!activeBook || savingGenerationRunId) return;
     const nextName = (generationRunDraftById[run.id] ?? run.name).trim();
     if (!nextName) {
-      setStatusMessage("Generation run name cannot be empty.");
+      setRenameError(t("Enter a version name.", "버전 이름을 입력하세요."));
       return;
     }
-
-    if (nextName === run.name) {
-      return;
-    }
-
+    if (nextName === run.name) return;
     setSavingGenerationRunId(run.id);
-    setStatusMessage("");
-
-    const response = await fetch(`/api/books/${activeBook.id}/generation-runs/${run.id}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ name: nextName })
-    });
-    const payload = (await response.json().catch(() => ({}))) as GenerationRunsResponse;
-
-    if (!response.ok || !payload.generationRun) {
-      setStatusMessage(payload.error || "Could not rename generation run.");
+    setRenameError("");
+    try {
+      const response = await fetch(`/api/books/${activeBook.id}/generation-runs/${run.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: nextName })
+      });
+      const payload = (await response.json().catch(() => ({}))) as GenerationRunsResponse;
+      if (!response.ok || !payload.generationRun) throw new Error(payload.error || t("Could not rename this version. Try again.", "버전 이름을 변경하지 못했습니다. 다시 시도하세요."));
+      const updated = payload.generationRun;
+      setGenerationRuns(current => current.map(item => item.id === updated.id ? updated : item));
+      setGenerationRunDraftById(current => ({ ...current, [run.id]: updated.name }));
+      renameDialogRef.current?.close();
+      setStatusMessage(t("Version renamed.", "버전 이름이 변경되었습니다."));
+    } catch (error) {
+      setRenameError(error instanceof Error && !(error instanceof TypeError) ? error.message : t("Could not connect. Try again.", "연결하지 못했습니다. 다시 시도하세요."));
+    } finally {
       setSavingGenerationRunId(null);
-      return;
     }
-
-    setGenerationRuns((current) => current.map((item) => item.id === payload.generationRun?.id ? payload.generationRun : item));
-    setGenerationRunDraftById((current) => ({
-      ...current,
-      [payload.generationRun!.id]: payload.generationRun!.name
-    }));
-    setRenamingGenerationRunId(null);
-    setStatusMessage("Generation run renamed.");
-    setSavingGenerationRunId(null);
   }
 
   function handleExportStudySet(type: PdfExportType, format: ExportFileFormat) {
@@ -3033,67 +3049,12 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   }
 
   const preferences = (
-        <div className="library-user-menu">
-          {isUserMenuOpen ? (
-            <div className="library-user-popover" role="menu" aria-label={t("User preferences", "사용자 설정")}>
-              {currentUser ? (
-                <div className="preference-user-summary">
-                  <strong>{currentUser.displayName || currentUser.email}</strong>
-                  <small>{currentUser.email}</small>
-                </div>
-              ) : null}
-              {!modern && <>
-              <button
-                className="preference-row"
-                type="button"
-                role="menuitem"
-                onClick={() => setThemeMode((current) => current === "dark" ? "light" : "dark")}
-              >
-                <span className="preference-icon">
-                  <UiIcon name={themeMode === "dark" ? "sun" : "moon"} />
-                </span>
-                <span>
-                  <strong>{themeMode === "dark" ? t("Light Mode", "라이트 모드") : t("Dark Mode", "다크 모드")}</strong>
-                </span>
-              </button>
-              <button
-                className="preference-row"
-                type="button"
-                role="menuitem"
-                onClick={() => setUiLanguage((current) => current === "ko" ? "en" : "ko")}
-              >
-                <span className="preference-icon">
-                  <UiIcon name="globe" />
-                </span>
-                <span>
-                  <strong>{uiLanguage === "ko" ? "English" : "한국어"}</strong>
-                </span>
-              </button>
-              </>}
-              <a className="preference-row preference-row-danger" href="/api/logout" role="menuitem">
-                <span className="preference-icon">
-                  <UiIcon name="logOut" />
-                </span>
-                <span>
-                  <strong>{t("Log out", "로그아웃")}</strong>
-                </span>
-              </a>
-              {currentUserIsAdmin ? (
-              <a className="preference-row" href="/admin" role="menuitem">
-                <span className="preference-icon">
-                  <UiIcon name="settings" />
-                </span>
-                <span>
-                  <strong>{t("Admin", "관리자")}</strong>
-                </span>
-              </a>
-              ) : null}
-            </div>
-          ) : null}
+        <div className="library-user-menu" ref={userMenuRef}>
           <button
             className="library-user-button"
             type="button"
             aria-expanded={isUserMenuOpen}
+            aria-controls={isUserMenuOpen ? "account-links" : undefined}
             aria-label={t("Open user preferences", "사용자 설정 열기")}
             title={t("User preferences", "사용자 설정")}
             onClick={() => setIsUserMenuOpen((current) => !current)}
@@ -3113,6 +3074,61 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
               </>
             ) : null}
           </button>
+          {isUserMenuOpen ? (
+            <div id="account-links" className="library-user-popover" aria-label={t("User preferences", "사용자 설정")}>
+              {currentUser ? (
+                <div className="preference-user-summary">
+                  <strong>{currentUser.displayName || currentUser.email}</strong>
+                  <small>{currentUser.email}</small>
+                </div>
+              ) : null}
+              {!modern && <>
+              <button
+                className="preference-row"
+                type="button"
+                onClick={() => setThemeMode((current) => current === "dark" ? "light" : "dark")}
+              >
+                <span className="preference-icon">
+                  <UiIcon name={themeMode === "dark" ? "sun" : "moon"} />
+                </span>
+                <span>
+                  <strong>{themeMode === "dark" ? t("Light Mode", "라이트 모드") : t("Dark Mode", "다크 모드")}</strong>
+                </span>
+              </button>
+              <button
+                className="preference-row"
+                type="button"
+                onClick={() => setUiLanguage((current) => current === "ko" ? "en" : "ko")}
+              >
+                <span className="preference-icon">
+                  <UiIcon name="globe" />
+                </span>
+                <span>
+                  <strong>{uiLanguage === "ko" ? "English" : "한국어"}</strong>
+                </span>
+              </button>
+              </>}
+              <a className="preference-row preference-row-danger" href="/api/logout">
+                <span className="preference-icon">
+                  <UiIcon name="logOut" />
+                </span>
+                <span>
+                  <strong>{t("Log out", "로그아웃")}</strong>
+                </span>
+              </a>
+              {currentUserIsAdmin ? (
+              <a className="preference-row" href="/admin">
+                <span className="preference-icon">
+                  <UiIcon name="settings" />
+                </span>
+                <span>
+                  <strong>{t("Admin", "관리자")}</strong>
+                </span>
+              </a>
+              ) : null}
+            </div>
+          ) : null}
+
         </div>
   );
 
@@ -3120,9 +3136,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
     <main className={`app-shell ${modern ? `reading-shell${activeWorkspaceTab === "chapters" ? " reading-text-view" : ""}` : isLibraryCollapsed ? "library-collapsed" : ""}`}>
       {modern && <WorkspaceBar books={books} bookId={activeBook?.id || ""} libraryOpen={libraryOpen}
         onLibrary={() => setLibraryOpen(true)} onBook={selectBook} preferences={<>
-          <button className="reading-theme-toggle" type="button" aria-label={t("Toggle dark mode", "다크 모드 전환")} aria-pressed={themeMode === "dark"} onClick={() => setThemeMode(current => current === "dark" ? "light" : "dark")}>
-            <UiIcon name={themeMode === "dark" ? "sun" : "moon"} /><span>{themeMode === "dark" ? t("Light", "라이트") : t("Dark", "다크")}</span>
-          </button>
+          <ThemeToggle dark={themeMode === "dark"} label={t("Toggle dark mode", "다크 모드 전환")} text={themeMode === "dark" ? t("Light", "라이트") : t("Dark", "다크")} onToggle={() => setThemeMode(current => current === "dark" ? "light" : "dark")} />
           <select className="reading-language-toggle" aria-label={t("Interface language", "화면 언어")} value={uiLanguage} onChange={event => setUiLanguage(event.target.value as UiLanguage)}><option value="en">English</option><option value="ko">한국어</option></select>
           {preferences}
         </>} t={t} />}
@@ -3495,11 +3509,12 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
         ) : null}
 
         {renamingGenerationRun ? (
-          <div className="modal-backdrop" role="presentation">
-            <section className="rename-run-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-run-dialog-title">
+          <dialog ref={renameDialogRef} className="rename-run-dialog reading-book-dialog" aria-labelledby="rename-run-dialog-title"
+            onClose={() => setRenamingGenerationRunId(null)}
+            onCancel={event => { if (savingGenerationRunId) event.preventDefault(); }}>
+            <form onSubmit={event => { event.preventDefault(); void handleSaveGenerationRunName(renamingGenerationRun); }}>
               <div className="dialog-header">
                 <div>
-                  <p className="eyebrow">{t("Generation history", "생성 기록")}</p>
                   <h3 id="rename-run-dialog-title">{t("Rename version", "버전 이름 변경")}</h3>
                 </div>
               </div>
@@ -3507,33 +3522,28 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                 {t("Name", "이름")}
                 <input
                   autoFocus
+                  disabled={Boolean(savingGenerationRunId)}
                   value={generationRunDraftById[renamingGenerationRun.id] ?? renamingGenerationRun.name}
                   onChange={(event) => updateGenerationRunDraft(renamingGenerationRun.id, event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void handleSaveGenerationRunName(renamingGenerationRun);
-                    }
-                  }}
                 />
               </label>
+              {renameError && <p className="reading-book-error" role="alert">{renameError}</p>}
               <div className="dialog-actions">
                 <button
-                  type="button"
+                  type="submit"
                   disabled={
                     savingGenerationRunId === renamingGenerationRun.id ||
                     (generationRunDraftById[renamingGenerationRun.id] ?? renamingGenerationRun.name).trim() === renamingGenerationRun.name
                   }
-                  onClick={() => void handleSaveGenerationRunName(renamingGenerationRun)}
                 >
                   {savingGenerationRunId === renamingGenerationRun.id ? t("Saving...", "저장 중...") : t("Save", "저장")}
                 </button>
-                <button type="button" onClick={() => setRenamingGenerationRunId(null)}>
+                <button type="button" disabled={Boolean(savingGenerationRunId)} onClick={() => renameDialogRef.current?.close()}>
                   {t("Cancel", "취소")}
                 </button>
               </div>
-            </section>
-          </div>
+            </form>
+          </dialog>
         ) : null}
 
         {statusToasts.length ? (
@@ -3645,7 +3655,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                             <div>
                               <span className="module-label">{t("Extracted text", "추출된 텍스트")}</span>
                               <span>
-                                {t(`${parsedDocument.pageCount} pages`, `${parsedDocument.pageCount}쪽`)} · {t(`${parsedDocument.wordCount.toLocaleString()} words`, `${parsedDocument.wordCount.toLocaleString()}단어`)} · {parsedDocument.parserName}
+                                {t(`${parsedDocument.pageCount} pages`, `${parsedDocument.pageCount}쪽`)} · {t(`${parsedDocument.wordCount.toLocaleString()} words`, `${parsedDocument.wordCount.toLocaleString()}단어`)}{!modern && <> · {parsedDocument.parserName}</>}
                               </span>
                             </div>
                               <div className="button-group parsed-danger-actions">
@@ -3667,7 +3677,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                                 <div className="split-text-meta">
                                   <span className="module-label">{t("Extracted text", "추출된 텍스트")}</span>
                                   <span>
-                                    {t(`${parsedDocument.pageCount} pages`, `${parsedDocument.pageCount}쪽`)} · {t(`${parsedDocument.wordCount.toLocaleString()} words`, `${parsedDocument.wordCount.toLocaleString()}단어`)} · {parsedDocument.parserName}
+                                    {t(`${parsedDocument.pageCount} pages`, `${parsedDocument.pageCount}쪽`)} · {t(`${parsedDocument.wordCount.toLocaleString()} words`, `${parsedDocument.wordCount.toLocaleString()}단어`)}{!modern && <> · {parsedDocument.parserName}</>}
                                   </span>
                                 </div>
                                 <strong>{t("Choose a splitting method", "분할 방식 선택")}</strong>

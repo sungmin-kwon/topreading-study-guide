@@ -1,4 +1,4 @@
-.reading-shell.admin-console { min-height:100dvh; height:auto; color:var(--ink); }
+.reading-shell.admin-console { min-height:0; height:100dvh; overflow-y:auto; color:var(--ink); }
 .admin-console .admin-topbar a { color:var(--muted); text-decoration:none; font-size:13px; }
 .admin-console .admin-topbar a.reading-brand { color:var(--ink); font:22px Georgia,serif; }
 .admin-console .admin-topbar a:hover { color:var(--accent-strong); }

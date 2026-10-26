@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import "./live-workspace.css";
+import { ThemeToggle } from "./theme-toggle";
 import "./admin-console.css";
 
 type AdminUser = {
@@ -131,9 +132,10 @@ export function AdminConsole() {
     <header className="reading-topbar admin-topbar">
       <a className="reading-brand" href="/">TopReading</a><a href="/">{t("Library", "도서관")}</a>
       <div className="reading-preferences">
-        <button type="button" className="reading-theme-toggle" aria-label={t("Toggle dark mode", "다크 모드 전환")} aria-pressed={theme === "dark"} onClick={() => {
-          const next = theme === "dark" ? "light" : "dark"; setTheme(next); document.documentElement.dataset.theme = next; localStorage.setItem("topreading-theme", next);
-        }}>{theme === "dark" ? t("Light", "라이트") : t("Dark", "다크")}</button>
+        <ThemeToggle dark={theme === "dark"} label={t("Toggle dark mode", "다크 모드 전환")} text={theme === "dark" ? t("Light", "라이트") : t("Dark", "다크")} onToggle={() => {
+          const next = theme === "dark" ? "light" : "dark";
+          setTheme(next); document.documentElement.dataset.theme = next; localStorage.setItem("topreading-theme", next);
+        }} />
         <select className="reading-language-toggle" aria-label={t("Interface language", "화면 언어")} value={language} onChange={event => { setLanguage(event.target.value); localStorage.setItem("topreading-ui-language", event.target.value); }}><option value="en">English</option><option value="ko">한국어</option></select>
       </div>
     </header>

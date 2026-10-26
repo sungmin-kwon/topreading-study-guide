@@ -333,6 +333,16 @@ Deploy with the staging-only pull/stop/build/start command in the Google setup s
 
 The regression script `scripts/test-admin-users.cjs` creates and drops its own random `test_admin_*` schema in a **disposable localhost PostgreSQL database**. Supply `ADMIN_TEST_OWNER_URL` and `ADMIN_TEST_APP_URL` through the local environment, plus `ALLOW_TEST_WRITES=1`. The app account needs no schema ownership; the owner provisions test schema access. It checks authorization, same-origin protection, self/active-user restrictions, final/concurrent administrator protection, rollback after a forced delete failure, account/session removal and retained shared data, then exercises the Admin UI in Playwright. The existing production build is required. Never point test connections at the production database.
 
+## UI consistency review
+
+The live workspace, Admin and sign-in/out pages share the same control typography, colors and appearance toggle. The account disclosure uses plain icons and regular-weight labels; it closes on Escape, outside clicks or focus leaving it. The import and chapter-boundary tools use the same document column and reduced card styling as the guide pages. Parser implementation names no longer appear in the live source-file metadata.
+
+Version renaming uses the shared native dialog treatment, with Escape/focus return, draft reset on Cancel and an inline retryable save error. The page-start table fits its pane, and Admin scrolls within the viewport on small screens. `/legacy` redirects to the current Library; the isolated `/prototype` remains a design reference.
+
+Validation: production build/type checking; desktop, mobile and landscape browser review of Library, Text, all three question editors, guide versions, generation, exports, source/splitting tools, Admin and login/sign-out. Checked English/Korean, light/dark, menu keyboard dismissal, dialog cancellation/focus return/failed-save retention, page-start column fit and Admin scrolling. The eight-viewport Text scroll regression check also passed. Browser checks used the restored local library without writes or paid generation.
+
+This update does not change database schema, authentication rules, environment settings or saved library content. Deploy with the staging update command above.
+
 ## Backups and remaining gates
 
 `npm run backup` remains a legacy SQLite backup tool and explicitly refuses PostgreSQL URLs. For PostgreSQL, pause writes/processing, use `pg_dump --format=custom` with a dedicated backup role, copy the upload directory, then resume service. Restore the dump with `pg_restore` into a separate database and restore matching files before calling a backup valid. Keep both off-server. PostgreSQL does not make filesystem copies transactionally consistent.

@@ -1,6 +1,6 @@
-import { BookWorkspace } from "@/components/book-workspace";
+import { redirect } from "next/navigation";
 
-// Temporary fallback while the live editorial interface is being validated.
+// Keep old bookmarks usable after retiring the temporary fallback interface.
 export default function LegacyPage() {
-  return <BookWorkspace modern={false} />;
+  redirect("/");
 }

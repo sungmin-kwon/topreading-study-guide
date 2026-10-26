@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 
 export type WorkspaceDestination = "source" | "split" | "chapters" | "generate" | "sets" | "review" | "export";
 type Book = { id: string; title: string; author: string | null; pinnedAt: string | null };
@@ -74,12 +74,25 @@ export function WorkspaceNavigation({ tab, onTab, hasBook, hasChapters, hasSourc
 
 /** Native disclosure keeps infrequent actions reachable with keyboard and touch. */
 export function QuietMenu({ label, children }: { label: string; children: ReactNode }) {
-  return <details className="reading-menu" onKeyDown={event => {
+  const ref = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const dismiss = (event: PointerEvent | FocusEvent) => {
+      if (ref.current?.open && event.target instanceof Node && !ref.current.contains(event.target)) ref.current.open = false;
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("focusin", dismiss);
+    return () => { document.removeEventListener("pointerdown", dismiss); document.removeEventListener("focusin", dismiss); };
+  }, []);
+  return <details ref={ref} className="reading-menu" onKeyDown={event => {
     if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
   }}>
     <summary>{label}</summary>
     <div className="reading-menu-content" onClick={event => {
-      if ((event.target as HTMLElement).closest("button")) event.currentTarget.closest("details")?.removeAttribute("open");
+      if ((event.target as HTMLElement).closest("button")) {
+        // A dialog opened by this action returns focus to its visible disclosure.
+        ref.current?.querySelector("summary")?.focus();
+        if (ref.current) ref.current.open = false;
+      }
     }}>{children}</div>
   </details>;
 }

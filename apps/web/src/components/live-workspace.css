@@ -1,6 +1,5 @@
-/* The live workspace shares the prototype's editorial hierarchy. Scoped so the
-   legacy route, admin console and isolated prototype retain their own layouts. */
-.reading-shell { --paper:#fafbf7; --surface:#fff; --surface-soft:#f8faf5; --surface-tint:#edf2e8; --ink:#25392f; --muted:#627467; --line:#dfe5da; --accent:#42674f; --accent-strong:#355a40; display:flex; flex-direction:column; height:100dvh; background:var(--paper); }
+/* Shared visual language for the workspace, administration and authentication. */
+.reading-shell { --paper:#fafbf7; --surface:#fff; --surface-soft:#f8faf5; --surface-tint:#edf2e8; --ink:#25392f; --muted:#627467; --line:#dfe5da; --accent:#42674f; --accent-strong:#355a40; --control:var(--surface); --control-muted:var(--surface-soft); --sidebar:var(--surface-soft); --success-line:var(--line); --success-surface:var(--surface-soft); --toast-surface:var(--surface-tint); display:flex; flex-direction:column; height:100dvh; background:var(--paper); color:var(--ink); font-size:14px; line-height:1.5; }
 :root[data-theme="dark"] .reading-shell { --paper:#111916; --surface:#17221c; --surface-soft:#1b2921; --surface-tint:#263c2e; --ink:#e6eee4; --muted:#b0c0b0; --line:#3a4c3e; --accent:#91b98a; --accent-strong:#b3d7a9; }
 .reading-shell [hidden] { display:none!important; }
 .reading-shell button,.reading-shell input,.reading-shell select,.reading-shell textarea { font:inherit; }
@@ -285,6 +284,7 @@
 /* Keep a useful editing area in short windows and landscape layouts. */
 .reading-text-view .workspace-header { flex-direction:row; }
 @media(max-height:520px) {
+  .reading-text-view .reading-chapter-picker { padding-block:6px; }
   .reading-text-view .workspace-header { padding-top:8px; padding-bottom:8px; }
   .reading-text-view .workspace-header h2 { font-size:20px; }
   .reading-text-view .workspace-subtitle { display:none; }
@@ -293,3 +293,85 @@
   .reading-text-view input.reading-chapter-title { font-size:22px; padding-top:4px; padding-bottom:4px; }
   .reading-text-view .chapter-editor-actions { padding-top:8px; }
 }
+
+/* Secondary surfaces use the same typography and controls as the main pages. */
+.reading-shell .library-user-menu { align-self:center; }
+.reading-shell .library-user-popover { width:250px; max-width:calc(100vw - 32px); max-height:calc(100dvh - 90px); overflow:auto; padding:8px; border-radius:5px; box-shadow:0 8px 24px #0002; }
+.reading-shell .preference-user-summary { padding:8px 10px 12px; margin-bottom:4px; gap:4px; }
+.reading-shell .preference-user-summary strong { font-size:13px; font-weight:500; }
+.reading-shell .preference-user-summary small { font-size:11px; }
+.reading-shell .preference-row { grid-template-columns:18px minmax(0,1fr); gap:10px; min-height:36px; border:0; border-radius:4px; padding:8px 10px; font-size:12px; }
+.reading-shell .preference-row strong { font:inherit; }
+.reading-shell .preference-icon { width:18px; height:18px; background:none; border:0; border-radius:0; color:inherit; }
+.reading-shell .user-avatar { background:var(--surface-soft); }
+.reading-shell .preference-row-danger { color:var(--ink); }
+.reading-shell .reading-menu-content button:hover { background:var(--surface-soft); }
+.reading-shell :is(button,a)[aria-disabled="true"],.reading-shell button:disabled { opacity:.5; cursor:not-allowed; }
+.reading-shell .primary-action { font-size:13px; font-weight:500; border-radius:4px; }
+.reading-shell :is(.chapter-editor-actions,.study-item-actions) button { border-radius:4px; font-size:13px; }
+.reading-shell .study-set-subtabs span { border:0; background:none; padding:0; }
+.reading-shell .study-item-edit-form { background:none; border-radius:0; }
+.reading-shell .study-item-edit-form label { font-size:12px; font-weight:400; text-transform:none; }
+.reading-shell .study-item-edit-form :is(input,textarea,select) { border-radius:4px; font-size:14px; }
+.reading-shell .status-toast { border-radius:4px; font-size:13px; font-weight:400; background:var(--surface); box-shadow:0 4px 16px #0002; }
+.reading-shell .reading-book-dialog>form { display:grid; gap:20px; }
+.reading-shell .reading-book-dialog .rename-run-field { display:grid; gap:8px; }
+.reading-shell .reading-book-dialog .rename-run-field input { width:100%; min-width:0; border:1px solid var(--line); color:var(--ink); }
+.reading-shell .rename-run-dialog .dialog-actions { flex-direction:row-reverse; justify-content:flex-start; }
+
+/* Import and splitting remain tools within the document, without nested cards. */
+.reading-shell :is(.source-panel,.split-panel) { max-width:932px; width:100%; min-height:100%; }
+.reading-shell :is(.source-panel,.split-panel)>.panel-title-row h3 { font:30px/1.3 Georgia,serif; margin:0 0 16px; }
+.reading-shell .source-list { gap:28px; }
+.reading-shell .source-card { gap:16px; padding:0 0 24px; border-bottom:1px solid var(--line); min-width:0; }
+.reading-shell :is(.source-file-module,.parsed-row,.source-next-step,.split-preview,.text-inspector,.page-splitter) { border:0; border-radius:0; box-shadow:none; padding:0; background:none; min-width:0; }
+.reading-shell .source-card h4 { font-size:16px; font-weight:500; overflow-wrap:anywhere; }
+.reading-shell .module-label { color:var(--muted); font-size:11px; font-weight:400; text-transform:none; letter-spacing:0; line-height:1.5; }
+.reading-shell .source-meta-row span { padding:0; border:0; background:none; font-weight:400; text-transform:none; }
+.reading-shell .source-meta-row { gap:12px; }
+.reading-shell .parsed-row { padding-top:16px; border-top:1px solid var(--line); }
+.reading-shell .split-workflow-row { padding:0; border:0; }
+.reading-shell .parsed-row-header { font-size:12px; }
+.reading-shell .split-text-meta { margin-bottom:12px; }
+.reading-shell :is(.split-method-header,.tool-panel-header,.page-marker-editor-header) strong { font-size:14px; font-weight:500; }
+.reading-shell :is(.button-group,.inspector-actions,.parsed-danger-actions) button { padding:6px 10px; border-radius:4px; background:transparent; font-size:12px; font-weight:400; white-space:normal; }
+.reading-shell .danger-button { border-color:transparent; background:transparent; color:var(--danger-ink); }
+.reading-shell .split-mode-card { min-height:0; gap:8px; border-radius:4px; padding:14px; }
+.reading-shell .split-mode-card strong { font-size:13px; font-weight:500; }
+.reading-shell .split-mode-card-label { border:0; border-radius:0; padding:0; background:none; color:var(--muted); font-weight:400; text-transform:none; }
+.reading-shell .split-mode-card.active .split-mode-card-label { background:none; }
+.reading-shell :is(.split-preview,.text-inspector,.page-splitter) { margin-top:24px; }
+.reading-shell .inspector-grid label { font-weight:400; text-transform:none; }
+.reading-shell .search-preview { font:15px/1.8 Georgia,serif; background:var(--surface-soft); border-radius:4px; }
+.reading-shell .page-preview-row { padding:12px 0; border:0; border-bottom:1px solid var(--line); border-radius:0; }
+.reading-shell .page-preview-row strong { font-weight:500; }
+.reading-shell .page-marker-table { border-radius:4px; }
+.reading-shell .page-marker-table-head { font-weight:500; text-transform:none; letter-spacing:0; }
+.reading-shell .page-marker-row input { font-weight:400; border-radius:4px; }
+.reading-shell .split-candidate { border:0; border-bottom:1px solid var(--line); border-radius:0; background:none; padding:12px 0; }
+.reading-shell .split-candidate.accepted { background:none; }
+.reading-shell .split-candidate strong { font-weight:500; }
+.reading-shell .upload-form { padding-bottom:24px; border-bottom:1px solid var(--line); }
+.reading-shell .file-picker { border-radius:4px; background:var(--surface); }
+.reading-shell .file-picker-button { border-radius:0; background:var(--surface-soft); font-size:12px; font-weight:400; }
+.reading-shell .upload-form>button { border-radius:4px; font-size:13px; }
+
+.reading-auth { overflow:auto; }
+.reading-auth .reading-brand { color:var(--ink); text-decoration:none; }
+.reading-auth-content { width:min(440px,100%); margin:clamp(40px,12vh,140px) auto 40px; padding:0 24px; }
+.reading-auth-content h1 { font:32px/1.3 Georgia,serif; margin:0 0 28px; }
+.reading-auth-error { margin:0 0 24px; color:var(--danger-ink); font-size:13px; line-height:1.8; }
+.reading-shell .reading-auth-action { display:inline-flex; align-items:center; min-height:44px; padding:10px 16px; border:1px solid var(--accent-strong); border-radius:4px; background:var(--accent-strong); color:var(--surface); text-decoration:none; font-size:13px; }
+@media(max-width:760px) {
+  .reading-shell .preference-row { min-height:44px; }
+  .reading-shell :is(.source-panel,.split-panel)>.panel-title-row h3 { font-size:26px; }
+  .reading-shell .split-mode-grid,.reading-shell .inspector-grid,.reading-shell .page-splitter .inspector-grid { grid-template-columns:minmax(0,1fr); }
+  .reading-shell .split-mode-card { gap:4px; padding:12px; }
+  .reading-shell .study-item-edit-form :is(input,textarea,select),.reading-shell .inspector-grid :is(input,textarea) { font-size:16px; }
+}
+.reading-shell :is(.compact-icon-command,.danger-icon-button) { border:1px solid var(--line); border-radius:4px; background:transparent; font-size:12px; font-weight:400; }
+.reading-shell .danger-icon-button { border-color:transparent; color:var(--danger-ink); }
+.reading-shell .tool-panel-header button { border:0; background:transparent; border-radius:4px; font-size:12px; }
+.reading-shell :is(.page-marker-table-head,.page-marker-row) { grid-template-columns:48px 74px minmax(0,1fr) 36px; gap:8px; }
+.reading-shell .page-marker-row input { width:100%; min-width:0; }
+.reading-shell .page-marker-table-head { overflow-wrap:anywhere; }
