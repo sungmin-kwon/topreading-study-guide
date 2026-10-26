@@ -49,7 +49,7 @@ def main():
         owner_url = f"postgresql://staging_owner:{quote(state['owner_password'], safe='')}@127.0.0.1:{state['port']}/topreading_staging"
         starter.run(['node', 'scripts/apply-postgres-migrations.mjs'], env={**os.environ,
             'MIGRATION_DATABASE_URL': owner_url, 'DATABASE_SCHEMA': 'topreading_staging'})
-        starter.run(['node', 'scripts/check-staging-runtime.mjs'], env={**os.environ, **values})
+        starter.run(['node', 'scripts/check-staging-runtime.mjs', '--require-worker'], env={**os.environ, **values})
         # Preserve all unrelated configuration verbatim, including comments and
         # secrets. Obsolete model/limit keys no longer affect application runtime.
         retired = re.compile(r'^\s*(?:export\s+)?(?:OPENAI_MODEL|MAX_GENERATION_CHAPTERS|MAX_GENERATION_ITEMS)\s*=')

@@ -172,3 +172,9 @@ backup frequency/retention and monitor successful restores before VPS cutover.
   systemd stop/start behavior was simulated locally; Ubuntu service acceptance is
   still required. Offline tests cover corruption, symlinks, unsafe paths and the
   production-checkout guard. No paid model requests were used in local testing.
+
+### 2026-10-26: pre-migration backup restart failure
+
+The first Ubuntu backup attempt reported that `topreading-staging.service` could not restart. The startup readiness script had been changed by `git pull` to require migration 0005 columns before that migration was applied. This was a deployment ordering defect: the old built web app could otherwise continue using the old schema. The second backup succeeded at `backups/postgres-20261026_085323-71772f15`, but a successful backup does not prove the service restarted: the helper preserves the running/stopped state it found on entry.
+
+Fixed by making worker-column checks explicit (`--require-worker`) in migration/worker setup only. The web startup check remains compatible with the pre-worker schema. Three regression checks cover old-web restart, rejection of an unmigrated worker, and post-migration readiness. Pull the fix, reset the staging service's failed state, start it, run the origin checker, then verify the reported backup before proceeding with migration/build/worker installation. Ubuntu recovery and backup verification are awaiting operator confirmation.

@@ -39,7 +39,7 @@ def main():
         raise starter.StartError('Node 22 is required.')
     if not (ROOT / 'dist/generation-worker.mjs').is_file():
         raise starter.StartError('Run npm run build first.')
-    starter.run([node, 'scripts/check-staging-runtime.mjs'], env={**os.environ, **values})
+    starter.run([node, 'scripts/check-staging-runtime.mjs', '--require-worker'], env={**os.environ, **values})
     q = starter.unit_value
     unit = f'''# Managed by TopReading start-generation-worker.py
 [Unit]
