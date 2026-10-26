@@ -335,7 +335,7 @@ The regression script `scripts/test-admin-users.cjs` creates and drops its own r
 
 ## Remove the extra staging Access gate
 
-The user has authorized this step after confirming Google login/sign-out, invitation enforcement and disabled-session rejection. The Cloudflare dashboard change and the post-change public/browser checks are still pending. No production changes are included.
+The user has authorized this step after confirming Google login/sign-out, invitation enforcement and disabled-session rejection. The user subsequently deleted the staging Access application, but the public checker reported a connection failure at `/api/auth/providers`. The user then confirmed that a fresh private browser opens TopReading’s Google sign-in directly and that the tunnel route’s Protect with Access setting is off. The gate is removed for that browser path; the Ubuntu public checker connection failure still needs diagnosis, and post-removal signed-in/membership checks remain pending. No production changes are included.
 
 1. On Ubuntu, update the staging checkout and check the running origin:
 
@@ -364,6 +364,8 @@ The user has authorized this step after confirming Google login/sign-out, invita
 No `.env.local`, OAuth callback or app authentication changes are required. Keep `AUTH_MODE=google`. Unused Cloudflare team/AUD identifiers may remain in the file. Do not rerun the starter with `--aud`: that would switch the application back to requiring Access assertions.
 
 If the public checker fails, restore the staging self-hosted Access application with the saved hostname/policy assignment while diagnosing. Recreating an application gives it a new AUD. If also re-enabling the tunnel's optional Protect with Access validation, select that new application/AUD. Keep TopReading in Google mode throughout rollback. A broad/wildcard Access application may also cover staging; narrow its scope deliberately without removing protection from other hostnames.
+
+If the checker cannot reach `/api/auth/providers`, rerun both origin and public checks before changing authentication settings. The checker distinguishes DNS lookup, TLS verification/handshake, timeout, refused/reset connections and other network/proxy failures without printing response bodies or credentials. A tunnel-side Access denial usually produces an HTTP error rather than a transport error; do not assume it is the cause of a failed connection. Confirm that the staging DNS record and published tunnel route still exist, then check Protect with Access on that route. Keep `AUTH_MODE=google` and certificate validation enabled.
 
 The checker is a deployment smoke check, not a replacement for the real Google sign-in and membership tests above. Local validation used the built app in Google mode with dummy OAuth credentials; it made no Google requests and changed no library data.
 

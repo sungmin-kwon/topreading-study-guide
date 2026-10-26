@@ -6,7 +6,11 @@ Default: check the Ubuntu origin on loopback port 3100 before dashboard changes.
 No credentials, cookies, environment files or real book IDs are needed.
 """
 import argparse
+import errno
+import http.client
 import json
+import socket
+import ssl
 import sys
 import urllib.error
 import urllib.parse
@@ -18,6 +22,28 @@ MISSING_ID = '00000000-0000-4000-8000-000000000000'
 
 class CheckError(Exception):
     pass
+
+
+def connection_failure(error):
+    """Describe transport errors without exposing proxy URLs or credentials."""
+    reason = error.reason if isinstance(error, urllib.error.URLError) else error
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        return 'HTTPS certificate verification failed. Check the certificate, Ubuntu CA certificates and system clock; do not disable TLS verification.'
+    if isinstance(reason, socket.gaierror):
+        return 'DNS lookup failed. Check Ubuntu DNS, the staging DNS record and any configured proxy hostname.'
+    if isinstance(reason, (TimeoutError, socket.timeout)) or getattr(reason, 'errno', None) == errno.ETIMEDOUT:
+        return 'Connection or response timed out. Check connectivity and the tunnel route.'
+    if isinstance(reason, ssl.SSLError):
+        return 'The HTTPS handshake failed. Check the staging HTTPS route and certificate.'
+    if isinstance(reason, ConnectionRefusedError):
+        return 'Connection refused. Check that the selected service or proxy is listening.'
+    if isinstance(reason, ConnectionResetError):
+        return 'The connection was reset. Check the network, proxy and tunnel status.'
+    if isinstance(reason, http.client.HTTPException):
+        return 'An incomplete or invalid HTTP response was received. Check the proxy and tunnel status.'
+    code = errno.errorcode.get(getattr(reason, 'errno', None))
+    suffix = f' ({code})' if code else ''
+    return f'Network/proxy connection failed{suffix}. Check connectivity, proxy settings and the tunnel route.'
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -38,14 +64,15 @@ def check(base, *, public=False):
             'Cache-Control': 'no-cache', 'User-Agent': 'TopReading-staging-check/1', **(headers or {})
         })
         try:
-            response = opener.open(req, timeout=15)
-        except urllib.error.HTTPError as error:
-            response = error
-        except (urllib.error.URLError, TimeoutError, OSError):
-            raise CheckError(f'{path}: could not reach the service. Check its status and route.') from None
-        with response:
-            # Never print response bodies, redirect query strings or cookies.
-            return response.status, response.headers, response.read(1_000_000)
+            try:
+                response = opener.open(req, timeout=15)
+            except urllib.error.HTTPError as error:
+                response = error
+            with response:
+                # Never print response bodies, redirect query strings or cookies.
+                return response.status, response.headers, response.read(1_000_000)
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
+            raise CheckError(f'{path}: {connection_failure(error)}') from None
 
     def expect_json(path, expected, headers=None):
         status, response_headers, body = request(path, headers)
