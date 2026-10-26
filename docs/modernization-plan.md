@@ -196,3 +196,7 @@ Provisional monthly planning allowances, excluding AI usage: US$10–25 for a mo
 - [Future-work notes](future-work.md)
 
 This document is the agreed modernization direction. Older documents describe the current implementation and may contain recommendations superseded by this plan.
+
+## 2026-10-26: backup and generation-worker release
+
+Implemented manual PostgreSQL backups with private recovery files and isolated restore verification, and a persistent generation queue consumed by a standalone systemd worker. Completed chapters/progress survive web restarts; worker interruption preserves partial results without automatic paid replay. Local restore and mocked-provider lifecycle tests passed. Ubuntu deployment, real generation acceptance and off-server backup storage are pending. See [deployment and operations](postgres-backup-worker.md). Extraction/export workers, automatic resumption, scheduled backups and VPS cutover remain future work.

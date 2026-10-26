@@ -1,0 +1,80 @@
+// Real PostgreSQL queue/process lifecycle tests; a build-time fake replaces the
+// model provider. The production worker has no mock-provider switch.
+import assert from 'node:assert/strict';
+import {randomUUID,createHash} from 'node:crypto';
+import fs from 'node:fs/promises';
+import {spawn} from 'node:child_process';
+import {once} from 'node:events';
+import {Pool} from 'pg';
+import {build} from 'esbuild';
+const ownerUrl=process.env.ADMIN_TEST_OWNER_URL, appUrl=process.env.ADMIN_TEST_APP_URL;
+if(process.env.ALLOW_TEST_WRITES!=='1'||[ownerUrl,appUrl].some(u=>!u||!['127.0.0.1','localhost'].includes(new URL(u).hostname))) throw Error('Use disposable local test database URLs');
+const schema='test_worker_'+randomUUID().replaceAll('-',''), s=`"${schema}"`;
+const owner=new Pool({connectionString:ownerUrl});
+const dir=`dist/test-worker-${randomUUID()}`;
+let worker, queue, applicationPool;
+const children=[];
+const wait=async(test)=>{for(let i=0;i<120;i++){if(await test())return;await new Promise(r=>setTimeout(r,100));}throw Error('Timed out');};
+const rows=async(q,p=[])=>(await owner.query(q,p)).rows;
+const options={bundle:true,platform:'node',format:'esm',target:'node22',packages:'external',tsconfig:'apps/web/tsconfig.json',alias:{'@topreading/core':'./packages/core/src/index.ts'}};
+const start=()=>{const p=spawn(process.execPath,[`${dir}/worker.mjs`],{env:{...process.env,DATABASE_URL:appUrl,DATABASE_SCHEMA:schema},stdio:['ignore','pipe','pipe']});children.push(p);let output='';p.stdout.on('data',b=>output+=b);p.stderr.on('data',b=>output+=b);p.output=()=>output;return p;};
+try {
+  await fs.mkdir(dir,{recursive:true});
+  const c=await owner.connect();
+  try{await c.query(`CREATE SCHEMA ${s}`);await c.query(`SET search_path TO ${s},pg_catalog`);for(const file of (await fs.readdir('database/migrations')).filter(f=>/^\d{4}.*sql$/.test(f)).sort())await c.query(await fs.readFile(`database/migrations/${file}`,'utf8'));const role=new URL(appUrl).username;assert(/^[a-z_]+$/.test(role));await c.query(`GRANT USAGE ON SCHEMA ${s} TO "${role}"; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA ${s} TO "${role}"`);}finally{c.release();}
+  Object.assign(process.env,{DATABASE_URL:appUrl,DATABASE_SCHEMA:schema});
+  await build({...options,stdin:{contents:'export * from "./apps/web/src/lib/generation-queue"; export {pool} from "./apps/web/src/lib/db/client";',resolveDir:process.cwd()},outfile:`${dir}/queue.mjs`});
+  queue=await import(`../${dir}/queue.mjs`);applicationPool=queue.pool;
+  await build({...options,entryPoints:['apps/web/src/worker/generation.ts'],outfile:`${dir}/worker.mjs`,plugins:[{name:'fake-provider',setup(b){b.onResolve({filter:/^@\/lib\/openai-generator$/},()=>({path:'fake',namespace:'fake'}));b.onLoad({filter:/.*/,namespace:'fake'},()=>({contents:`export async function generateOpenAIChapterItems(book,chapter,plan){if(chapter.chapterNumber===2) await new Promise(r=>setTimeout(r,5000)); return {generatedItems:{vocabularyItems:[{term:'word'+chapter.chapterNumber,definition:'fixture'}]},rawOutput:{},plan,model:'fixture',usage:{total_tokens:1}};}`,loader:'js'}));}}]});
+  const lib=randomUUID(),user=randomUUID(),book=randomUUID(),source=randomUUID(),doc=randomUUID(),ch1=randomUUID(),ch2=randomUUID();
+  await rows(`INSERT INTO ${s}.libraries(id,name) VALUES($1,'worker fixture')`,[lib]);
+  await rows(`INSERT INTO ${s}.users(id,email,created_at,updated_at) VALUES($1,'worker@example.test',now(),now())`,[user]);
+  await rows(`INSERT INTO ${s}.library_memberships(library_id,user_id,role) VALUES($1,$2,'member')`,[lib,user]);
+  await rows(`INSERT INTO ${s}.books(id,library_id,title,created_at,updated_at) VALUES($1,$2,'Fixture',now(),now())`,[book,lib]);
+  await rows(`INSERT INTO ${s}.source_files(id,book_id,original_filename,stored_path,mime_type,byte_size,sha256,created_at) VALUES($1,$2,'fixture.txt','fixture.txt','text/plain',1,'fixture',now())`,[source,book]);
+  await rows(`INSERT INTO ${s}.parsed_documents(id,source_file_id,parser_name,parser_version,text_content,page_count,word_count,metadata_json,created_at) VALUES($1,$2,'test','1','hello',1,1,'{}',now())`,[doc,source]);
+  for(const [i,id] of [ch1,ch2].entries())await rows(`INSERT INTO ${s}.chapters(id,book_id,parsed_document_id,chapter_number,text_content,word_count,sort_order,created_at,updated_at) VALUES($1,$2,$3,$4,'fixture text',2,$4,now(),now())`,[id,book,doc,i+1]);
+  const makeRun=async()=>{const id=randomUUID();await rows(`INSERT INTO ${s}.generation_runs(id,book_id,config_json,started_at,created_at,updated_at) VALUES($1,$2,$3,now(),now(),now())`,[id,book,JSON.stringify({chapters:[ch1,ch2].map((id,i)=>({chapterId:id,chapterNumber:i+1,plan:{vocabularyCount:1,multipleChoiceCount:0,shortAnswerCount:0}}))})]);return id;};
+  const status=async id=>(await rows(`SELECT status FROM ${s}.generation_runs WHERE id=$1`,[id]))[0].status;
+  const token=randomUUID();
+  await rows(`INSERT INTO ${s}.auth_sessions(token_hash,user_id,expires) VALUES($1,$2,now()+interval '1 hour')`,[createHash('sha256').update(token).digest('hex'),user]);
+  const port=3199, base=`http://127.0.0.1:${port}`;
+  const net=await import('node:net');const probe=net.createServer();await new Promise((resolve,reject)=>{probe.once('error',reject);probe.listen(port,'127.0.0.1',resolve);});await new Promise(r=>probe.close(r));
+  const web=spawn(process.execPath,[process.cwd()+'/node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port',String(port)],{cwd:process.cwd()+'/apps/web',env:{...process.env,AUTH_MODE:'google',APP_BASE_URL:base,AUTH_URL:base,AUTH_SECRET:randomUUID(),AUTH_GOOGLE_ID:'fixture',AUTH_GOOGLE_SECRET:'fixture'},stdio:'ignore'});children.push(web);
+  await wait(async()=>{try{return (await fetch(base+'/login')).status===200;}catch{return false;}});
+  const first=await makeRun(), endpoint=base+`/api/books/${book}/generation-runs/${first}/execute`;
+  assert.equal((await fetch(endpoint,{method:'POST',headers:{origin:base,'Cf-Access-Authenticated-User-Email':'worker@example.test'}})).status,401);
+  const enqueue=()=>fetch(endpoint,{method:'POST',headers:{origin:base,cookie:`authjs.session-token=${token}`}});
+  const responses=await Promise.all([enqueue(),enqueue()]);assert.deepEqual(responses.map(r=>r.status),[202,202]);
+  const patch=await fetch(base+`/api/books/${book}/generation-runs/${first}`,{method:'PATCH',headers:{origin:base,cookie:`authjs.session-token=${token}`,'content-type':'application/json'},body:JSON.stringify({status:'completed',progress:{completedChapters:99}})});
+  assert.equal(patch.status,200);assert.equal(await status(first),'generating');
+  assert.equal((await rows(`SELECT count(*)::int n FROM ${s}.jobs`))[0].n,1);
+  const competing=await makeRun();await assert.rejects(queue.enqueueGeneration(book,competing,user));
+  worker=start();await wait(()=>worker.output().includes('ready'));
+  const second=start();await once(second,'exit');assert.match(second.output(),/already owns/);
+  await wait(async()=>(await rows(`SELECT progress_json FROM ${s}.generation_runs WHERE id=$1`,[first]))[0].progress_json.currentChapterNumber===2);
+  web.kill('SIGTERM');await once(web,'exit');
+  await wait(async()=>await status(first)==='completed');
+  console.log('PASS: authenticated HTTP enqueue returns 202; spoofed headers rejected; client cannot forge completion; generation survives web shutdown.');
+  assert.equal((await rows(`SELECT count(*)::int n FROM ${s}.vocabulary_items`))[0].n,2);
+  console.log('PASS: duplicate enqueue, per-book exclusion, singleton worker, completed chapter persistence.');
+  worker.kill('SIGTERM');await once(worker,'exit');
+  const cancelled=await makeRun();await queue.enqueueGeneration(book,cancelled,user);await queue.cancelGeneration(cancelled);worker=start();await wait(async()=>await status(cancelled)==='cancelled');
+  const activeCancel=await makeRun();await queue.enqueueGeneration(book,activeCancel,user);
+  await wait(async()=>(await rows(`SELECT progress_json FROM ${s}.generation_runs WHERE id=$1`,[activeCancel]))[0].progress_json.currentChapterNumber===2);
+  await queue.cancelGeneration(activeCancel);await wait(async()=>await status(activeCancel)==='cancelled');
+  assert.equal((await rows(`SELECT count(*)::int n FROM ${s}.vocabulary_items v JOIN ${s}.study_sets st ON st.id=v.study_set_id WHERE st.generation_run_id=$1`,[activeCancel]))[0].n,2);
+  console.log('PASS: active cancellation waits for the chapter and preserves its committed results.');
+  const crash=await makeRun();await queue.enqueueGeneration(book,crash,user);
+  await wait(async()=>(await rows(`SELECT progress_json FROM ${s}.generation_runs WHERE id=$1`,[crash]))[0].progress_json.currentChapterNumber===2);
+  worker.kill('SIGKILL');await once(worker,'exit');worker=start();await wait(async()=>await status(crash)==='failed');
+  assert.equal((await rows(`SELECT count(*)::int n FROM ${s}.vocabulary_items v JOIN ${s}.study_sets st ON st.id=v.study_set_id WHERE st.generation_run_id=$1`,[crash]))[0].n,1);
+  await queue.enqueueGeneration(book,crash,user);assert.equal(await status(crash),'failed');
+  console.log('PASS: queued cancellation, worker crash recovery, partial results retained, no automatic paid replay.');
+  worker.kill('SIGTERM');await once(worker,'exit');
+  const disabled=await makeRun();await queue.enqueueGeneration(book,disabled,user);await rows(`UPDATE ${s}.users SET status='disabled' WHERE id=$1`,[user]);worker=start();await wait(async()=>await status(disabled)==='cancelled');
+  console.log('PASS: queued work rechecks disabled-account access.');
+} finally {
+  for(const child of children)if(child.exitCode===null&&child.signalCode===null){child.kill('SIGKILL');await once(child,'exit');}
+  await applicationPool?.end();await owner.query(`DROP SCHEMA IF EXISTS ${s} CASCADE`);await owner.end();await fs.rm(dir,{recursive:true,force:true});
+}

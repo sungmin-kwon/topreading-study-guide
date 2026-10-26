@@ -20,21 +20,23 @@ try {global.fetch=async(_url,init)=>{const body=JSON.parse(init.body);calls++;le
 const generate=loader({'@topreading/core':{deriveGenerationPlan:()=>({vocabularyCount:0,multipleChoiceCount:1,shortAnswerCount:0})},'@/lib/study-items':{},'@/lib/study-sets':{}})('openai-generator').generateOpenAIChapterItems;
 const r=await generate({title:'Fixture',author:'Fixture'},{chapterNumber:1,title:'Gate',wordCount:9,textContent:passage},{vocabularyCount:0,multipleChoiceCount:1,shortAnswerCount:0});assert.equal(calls,2);assert.equal(r.usage.total_tokens,30);const item=r.generatedItems.multipleChoiceQuestions[0];assert.equal(item.choices[item.correctChoiceIndex],'Mina');assert.equal(r.rawOutput.mcq_quality.calls,1);
 }finally{global.fetch=originalFetch;if(originalKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=originalKey;}});
-function runRouteHarness(existing=false, failSecond=false) {
+function runExecutorHarness(existing=false, failSecond=false) {
  const run={id:'run',bookId:'book',name:'Practice',status:'draft',configJson:JSON.stringify({chapters:[1,2].map(n=>({chapterId:'chapter-'+n,chapterNumber:n,plan:{vocabularyCount:0,multipleChoiceCount:1,shortAnswerCount:0}}))})};
  const state={appended:[],updates:[],generated:0};
- const post=loader({
+ const execute=loader({
+  '@/lib/db/client':{atomic:async fn=>fn()},
+  '@/lib/generation-queue':{cancellationRequested:async()=>false},
   'next/server':{NextResponse:{json:(body,options={})=>({body,status:options.status||200})}},
   '@/lib/auth':{requireActiveUser:async()=>true,requireBookAccess:async()=>true}, '@/lib/books':{getBook:async()=>({id:'book',title:'Test'})}, '@/lib/chapters':{getChapter:async id=>({id,bookId:'book',chapterNumber:Number(id.slice(-1)),title:'Gate',wordCount:9})},
   '@/lib/generation-runs':{getGenerationRun:async()=>run,getGeneratingRunForBook:async()=>null,updateGenerationRun:async patch=>({...run,...patch}),summarizeGenerationRun:async r=>r},
   '@/lib/openai-generator':{generateOpenAIChapterItems:async()=>{if(++state.generated===2&&failSecond)throw Error('Simulated model error');return {generatedItems:{multipleChoiceQuestions:[q()]},rawOutput:{},plan:{},usage:{input_tokens:10,output_tokens:5,total_tokens:15},model:'test-model'}}},
   '@/lib/study-items':{appendStudyItems:async(_id,items)=>state.appended.push(items),listStudyItems:async()=>({}),summarizeStudyItems:()=>({})},
   '@/lib/study-sets':{listStudySetsForRun:async()=>existing?[{id:'saved'}]:[],createStudySet:async()=>({id:'set'}),updateStudySet:async patch=>{state.updates.push(patch);return patch}}
- })(path.join(root,'apps/web/src/app/api/books/[bookId]/generation-runs/[generationRunId]/execute/route.ts')).POST;
- return {state,post:()=>post({headers:new Headers()},{params:Promise.resolve({bookId:'book',generationRunId:'run'})})};
+ })('generation-executor').executeGeneration;
+ return {state,post:()=>execute('book','run')};
 }
-test('saved guide versions cannot be overwritten by generation',async()=>{const h=runRouteHarness(true);const result=await h.post();assert.equal(result.status,409);assert.equal(h.state.generated,0);assert.equal(h.state.appended.length,0);});
-test('a later generation failure preserves completed chapter results',async()=>{const h=runRouteHarness(false,true);const result=await h.post();assert.equal(result.status,400);assert.equal(h.state.appended.length,1);const saved=h.state.updates.at(-1);assert.equal(saved.status,'failed');assert.equal(saved.rawOutput.incomplete,true);assert.equal(saved.rawOutput.chapters.length,1);});
+test('saved guide versions cannot be overwritten by generation',async()=>{const h=runExecutorHarness(true);const result=await h.post();assert.match(result.error,/already contains saved results/);assert.equal(h.state.generated,0);assert.equal(h.state.appended.length,0);});
+test('a later generation failure preserves completed chapter results',async()=>{const h=runExecutorHarness(false,true);const result=await h.post();assert.equal(result.error,'Simulated model error');assert.equal(h.state.appended.length,1);const saved=h.state.updates.at(-1);assert.equal(saved.status,'failed');assert.equal(saved.rawOutput.incomplete,true);assert.equal(saved.rawOutput.chapters.length,1);});
 test('preview loader rejects malformed nested content instead of overwriting it',()=>{
  const storage=load(path.join(root,'apps/web/src/app/prototype/preview-storage.ts'));
  const fixture={version:2,books:storage.withSourceSnapshots(),position:{bookId:'garden',chapterId:'garden-1',guideId:'guide-2',view:'guides',kind:'multiple-choice'},drafts:{},history:[],language:'en',dark:false};

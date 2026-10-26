@@ -34,20 +34,11 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const progress = body?.progress && typeof body.progress === "object" && !Array.isArray(body.progress)
-    ? body.progress as Record<string, unknown>
-    : undefined;
-  const log = Array.isArray(body?.log) ? body.log.map((item: unknown) => String(item)) : undefined;
-
   try {
     const updated = await updateGenerationRun({
       id: run.id,
       name: body?.name === undefined ? undefined : String(body.name),
-      status: body?.status === undefined ? undefined : String(body.status),
-      progress,
-      log,
-      errorMessage: body?.errorMessage === undefined ? undefined : body.errorMessage === null ? null : String(body.errorMessage),
-      finishedAt: body?.finishedAt === undefined ? undefined : body.finishedAt === null ? null : String(body.finishedAt)
+
     });
 
     return NextResponse.json({ generationRun: await summarizeGenerationRun(updated || run) });

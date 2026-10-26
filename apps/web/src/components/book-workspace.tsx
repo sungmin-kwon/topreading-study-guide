@@ -2327,7 +2327,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
 
       setGenerationRuns((current) => current.map((run) => run.id === payload.generationRun?.id ? payload.generationRun : run));
       setGenerationLog(payload.generationRun.log);
-      setStatusMessage(payload.generationRun.status === "cancelled" ? "Generation cancelled." : "Generation completed.");
+      setStatusMessage("Generation queued. You can close this page; progress is saved.");
     } finally {
       window.clearInterval(pollId);
       setGeneratingChapterId(null);

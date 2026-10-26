@@ -405,3 +405,7 @@ This update does not change database schema, authentication rules, environment s
 This branch keeps local files and request-bound extraction/generation/export. It does **not** complete durable worker jobs, object storage, non-destructive chapter-boundary revisions, stale-guide notices, VPS provisioning, automated off-server backup/restore, or production cutover. Existing explicit chapter/book deletion removes corresponding revision history. Re-splitting remains destructive and needs the later import-workflow overhaul.
 
 Next: implement PostgreSQL backup/restore support, then durable jobs and private file storage, then complete workflow/recovery checks and a VPS restore rehearsal before the production maintenance window. Preserve the home service for rollback; after new cloud writes, rollback requires data reconciliation rather than only changing DNS.
+
+## 2026-10-26: backup and generation-worker release
+
+Implemented manual PostgreSQL backups with private recovery files and isolated restore verification, and a persistent generation queue consumed by a standalone systemd worker. Completed chapters/progress survive web restarts; worker interruption preserves partial results without automatic paid replay. Local restore and mocked-provider lifecycle tests passed. Ubuntu deployment, real generation acceptance and off-server backup storage are pending. See [deployment and operations](postgres-backup-worker.md). Extraction/export workers, automatic resumption, scheduled backups and VPS cutover remain future work.

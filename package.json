@@ -13,17 +13,22 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace @topreading/web",
-    "build": "npm run build --workspace @topreading/web",
+    "build": "npm run build --workspace @topreading/web && npm run build:worker",
     "start": "npm run start --workspace @topreading/web",
     "lint": "npm run lint --workspace @topreading/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "backup": "node scripts/backup-data.mjs",
-    "db:migrate": "node scripts/apply-postgres-migrations.mjs"
+    "db:migrate": "node scripts/apply-postgres-migrations.mjs",
+    "build:worker": "node scripts/build-worker.mjs",
+    "worker": "node dist/generation-worker.mjs"
   },
   "overrides": {
     "postcss": "^8.5.31",
     "next": {
       "sharp": "^0.35.5"
     }
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
   }
 }

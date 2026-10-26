@@ -149,12 +149,12 @@ export async function updateGenerationRun(input: UpdateGenerationRunInput): Prom
   }
 
   const updates = {
-    name: input.name === undefined ? existing.name : input.name?.trim() || null,
-    status: normalizeStatus(input.status) || existing.status,
-    progressJson: input.progress === undefined ? existing.progressJson : JSON.stringify(input.progress),
-    logJson: input.log === undefined ? existing.logJson : JSON.stringify(input.log),
-    errorMessage: input.errorMessage === undefined ? existing.errorMessage : input.errorMessage,
-    finishedAt: input.finishedAt === undefined ? existing.finishedAt : input.finishedAt,
+    ...(input.name === undefined ? {} : { name: input.name?.trim() || null }),
+    ...(input.status === undefined ? {} : { status: normalizeStatus(input.status) }),
+    ...(input.progress === undefined ? {} : { progressJson: JSON.stringify(input.progress) }),
+    ...(input.log === undefined ? {} : { logJson: JSON.stringify(input.log) }),
+    ...(input.errorMessage === undefined ? {} : { errorMessage: input.errorMessage }),
+    ...(input.finishedAt === undefined ? {} : { finishedAt: input.finishedAt }),
     updatedAt: nowIso()
   };
 
@@ -238,50 +238,6 @@ export async function summarizeGenerationRun(run: GenerationRun, index = 0) {
   const studySets = await listStudySetsForRun(run.id);
   const parsedConfig = parseJsonObject(run.configJson);
   let normalizedRun = run;
-
-  if (run.status === "generating") {
-    const expectedChapterIds = getConfiguredChapterIds(parsedConfig);
-    const completedStudySets = studySets.filter((studySet) => studySet.status === "ready" || studySet.status === "reviewed");
-    const generatedChapterIds = new Set<string>();
-    for (const studySet of completedStudySets) {
-      if (studySet.chapterId) {
-        generatedChapterIds.add(studySet.chapterId);
-      }
-      const items = await listStudyItems(studySet.id);
-      for (const item of [...items.summaries, ...items.vocabulary, ...items.multipleChoice, ...items.shortAnswer]) {
-        if (item.chapterId) {
-          generatedChapterIds.add(item.chapterId);
-        }
-      }
-    }
-    const hasAllExpectedChapters = expectedChapterIds.length > 0
-      && expectedChapterIds.every((chapterId) => generatedChapterIds.has(chapterId));
-
-    if (hasAllExpectedChapters) {
-      const completed = await updateGenerationRun({
-        id: run.id,
-        status: "completed",
-        progress: {
-          ...parseJsonObject(run.progressJson),
-          completedChapters: expectedChapterIds.length,
-          totalChapters: expectedChapterIds.length,
-          currentChapterId: null,
-          currentChapterNumber: null,
-          repairedFromStaleGeneratingState: true
-        },
-        log: [
-          ...parseJsonArray(run.logJson),
-          {
-            timestamp: nowIso(),
-            level: "warn",
-            message: "Run was marked completed after detecting ready study sets for every planned chapter."
-          }
-        ],
-        finishedAt: run.finishedAt || nowIso()
-      });
-      normalizedRun = completed || run;
-    }
-  }
 
   const itemGroups = await Promise.all(studySets.map((studySet) => listStudyItems(studySet.id)));
   const vocabularyCount = itemGroups.reduce((total, items) => total + items.vocabulary.length, 0);

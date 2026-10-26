@@ -336,7 +336,7 @@ async function requestStudyGuideJson(book: Book, chapter: Chapter, plan: Generat
   }
 
   const model = await getRuntimeSetting("OPENAI_MODEL");
-  const response = await fetchWithRetry("https://api.openai.com/v1/responses", {
+  const response = await fetchModelResponse("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${apiKey}`,
@@ -382,51 +382,9 @@ async function requestStudyGuideJson(book: Book, chapter: Chapter, plan: Generat
   };
 }
 
-function sleep(milliseconds: number) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, milliseconds);
-  });
-}
-
-function describeFetchError(error: unknown) {
-  const value = error && typeof error === "object" ? error as FetchLikeError : {};
-  const messages = [
-    value.message,
-    value.cause?.message,
-    value.cause?.code,
-    value.cause?.cause?.message,
-    value.cause?.cause?.code
-  ].filter(Boolean);
-
-  return messages.length ? messages.join(" / ") : "network request failed";
-}
-
-function isRetryableResponse(response: Response) {
-  return response.status === 408 || response.status === 409 || response.status === 429 || response.status >= 500;
-}
-
-async function fetchWithRetry(url: string, init: RequestInit) {
-  let lastErrorMessage = "";
-
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      const response = await fetch(url, init);
-      if (!isRetryableResponse(response) || attempt === 3) {
-        return response;
-      }
-
-      lastErrorMessage = `HTTP ${response.status}`;
-    } catch (error) {
-      lastErrorMessage = describeFetchError(error);
-      if (attempt === 3) {
-        throw new Error(`OpenAI network request failed after 3 attempts: ${lastErrorMessage}`);
-      }
-    }
-
-    await sleep(1000 * attempt);
-  }
-
-  throw new Error(`OpenAI network request failed: ${lastErrorMessage || "unknown error"}`);
+async function fetchModelResponse(url: string, init: RequestInit) {
+  // A lost response may still be billable. Do not replay paid POST requests.
+  return fetch(url, { ...init, signal: AbortSignal.timeout(600000) });
 }
 
 function normalizeGeneratedItems(rawPayload: RawStudyGuidePayload, plan: GenerationPlan): StudyItemsInput {

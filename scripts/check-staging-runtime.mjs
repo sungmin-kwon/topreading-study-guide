@@ -15,6 +15,7 @@ try {
   const result = await pool.query('SELECT count(*)::integer AS count FROM topreading_staging.books');
   await pool.query('SELECT 1 FROM topreading_staging.auth_sessions LIMIT 1');
   await pool.query('SELECT 1 FROM topreading_staging.app_settings LIMIT 1');
+  await pool.query('SELECT generation_run_id,cancel_requested FROM topreading_staging.jobs LIMIT 1');
   console.log(`Staging database ready (${result.rows[0].count} books).`);
 } catch (error) {
   console.error('Staging database readiness failed:', error.code || error.name);

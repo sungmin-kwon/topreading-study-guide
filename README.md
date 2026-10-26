@@ -34,7 +34,7 @@ The shared Cloudflare Tunnel and nginx Proxy Manager remain in use. The current 
 
 Light/dark and English/Korean controls remain visible in the header. `/prototype` is an isolated sample-data design reference; `/legacy` redirects to the current Library.
 
-Re-splitting remains destructive. Durable background jobs, private object storage and automated PostgreSQL backup/restore are not implemented yet.
+Re-splitting remains destructive. Generation uses a separate PostgreSQL-backed worker. Manual PostgreSQL backups and isolated restore verification are implemented; private object storage, backup scheduling/off-server retention, and extraction/export workers remain pending.
 
 ## Configuration and development
 
@@ -58,7 +58,7 @@ These build/check commands do not constitute deployment. Use the [staging update
 
 `database/migrations/*.sql` is authoritative. Do not replace the controlled migration flow with `drizzle-kit push`. Use `scripts/migrate-ubuntu-staging.py` for the prepared staging installation. The initial importer/setup script is not a routine update mechanism.
 
-`npm run backup` is a **legacy SQLite backup command** and refuses PostgreSQL. A verified PostgreSQL dump plus matching files, configuration recovery and an isolated restore rehearsal are still required; see the manual's backup section.
+`npm run backup` is a **legacy SQLite backup command** and refuses PostgreSQL. Use `python3 scripts/postgres-backup.py` and its `--verify` option for PostgreSQL. See [backup/worker deployment and operations](docs/postgres-backup-worker.md).
 
 Several integration tests write disposable fixture data. Read their setup requirements and never point them at the live library merely to check deployment health. The read-only operational checks on Ubuntu are:
 
