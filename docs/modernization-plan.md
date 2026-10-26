@@ -1,8 +1,10 @@
 # TopReading implementation and migration plan
 
-Date: 2026-10-23 (Asia/Seoul)
+Created: 2026-10-23 (Asia/Seoul). Status updated: 2026-10-26.
 
-Status: baseline restored and verified; approved UI is connected to the SQLite service, including the library landing page. The isolated `modernization/postgres-auth` branch implements PostgreSQL runtime, membership checks, verified Cloudflare identity and invite-only Google sessions; see [staging implementation and release gates](postgres-auth-staging.md). Ubuntu staging now serves the migrated library. The user confirmed persistent question edits, PDF/DOCX downloads, real Google sign-in/sign-out, rejection of an uninvited Google account, and revoked access after disabling a signed-in member. The staging Cloudflare Access gate is removed: fresh InPrivate Google sign-in/sign-out and direct-origin/public anonymous-access checks passed. Ubuntu’s public check needed a temporary hostname-specific DNS exception because the Tailscale split-DNS route timed out; making that fix persistent remains pending. Durable workers, object storage, VPS deployment and production cutover are also pending.
+Current operations and incident history: [TopReading administration manual](admin-runbook.md).
+
+Status: baseline restored and verified; approved UI is connected to the SQLite service, including the library landing page. The isolated `modernization/postgres-auth` branch implements PostgreSQL runtime, membership checks, verified Cloudflare identity and invite-only Google sessions; see [staging implementation and release gates](postgres-auth-staging.md). Ubuntu staging now serves the migrated library. The user confirmed persistent question edits, PDF/DOCX downloads, real Google sign-in/sign-out, rejection of an uninvited Google account, and revoked access after disabling a signed-in member. The staging Cloudflare Access gate is removed: fresh InPrivate Google sign-in/sign-out and direct-origin/public anonymous-access checks passed. Ubuntu’s public check needed a hostname-specific DNS exception because the Tailscale split-DNS route timed out. The first persistent rule omitted `DNSDefaultRoute=yes` and broke tunnel endpoint resolution after reboot. The corrected persistent rule and runtime setting restored the tunnel/public check; another reboot after the final correction remains unverified. PostgreSQL backup/restore support is the next implementation task. Durable workers, object storage, VPS deployment and production cutover are also pending.
 
 ## Goal and scope
 

@@ -1,5 +1,7 @@
 # PostgreSQL and authentication staging
 
+For current day-to-day operations and the consolidated incident record, use the [administration manual](admin-runbook.md). Sections describing initial dual-gate setup below are retained as implementation history; staging now uses Google login without the extra Access gate.
+
 This is the implementation on `modernization/postgres-auth`. The Ubuntu service remains on SQLite on `modernization/prototype-and-postgres`. Do not switch that service to this branch using its existing `.env.local`.
 
 The library landing change is independently available on the SQLite branch at `e2a3bc9`. Opening `/` shows the library; a valid `?book=...` link still opens that book.
@@ -118,14 +120,7 @@ Check the following before declaring Google login complete:
 - Disabling a temporary test member in Admin denies their existing session. Keep a separate active administrator signed in; do not disable your only administrator.
 - Members cannot access Admin; another library's resources and private downloads are denied (automated local coverage already exists).
 
-If Google configuration needs troubleshooting, switch **only the app** back to the verified Cloudflare mode:
-
-```bash
-python3 scripts/start-ubuntu-staging.py \
-  --aud 7615ba6c2c501dc8c6aee94fe09ca10d6fac8b4776dda968df9e5683cb986788
-```
-
-This retains the Google credentials and all staging data for a later retry. Once Google is active, use `--google` when invoking the starter; `--aud` deliberately selects Cloudflare mode.
+Historical rollout note: before Access removal, the starter's `--aud` option could switch the app back to the then-existing staging Access application. That application has now been deleted. Do not reuse its historical AUD or switch modes to troubleshoot DNS. If a future rollback deliberately uses Access identity, first establish a new staging Access application, verify its policy and fresh AUD, then configure the complete boundary. Ordinary staging updates retain `AUTH_MODE=google`.
 
 Common errors: `redirect_uri_mismatch` means the Google client redirect must exactly match the HTTPS callback above; `invalid_client` usually means the client ID/secret or client type is wrong; an application invitation error requires an active matching email and library membership. Share error names only, without callback query strings, cookies, secrets or JWTs.
 
@@ -337,14 +332,27 @@ The regression script `scripts/test-admin-users.cjs` creates and drops its own r
 
 **Verified on staging:** the user deleted the staging Access application, confirmed Protect with Access is off, and completed Google sign-in/sign-out in an InPrivate window without the Cloudflare gate. Both `ORIGIN GOOGLE ACCESS CHECK PASSED` and `PUBLIC GOOGLE ACCESS CHECK PASSED` were reported. Public anonymous library/Admin/download requests and forged headers/sessions were rejected. Production was not changed. The earlier uninvited/disabled-account tests passed before gate removal; a repeat of those account tests and a signed-in download after removal have not been separately reported.
 
-The public check initially failed because Tailscale split DNS routed `dubugimchi.com` to `100.101.76.39` (the Ubuntu server itself), where DNS queries timed out. Explicit queries through `enp2s0` resolved the public Cloudflare addresses. The following runtime-only, hostname-specific exception restored normal resolution and let the public checker pass:
+The public check initially failed because Tailscale split DNS routed `dubugimchi.com` to `100.101.76.39` (the Ubuntu server itself), where DNS queries timed out. Explicit Ethernet queries resolved the public hostname. A hostname-specific Ethernet exception initially restored the public checker.
+
+The first persistence instructions omitted `DNSDefaultRoute=yes`. After reboot, the tunnel crashed while resolving Cloudflare endpoints through Docker DNS; a host Ethernet lookup returned “No appropriate name servers or networks for name found.” The final correction restored default DNS routing and the public checker passed after restarting the tunnel.
+
+Correct persistent file: `/etc/systemd/network/10-netplan-enp2s0.network.d/50-topreading-staging-dns.conf`:
+
+```ini
+[Network]
+Domains=~top-staging.dubugimchi.com
+DNSDefaultRoute=yes
+```
+
+Matching runtime settings:
 
 ```bash
 sudo resolvectl domain enp2s0 '~top-staging.dubugimchi.com'
+sudo resolvectl default-route enp2s0 yes
 sudo resolvectl flush-caches
 ```
 
-**Remaining DNS cleanup:** this exception can disappear after a reboot or network reconfiguration. Inspect the network manager before persisting it, or repair/narrow the underlying Tailscale split-DNS rule after identifying any other services that depend on it. Do not disable Tailscale or change application authentication to address this DNS issue.
+**Remaining checks:** another reboot after this final correction has not yet been verified. The underlying broad Tailscale split-DNS rule remains; identify dependent services before repairing/narrowing it. No Docker Compose DNS override was applied. See the [full incident and recovery procedure](admin-runbook.md#10-dns-configuration-and-the-reboot-incident).
 
 The procedure below is retained for reference; the staging Access application has already been removed.
 
@@ -396,4 +404,4 @@ This update does not change database schema, authentication rules, environment s
 
 This branch keeps local files and request-bound extraction/generation/export. It does **not** complete durable worker jobs, object storage, non-destructive chapter-boundary revisions, stale-guide notices, VPS provisioning, automated off-server backup/restore, or production cutover. Existing explicit chapter/book deletion removes corresponding revision history. Re-splitting remains destructive and needs the later import-workflow overhaul.
 
-Next: persist the staging DNS exception or repair the split-DNS rule, implement durable jobs and private file storage, then complete workflow/recovery checks and a VPS restore rehearsal before the production maintenance window. Preserve the home service for rollback; after new cloud writes, rollback requires data reconciliation rather than only changing DNS.
+Next: verify reboot persistence of the corrected DNS settings, implement PostgreSQL backup/restore support, then durable jobs and private file storage, then complete workflow/recovery checks and a VPS restore rehearsal before the production maintenance window. Preserve the home service for rollback; after new cloud writes, rollback requires data reconciliation rather than only changing DNS.
