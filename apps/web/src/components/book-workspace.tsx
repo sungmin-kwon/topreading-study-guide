@@ -806,7 +806,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   const [currentUserIsAdmin, setCurrentUserIsAdmin] = useState(false);
 
   const activeBook = useMemo(
-    () => books.find((book) => book.id === activeBookId) || books[0] || null,
+    () => books.find((book) => book.id === activeBookId) || null,
     [activeBookId, books]
   );
   const filteredBooks = useMemo(() => {
@@ -1546,6 +1546,10 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
     } finally { setIsSavingBookMetadata(false); }
   }
 
+  function renderLoadingState(message: string) {
+    return <div className="reading-load-state" role="status" aria-live="polite"><span className="reading-loading-mark" aria-hidden="true" /><p>{message}</p></div>;
+  }
+
   async function handleDeleteBook() {
     if (!activeBook || !window.confirm(`Delete "${activeBook.title}" and all of its files, chapters, and study sets?`)) {
       return;
@@ -1572,7 +1576,12 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
 
     const remaining = books.filter((book) => book.id !== activeBook.id);
     setBooks(remaining);
-    setActiveBookId(remaining[0]?.id || null);
+    setActiveBookId(null);
+    setLibraryOpen(true);
+    studyRequestEpoch.current += 1;
+    setLoadingStudySetsChapterId(null);
+    setLoadingStudyItemsSetId(null);
+    setStudyLoadError("");
     setIsBookMetadataOpen(false);
     setIsSavingBookMetadata(false);
     setBookMetadataEdit({
@@ -1592,7 +1601,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
     setStudySetsByChapterId({});
     setSelectedStudySetIdByChapterId({});
     setStudyItemsByStudySetId({});
-    setActiveWorkspaceTab(remaining[0] ? "source" : "source");
+    setActiveWorkspaceTab("review");
     setStatusMessage("Book deleted.");
     setDeletingId(null);
   }
@@ -2110,6 +2119,12 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
     if (creatingStudyItemKind && !window.confirm(t("Discard the new unsaved item?", "저장되지 않은 새 항목을 버릴까요?"))) return;
     setCreatingStudyItemKind(null);
     setNewStudyItemDraft({});
+    if (chapter.id !== selectedChapter?.id) {
+      studyRequestEpoch.current += 1;
+      setLoadingStudySetsChapterId(null);
+      setLoadingStudyItemsSetId(null);
+      setStudyLoadError("");
+    }
     setSelectedChapterId(chapter.id);
     setSaveError("");
   }
@@ -4204,7 +4219,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                   {exportOptionGroups.map(group => <optgroup key={group.title} label={group.title}>{group.options.map(option => <option key={option.type} value={option.type}>{group.title === option.label ? option.label : `${group.title} · ${option.label}`}</option>)}</optgroup>)}
                 </select></label>
                 <label>{t("Format", "형식")}<select aria-label={t("Format", "형식")} value={exportFormat} onChange={event => setExportFormat(event.target.value as "pdf" | "docx")}><option value="pdf">PDF</option><option value="docx">Word (.docx)</option></select></label>
-                {exportScope === "chapter" && (studyLoadError ? <p role="alert">{studyLoadError} <button type="button" onClick={() => selectedChapter && void loadStudySets(selectedChapter)}>{t("Retry", "다시 시도")}</button></p> : !selectedStudySet && !loadingStudySetsChapterId && <p>{t("No guide is available for this chapter and version.", "이 챕터와 버전에 사용할 수 있는 학습지가 없습니다.")}</p>)}
+                {exportScope === "chapter" && (studyLoadError ? <p role="alert">{studyLoadError} <button type="button" onClick={() => selectedChapter && void loadStudySets(selectedChapter)}>{t("Retry", "다시 시도")}</button></p> : !selectedStudySet && selectedChapter && Object.prototype.hasOwnProperty.call(studySetsByChapterId, selectedChapter.id) && !loadingStudySetsChapterId && <p>{t("No guide is available for this chapter and version.", "이 챕터와 버전에 사용할 수 있는 학습지가 없습니다.")}</p>)}
                 <button className="primary-action" type="submit" disabled={switchingVersion || (exportScope === "chapter" && (!selectedStudySet || Boolean(loadingStudySetsChapterId) || Boolean(studyLoadError)))}>{t("Export", "내보내기")}</button>
               </form>
             ) : (
@@ -4327,7 +4342,9 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                           </div>
                         </div>
 
-                        {studyLoadError ? <p role="alert">{studyLoadError} <button type="button" onClick={() => void loadStudySets(selectedChapter)}>{t("Retry", "다시 시도")}</button></p> : !selectedStudySet ? (
+                        {studyLoadError ? <p role="alert">{studyLoadError} <button type="button" onClick={() => void loadStudySets(selectedChapter)}>{t("Retry", "다시 시도")}</button></p> : (!Object.prototype.hasOwnProperty.call(studySetsByChapterId, selectedChapter.id) || (!selectedStudySet && loadingStudySetsChapterId === selectedChapter.id) || (selectedStudySet && !selectedStudyItems)) ? (
+                          renderLoadingState(t("Loading study guide...", "학습지를 불러오는 중..."))
+                        ) : !selectedStudySet ? (
                           <p className="muted-text">{t("Generate a study set for this chapter before exporting.", "내보내기 전에 이 챕터의 학습 세트를 생성하세요.")}</p>
                         ) : (
                           <div className="export-group-list">
@@ -4437,8 +4454,8 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                 <div className="chapter-editor">
                   {!selectedChapter ? (
                     <p className="muted-text">{t("Select a chapter to continue.", "계속하려면 챕터를 선택하세요.")}</p>
-                  ) : loadingChapterId === selectedChapter.id ? (
-                    <p className="muted-text">{t("Loading chapter...", "챕터를 불러오는 중...")}</p>
+                  ) : activeWorkspaceTab !== "review" && loadingChapterId === selectedChapter.id ? (
+                    renderLoadingState(t("Loading chapter...", "챕터를 불러오는 중..."))
                   ) : activeWorkspaceTab === "review" ? (
                     <>
                       <div className="study-set-panel">
@@ -4454,7 +4471,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                             <button type="button" aria-expanded={sourceOpen} onClick={() => setSourceOpen(open => !open)}>{t("Source passage", "원문 보기")}</button>
                           </div>
                           <div className="reading-document-heading"><p className="reading-kicker">{t("Chapter", "챕터")} {selectedChapter.chapterNumber}</p><h3>{selectedChapter.title || t("Study guide", "학습지")}</h3></div>
-                          {sourceOpen && <section className="reading-source" aria-label={t("Source passage", "원문")}><h4>{t("Source passage", "원문")}</h4><p>{selectedChapterDetail?.textContent || t("Source text is unavailable. Reopen the book to retry.", "원문을 불러오지 못했습니다. 책을 다시 여세요.")}</p></section>}
+                          {sourceOpen && <section className="reading-source" aria-label={t("Source passage", "원문")}><h4>{t("Source passage", "원문")}</h4><p>{selectedChapterDetail?.textContent || (loadingChapterId === selectedChapter.id ? t("Loading chapter...", "챕터를 불러오는 중...") : t("Source text is unavailable. Reopen the book to retry.", "원문을 불러오지 못했습니다. 책을 다시 여세요."))}</p></section>}
                         </>}
                         {!modern && <>
                         <details className="reading-guide-details"><summary>{t("Guide details", "학습지 상세 정보")}</summary>
@@ -4492,10 +4509,11 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                         </details>
                         </>}
 
-                        {studyLoadError ? <p role="alert">{studyLoadError} <button type="button" onClick={() => void loadStudySets(selectedChapter)}>{t("Retry", "다시 시도")}</button></p> : !selectedStudySet ? (
+                        {studyLoadError ? <p role="alert">{studyLoadError} <button type="button" onClick={() => void loadStudySets(selectedChapter)}>{t("Retry", "다시 시도")}</button></p> : (!Object.prototype.hasOwnProperty.call(studySetsByChapterId, selectedChapter.id) || (!selectedStudySet && loadingStudySetsChapterId === selectedChapter.id) || (selectedStudySet && !selectedStudyItems)) ? (
+                          renderLoadingState(t("Loading study guide...", "학습지를 불러오는 중..."))
+                        ) : !selectedStudySet ? (
                           <div className="empty-state"><p>{t("No guide is available for this chapter and version.", "이 챕터와 버전에 사용할 수 있는 학습지가 없습니다.")}</p>{!modern && <button type="button" onClick={() => navigateTo("generate")}>{t("Generate a guide", "학습지 생성")}</button>}</div>
-                        ) : loadingStudyItemsSetId === selectedStudySet.id ? (
-                          <p className="muted-text">{t("Loading generated items...", "생성된 항목을 불러오는 중...")}</p>
+
                         ) : selectedStudyItems ? (
                           <>
                           <div className="reading-item-toolbar"><div className="study-set-subtabs" role="tablist" aria-label={t("Study set item type", "학습 세트 항목 종류")}>

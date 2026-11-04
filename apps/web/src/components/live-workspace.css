@@ -447,3 +447,5 @@
 .reading-book-info .dialog-actions { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding-top:8px; }
 .reading-book-info .reading-book-delete { margin-right:auto; }
 @media (max-width:600px) { .reading-book-info { padding:24px 16px; } }
+
+.reading-shell .reading-book-info .reading-book-delete { background:var(--danger-ink); border-color:var(--danger-ink); color:var(--surface); }

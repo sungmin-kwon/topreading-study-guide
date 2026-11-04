@@ -432,3 +432,12 @@ Library rows have reduced padding, smaller book markers and tighter title/author
 Book metadata is edited in the **Book info** tab alongside Text, Study guides and Export. The tab supports direct links (`?book=<id>&section=info`). Save persists the title, author and reading level; Reset restores saved values. Drafts survive switching between these tabs, failed saves retain entered text, and switching books or leaving the page warns about unsaved metadata. Delete book remains available in this tab.
 
 Validation: production build/type checking and browser checks against a disposable restored PostgreSQL library passed. Checks covered vocabulary mouse/keyboard ordering persistence, expansion/editing, addition/deletion, metadata saving/reloading, draft retention, failed saves, Reset, centered loading, compact Library rows and a narrow-screen Book info layout. Test data changes were restored. No paid generation was performed. This release needs no migration, new dependency or environment change. Ubuntu deployment and acceptance remain pending; update with the worker idle using the existing staging build/restart procedure.
+
+
+### 2026-11-04: loading states and book deletion
+
+Chapter loading now uses the centered status/spinner treatment. Study guides distinguish a request that has not completed from a confirmed empty result: a single “Loading study guide” state covers guide discovery and item loading. Already loaded items remain visible during refresh. Source passage loading does not block the guide, and switching chapters invalidates prior guide requests so late responses cannot change the current loading/error state.
+
+The Book info Delete book button uses the theme's red destructive color and retains its confirmation prompt. Successful deletion clears the active book and returns to Library, removing the book/chapter/section URL parameters instead of opening the first remaining book.
+
+Validation: production build/type checking and local browser checks passed with deliberately delayed requests, including the eventual empty-guide state, centered chapter status, destructive button color and deletion of a disposable test book. No paid generation, database migration or configuration change. Ubuntu deployment is pending; use the usual build/restart procedure with generation idle.
