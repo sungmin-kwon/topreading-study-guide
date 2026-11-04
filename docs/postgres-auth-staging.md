@@ -409,3 +409,15 @@ Next: implement PostgreSQL backup/restore support, then durable jobs and private
 ## 2026-10-26: backup and generation-worker release
 
 Implemented manual PostgreSQL backups with private recovery files and isolated restore verification, and a persistent generation queue consumed by a standalone systemd worker. Completed chapters/progress survive web restarts; worker interruption preserves partial results without automatic paid replay. Local restore and mocked-provider lifecycle tests passed. Ubuntu deployment, real generation acceptance and off-server backup storage are pending. See [deployment and operations](postgres-backup-worker.md). Extraction/export workers, automatic resumption, scheduled backups and VPS cutover remain future work.
+
+### 2026-11-04: compact question editing and review reasons
+
+MCQ and short-answer lists now start as collapsed question outlines. Click a question to reveal its choices/answer, explanation, and any review reasons; Expand all and Collapse all apply to the current list. An active edit stays open when collapsing answers. Review badges remain visible while collapsed.
+
+Use the dotted handle to drag a question to another position in the same chapter and question type. Mouse and touch are supported; focus the handle and press Up/Down for keyboard ordering. Order is saved to PostgreSQL in one transaction and used on reload/export. Failed saves leave the displayed order unchanged; reload before retrying if the request outcome is uncertain.
+
+Edit and Delete are directly visible. Delete opens an inline Delete/Keep confirmation. Add Question is available above and below the list; the form opens at that end and focuses its first field. Added questions append to the end and can then be dragged into place. Starting another addition does not discard the current draft. Save/cancel an unsaved existing edit before adding.
+
+Review reasons are recovered from saved generation output by chapter and question content, independent of question order or shuffled answer choices. They distinguish content/wording problems from unavailable reviews or exhausted review budgets. Existing guides do not need regeneration. Edited, ambiguous, or missing historical matches show an explicit unavailable-reason message rather than borrowing another question's flags. These are historical checks, not a fresh model review of manual edits.
+
+No database migration, new dependency, environment change or paid model call is needed for this UI release. Deploy with the existing generation worker idle: stop staging web/worker, pull this branch, build, and restart both. Local checks cover persistent mouse/keyboard/touch ordering, collapse/edit behavior, add/delete, failed/invalid moves, mobile layout, review matching and the existing MCQ quality regressions. Ubuntu acceptance is pending deployment.

@@ -5,6 +5,8 @@ import { allocateCountByWordWeight, deriveBookGenerationPlan } from "@topreading
 
 import { QuietMenu, WorkspaceBar, SavedLibrary, WorkspaceNavigation } from "./workspace-navigation";
 import "./live-workspace.css";
+import { QuestionCard } from "./question-card";
+import { reviewReasonLabels } from "@/lib/mcq-review-reasons";
 import { ThemeToggle } from "./theme-toggle";
 
 type BookSummary = {
@@ -176,6 +178,7 @@ type VocabularyItem = {
 };
 
 type MultipleChoiceQuestion = {
+  reviewFlags?: string[];
   id: string;
   chapterId: string | null;
   questionText: string;
@@ -789,6 +792,9 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   const [isSavingNewStudyItem, setIsSavingNewStudyItem] = useState(false);
   const [savingGenerationRunId, setSavingGenerationRunId] = useState<string | null>(null);
   const [movingStudyItemId, setMovingStudyItemId] = useState<string | null>(null);
+  const [questionExpansion, setQuestionExpansion] = useState({open:false,version:0});
+  const [newItemAtEnd, setNewItemAtEnd] = useState(false);
+  const [pendingDeleteItemId, setPendingDeleteItemId] = useState<string|null>(null);
   const [generatingChapterId, setGeneratingChapterId] = useState<string | null>(null);
   const [isGeneratingBook, setIsGeneratingBook] = useState(false);
   const [cancellingGenerationRunId, setCancellingGenerationRunId] = useState<string | null>(null);
@@ -2609,9 +2615,12 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
     };
   }
 
-  function startCreatingStudyItem(kind: StudyItemKind) {
+  function startCreatingStudyItem(kind: StudyItemKind, atEnd = false) {
     if (isSavingNewStudyItem) return;
+    if (editingStudyItemId && dirtyItemIds.includes(editingStudyItemId)) {setStatusMessage(t("Save or cancel your current edit first.", "현재 수정 내용을 먼저 저장하거나 취소하세요."));return;}
+    if (creatingStudyItemKind === kind) {document.querySelector<HTMLInputElement | HTMLTextAreaElement>(".study-item-create-card input, .study-item-create-card textarea")?.focus();return;}
     if (creatingStudyItemKind && !window.confirm(t("Discard the new unsaved item?", "저장되지 않은 새 항목을 버릴까요?"))) return;
+    setNewItemAtEnd(atEnd);
     setCreatingStudyItemKind(kind);
     setEditingStudyItemId(null);
     setNewStudyItemDraft(getEmptyStudyItemDraft(kind));
@@ -2811,72 +2820,38 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
     } finally { setIsSavingNewStudyItem(false); }
   }
 
-  async function handleMoveStudyItem(kind: StudyItemKind, itemId: string, direction: "up" | "down") {
-    if (!activeBook || !selectedStudySetId) {
-      return;
-    }
-
-    setMovingStudyItemId(itemId);
-    setStatusMessage("");
-
+  async function handleMoveStudyItem(kind: StudyItemKind, itemId: string, direction: "up" | "down" | {targetId:string}) {
+    if (!activeBook || !selectedStudySetId || movingStudyItemId || savingStudyItemId || deletingId || isSavingNewStudyItem) return;
+    setMovingStudyItemId(itemId); setStatusMessage("");
     const cacheKey = studyItemsCacheKey(selectedStudySetId, selectedChapter?.id);
-    const params = new URLSearchParams();
-    if (selectedChapter?.id) {
-      params.set("chapterId", selectedChapter.id);
-    }
-    const response = await fetch(`/api/books/${activeBook.id}/study-sets/${selectedStudySetId}/items/${kind}/${itemId}?${params.toString()}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ direction })
-    });
-    const payload = (await response.json().catch(() => ({}))) as StudyItemsResponse;
-
-    if (!response.ok || !payload.items) {
-      setStatusMessage(payload.error || "Could not reorder generated item.");
-      setMovingStudyItemId(null);
-      return;
-    }
-
-    setStudyItemsByStudySetId((current) => ({
-      ...current,
-      [cacheKey]: payload.items as StudyItems
-    }));
-    setStatusMessage("Generated item reordered.");
-    setMovingStudyItemId(null);
+    const params = new URLSearchParams(selectedChapter?.id ? {chapterId:selectedChapter.id} : {});
+    try {
+      const response = await fetch(`/api/books/${activeBook.id}/study-sets/${selectedStudySetId}/items/${kind}/${itemId}?${params}`, {
+        method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(typeof direction === "object" ? direction : {direction})
+      });
+      const payload = await response.json() as StudyItemsResponse;
+      if (!response.ok || !payload.items) throw new Error(payload.error || "Could not reorder questions.");
+      setStudyItemsByStudySetId(current=>({...current,[cacheKey]:payload.items!}));
+      setStatusMessage(t("Order saved.", "순서가 저장되었습니다."));
+    } catch(error) { setStatusMessage(error instanceof Error ? error.message : "Could not save order. Reload before retrying."); }
+    finally {setMovingStudyItemId(null);}
   }
 
   async function handleDeleteStudyItem(kind: StudyItemKind, itemId: string) {
-    if (!activeBook || !selectedStudySetId || !window.confirm("Delete this generated item?")) {
-      return;
-    }
-
-    setDeletingId(itemId);
-    setStatusMessage("");
-
-    const response = await fetch(`/api/books/${activeBook.id}/study-sets/${selectedStudySetId}/items/${kind}/${itemId}`, {
-      method: "DELETE"
-    });
-
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      setStatusMessage(payload.error || "Could not delete generated item.");
-      setDeletingId(null);
-      return;
-    }
-
-    const cacheKey = studyItemsCacheKey(selectedStudySetId, selectedChapter?.id);
-    const items = await fetchStudyItems(activeBook.id, selectedStudySetId, selectedChapter?.id);
-    setStudyItemsByStudySetId((current) => ({
-      ...current,
-      [cacheKey]: items
-    }));
-    setEditingStudyItemId((current) => current === itemId ? null : current);
-    setDirtyItemIds(current => current.filter(id => id !== itemId));
-    setStudyItemDraftById(current => { const next = { ...current }; delete next[itemId]; return next; });
-    setStatusMessage("Generated item deleted.");
-    setDeletingId(null);
+    if (!activeBook || !selectedStudySetId || deletingId || savingStudyItemId || movingStudyItemId) return;
+    setDeletingId(itemId); setStatusMessage("");
+    try {
+      const response = await fetch(`/api/books/${activeBook.id}/study-sets/${selectedStudySetId}/items/${kind}/${itemId}`, {method:"DELETE"});
+      if(!response.ok) throw new Error("Could not delete item.");
+      const cacheKey=studyItemsCacheKey(selectedStudySetId,selectedChapter?.id);
+      const items=await fetchStudyItems(activeBook.id,selectedStudySetId,selectedChapter?.id);
+      setStudyItemsByStudySetId(current=>({...current,[cacheKey]:items}));
+      setEditingStudyItemId(current=>current===itemId?null:current);
+      setDirtyItemIds(current=>current.filter(id=>id!==itemId));
+      setStudyItemDraftById(current=>{const next={...current};delete next[itemId];return next;});
+      setPendingDeleteItemId(null);setStatusMessage(t("Item deleted.", "항목이 삭제되었습니다."));
+    } catch(error) {setStatusMessage(error instanceof Error?error.message:"Could not delete item. Reload before retrying.");}
+    finally {setDeletingId(null);}
   }
 
   function renderMoveStudyItemButtons(kind: StudyItemKind, itemId: string, index: number, itemCount: number) {
@@ -2905,14 +2880,23 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   }
 
   function renderSecondaryStudyActions(kind: StudyItemKind, itemId: string, index: number, count: number) {
-    const deleteButton = <button className="danger-button" type="button" disabled={deletingId === itemId || savingStudyItemId === itemId} onClick={() => handleDeleteStudyItem(kind, itemId)}>{deletingId === itemId ? t("Deleting...", "삭제 중...") : t("Delete", "삭제")}</button>;
-    if (!modern) return <>{renderMoveStudyItemButtons(kind, itemId, index, count)}{deleteButton}</>;
-    return <QuietMenu label={t("More", "더 보기")}>
-      <button type="button" disabled={index === 0 || Boolean(movingStudyItemId) || Boolean(savingStudyItemId)} onClick={() => handleMoveStudyItem(kind, itemId, "up")}>{t("Move up", "위로 이동")}</button>
-      <button type="button" disabled={index === count - 1 || Boolean(movingStudyItemId) || Boolean(savingStudyItemId)} onClick={() => handleMoveStudyItem(kind, itemId, "down")}>{t("Move down", "아래로 이동")}</button>
-      {deleteButton}
-    </QuietMenu>;
+    const busy = Boolean(deletingId || savingStudyItemId || movingStudyItemId || isSavingNewStudyItem);
+    return <>
+      {kind === "vocabulary" && renderMoveStudyItemButtons(kind,itemId,index,count)}
+      {pendingDeleteItemId === itemId ? <span className="question-delete-confirm" role="group" aria-label={t("Confirm deletion", "삭제 확인")}>
+        <span>{t("Delete this item?", "이 항목을 삭제할까요?")}</span>
+        <button className="danger-button" type="button" disabled={busy} onClick={()=>void handleDeleteStudyItem(kind,itemId)}>{t("Delete", "삭제")}</button>
+        <button type="button" disabled={busy} onClick={()=>setPendingDeleteItemId(null)}>{t("Keep", "유지")}</button>
+      </span> : <button type="button" disabled={busy} onClick={()=>setPendingDeleteItemId(itemId)}>{t("Delete", "삭제")}</button>}
+    </>;
   }
+
+  useEffect(() => {
+    if (creatingStudyItemKind) {
+      const field = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(".study-item-create-card input, .study-item-create-card textarea");
+      field?.focus(); field?.scrollIntoView({block:"nearest",behavior:"smooth"});
+    }
+  }, [creatingStudyItemKind]);
 
   function renderNewStudyItemForm(kind: StudyItemKind) {
     if (creatingStudyItemKind !== kind) {
@@ -4541,6 +4525,10 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                             </button>
                           </div>
                           <div className="study-item-toolbar">
+                            {activeStudySetView !== "vocabulary" && <>
+                              <button type="button" onClick={()=>setQuestionExpansion(v=>({open:true,version:v.version+1}))}>{t("Expand all", "모두 펼치기")}</button>
+                              <button type="button" onClick={()=>setQuestionExpansion(v=>({open:false,version:v.version+1}))}>{t("Collapse all", "모두 접기")}</button>
+                            </>}
                             <button
                               type="button"
                               onClick={() => startCreatingStudyItem(activeStudySetView)}
@@ -4600,10 +4588,28 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                           ) : activeStudySetView === "multiple-choice" ? (
                           <div className="study-items-grid single-column">
                             <section className="study-item-section">
-                              {renderNewStudyItemForm("multiple-choice")}
+                              {!newItemAtEnd && renderNewStudyItemForm("multiple-choice")}
                               {selectedStudyItems.multipleChoiceQuestions.map((item, index) => (
-                                <article className="study-item-card" key={item.id}>
-                                  {item.status === "needs_review" ? <p role="status">{t("Needs review: automated MCQ checks were inconclusive or found a quality issue. Check the passage, answer and distractors before using this question.", "검토 필요: 자동 품질 검사에서 문제가 발견되었거나 확인되지 않았습니다. 사용 전에 본문, 정답과 오답을 확인하세요.")}</p> : null}
+                                <QuestionCard id={item.id} group={`${selectedStudySetId}:${selectedChapter.id}:multiple-choice`} index={index} title={item.questionText}
+                                  editing={editingStudyItemId === item.id} busy={Boolean(movingStudyItemId || savingStudyItemId || deletingId || isSavingNewStudyItem || editingStudyItemId)}
+                                  review={item.status === "needs_review"} expansion={questionExpansion} korean={uiLanguage === "ko"} key={item.id}
+                                  onMove={direction=>{if((direction === "up" && index>0)||(direction === "down" && index<selectedStudyItems.multipleChoiceQuestions.length-1)) void handleMoveStudyItem("multiple-choice",item.id,direction);}}
+                                  onDrop={targetId=>void handleMoveStudyItem("multiple-choice",item.id,{targetId})}
+                                  actions={<div className="study-item-actions">
+                                    {editingStudyItemId === item.id ? (
+                                      <>
+                                        {modern && dirtyItemIds.includes(item.id) && <span className="reading-unsaved" role="status">{t("Unsaved changes", "저장되지 않은 변경")}</span>}
+                                        <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("multiple-choice", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
+                                        <button type="button" onClick={() => cancelStudyItemEdit(item.id)}>{t("Cancel", "취소")}</button>
+                                      </>
+                                    ) : (
+                                      <button type="button" onClick={() => startEditingStudyItem("multiple-choice", item)}>{t("Edit", "수정")}</button>
+                                    )}
+                                    {renderSecondaryStudyActions("multiple-choice", item.id, index, selectedStudyItems.multipleChoiceQuestions.length)}
+                                  </div>}>
+                                  {item.status === "needs_review" && <div className="question-review-reasons"><strong>{t("Why this needs review", "검토가 필요한 이유")}</strong>
+                                    <ul>{(item.reviewFlags?.length ? item.reviewFlags : ["unavailable"]).map(flag=><li key={flag}>{reviewReasonLabels[flag] ? t(...reviewReasonLabels[flag]) : t("The original review reason is unavailable for this question. Check the answer against the passage.", "이 문제의 원래 검토 사유를 확인할 수 없습니다. 본문과 정답을 대조하세요.")}</li>)}</ul>
+                                  </div>}
                                   {editingStudyItemId === item.id ? (
                                     <div className="study-item-edit-form">
                                       <label>
@@ -4641,7 +4647,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                                     </div>
                                   ) : (
                                     <>
-                                      <strong>{item.questionText}</strong>
+
                                       <div className="choice-list">
                                         {item.choices.map((choice, index) => (
                                           <div
@@ -4656,28 +4662,35 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                                       {item.explanation ? <small className="multiple-choice-explanation">{item.explanation}</small> : null}
                                     </>
                                   )}
-                                  <div className="study-item-actions">
-                                    {editingStudyItemId === item.id ? (
-                                      <>
-                                        {modern && dirtyItemIds.includes(item.id) && <span className="reading-unsaved" role="status">{t("Unsaved changes", "저장되지 않은 변경")}</span>}
-                                        <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("multiple-choice", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
-                                        <button type="button" onClick={() => cancelStudyItemEdit(item.id)}>{t("Cancel", "취소")}</button>
-                                      </>
-                                    ) : (
-                                      <button type="button" onClick={() => startEditingStudyItem("multiple-choice", item)}>{t("Edit", "수정")}</button>
-                                    )}
-                                    {renderSecondaryStudyActions("multiple-choice", item.id, index, selectedStudyItems.multipleChoiceQuestions.length)}
-                                  </div>
-                                </article>
+
+                                </QuestionCard>
                               ))}
+                              {newItemAtEnd && renderNewStudyItemForm(activeStudySetView)}
+                              <button type="button" className="question-add-bottom" disabled={isSavingNewStudyItem} onClick={()=>startCreatingStudyItem(activeStudySetView, true)}>{getAddStudyItemLabel(activeStudySetView)}</button>
                             </section>
                           </div>
                           ) : (
                           <div className="study-items-grid single-column">
                             <section className="study-item-section">
-                              {renderNewStudyItemForm("short-answer")}
+                              {!newItemAtEnd && renderNewStudyItemForm("short-answer")}
                               {selectedStudyItems.shortAnswerQuestions.map((item, index) => (
-                                <article className="study-item-card" key={item.id}>
+                                <QuestionCard id={item.id} group={`${selectedStudySetId}:${selectedChapter.id}:short-answer`} index={index} title={item.questionText}
+                                  editing={editingStudyItemId === item.id} busy={Boolean(movingStudyItemId || savingStudyItemId || deletingId || isSavingNewStudyItem || editingStudyItemId)}
+                                  review={false} expansion={questionExpansion} korean={uiLanguage === "ko"} key={item.id}
+                                  onMove={direction=>{if((direction === "up" && index>0)||(direction === "down" && index<selectedStudyItems.shortAnswerQuestions.length-1)) void handleMoveStudyItem("short-answer",item.id,direction);}}
+                                  onDrop={targetId=>void handleMoveStudyItem("short-answer",item.id,{targetId})}
+                                  actions={<div className="study-item-actions">
+                                    {editingStudyItemId === item.id ? (
+                                      <>
+                                        {modern && dirtyItemIds.includes(item.id) && <span className="reading-unsaved" role="status">{t("Unsaved changes", "저장되지 않은 변경")}</span>}
+                                        <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("short-answer", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
+                                        <button type="button" onClick={() => cancelStudyItemEdit(item.id)}>{t("Cancel", "취소")}</button>
+                                      </>
+                                    ) : (
+                                      <button type="button" onClick={() => startEditingStudyItem("short-answer", item)}>{t("Edit", "수정")}</button>
+                                    )}
+                                    {renderSecondaryStudyActions("short-answer", item.id, index, selectedStudyItems.shortAnswerQuestions.length)}
+                                  </div>}>
                                   {editingStudyItemId === item.id ? (
                                     <div className="study-item-edit-form">
                                       <label>
@@ -4695,25 +4708,16 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                                     </div>
                                   ) : (
                                     <>
-                                      <strong>{item.questionText}</strong>
+
                                       <p>{item.suggestedAnswer}</p>
                                       {item.rubric ? <small className="short-answer-rubric">{item.rubric}</small> : null}
                                     </>
                                   )}
-                                  <div className="study-item-actions">
-                                    {editingStudyItemId === item.id ? (
-                                      <>
-                                        {modern && dirtyItemIds.includes(item.id) && <span className="reading-unsaved" role="status">{t("Unsaved changes", "저장되지 않은 변경")}</span>}
-                                        <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("short-answer", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
-                                        <button type="button" onClick={() => cancelStudyItemEdit(item.id)}>{t("Cancel", "취소")}</button>
-                                      </>
-                                    ) : (
-                                      <button type="button" onClick={() => startEditingStudyItem("short-answer", item)}>{t("Edit", "수정")}</button>
-                                    )}
-                                    {renderSecondaryStudyActions("short-answer", item.id, index, selectedStudyItems.shortAnswerQuestions.length)}
-                                  </div>
-                                </article>
+
+                                </QuestionCard>
                               ))}
+                              {newItemAtEnd && renderNewStudyItemForm(activeStudySetView)}
+                              <button type="button" className="question-add-bottom" disabled={isSavingNewStudyItem} onClick={()=>startCreatingStudyItem(activeStudySetView, true)}>{getAddStudyItemLabel(activeStudySetView)}</button>
                             </section>
                           </div>
                           )}

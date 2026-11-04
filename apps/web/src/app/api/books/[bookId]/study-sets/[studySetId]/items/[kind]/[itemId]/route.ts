@@ -49,6 +49,10 @@ export async function PATCH(request: Request, context: RouteContext) {
   const chapterId = parseChapterId(request, authorized.studySet.chapterId);
 
   try {
+    if (typeof body?.targetId === "string") {
+      const items = await moveStudyItem(authorized.kind, authorized.studySet.id, itemId, {targetId: body.targetId}, {chapterId});
+      return NextResponse.json({items:summarizeStudyItems(items)});
+    }
     if (
       body
       && typeof body === "object"
