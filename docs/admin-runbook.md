@@ -1304,3 +1304,8 @@ Chapter loading now uses the centered status/spinner treatment. Study guides dis
 The Book info Delete book button uses the theme's red destructive color and retains its confirmation prompt. Successful deletion clears the active book and returns to Library, removing the book/chapter/section URL parameters instead of opening the first remaining book.
 
 Validation: production build/type checking and local browser checks passed with deliberately delayed requests, including the eventual empty-guide state, centered chapter status, destructive button color and deletion of a disposable test book. No paid generation, database migration or configuration change. Ubuntu deployment is pending; use the usual build/restart procedure with generation idle.
+
+
+### 2026-11-04: teacher-facing guide format review
+
+The product scope is teacher/tutor authoring for primarily secondary-school audiences; a student learning platform is separate. The [guide format review](study-guide-format-review.md) records a read-only audit of current code and historical restored guides, a proposed chapter teaching format and an additive migration sequence. The restored sample predates the latest Ubuntu generation, so its metrics must not be attributed to the current model. No generation, database or deployment changes were made. Begin with a small editorial/export prototype before rolling out a new generation schema.
