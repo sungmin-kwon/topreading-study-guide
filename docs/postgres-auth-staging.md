@@ -421,3 +421,14 @@ Edit and Delete are directly visible. Delete opens an inline Delete/Keep confirm
 Review reasons are recovered from saved generation output by chapter and question content, independent of question order or shuffled answer choices. They distinguish content/wording problems from unavailable reviews or exhausted review budgets. Existing guides do not need regeneration. Edited, ambiguous, or missing historical matches show an explicit unavailable-reason message rather than borrowing another question's flags. These are historical checks, not a fresh model review of manual edits.
 
 No database migration, new dependency, environment change or paid model call is needed for this UI release. Deploy with the existing generation worker idle: stop staging web/worker, pull this branch, build, and restart both. Local checks cover persistent mouse/keyboard/touch ordering, collapse/edit behavior, add/delete, failed/invalid moves, mobile layout, review matching and the existing MCQ quality regressions. Ubuntu acceptance is pending deployment.
+
+
+### 2026-11-04: vocabulary outlines, compact Library and Book info tab
+
+Vocabulary now uses the same collapsed rows as questions: expand a word for its definition/example, use Expand all or Collapse all, and drag the dotted handle to reorder within the chapter. Focus the handle and press Up/Down for keyboard ordering. Edit and Delete are directly available, with inline deletion confirmation. Add Word is available at either end of the list; new words append and can then be moved. Active edits remain expanded.
+
+Library rows have reduced padding, smaller book markers and tighter title/author spacing. Loading a saved book now displays a centered status message and spinner, with reduced-motion support.
+
+Book metadata is edited in the **Book info** tab alongside Text, Study guides and Export. The tab supports direct links (`?book=<id>&section=info`). Save persists the title, author and reading level; Reset restores saved values. Drafts survive switching between these tabs, failed saves retain entered text, and switching books or leaving the page warns about unsaved metadata. Delete book remains available in this tab.
+
+Validation: production build/type checking and browser checks against a disposable restored PostgreSQL library passed. Checks covered vocabulary mouse/keyboard ordering persistence, expansion/editing, addition/deletion, metadata saving/reloading, draft retention, failed saves, Reset, centered loading, compact Library rows and a narrow-screen Book info layout. Test data changes were restored. No paid generation was performed. This release needs no migration, new dependency or environment change. Ubuntu deployment and acceptance remain pending; update with the worker idle using the existing staging build/restart procedure.

@@ -304,7 +304,7 @@ type PageMarkerDraft = {
   pageNumber: string;
   title: string;
 };
-type WorkspaceTab = "source" | "split" | "chapters" | "generate" | "sets" | "review" | "export";
+type WorkspaceTab = "source" | "split" | "chapters" | "generate" | "sets" | "review" | "export" | "info";
 type StudySetView = "vocabulary" | "multiple-choice" | "short-answer";
 type ExportFileFormat = "pdf" | "docx";
 type ThemeMode = "light" | "dark";
@@ -885,12 +885,14 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   const currentUserMeta = currentUser
     ? `${currentUser.role === "admin" ? t("Admin", "관리자") : t("Member", "회원")} · ${uiLanguage === "ko" ? "KO" : "EN"} · ${themeMode === "dark" ? t("Dark", "다크") : t("Light", "라이트")}`
     : `${uiLanguage === "ko" ? "KO" : "EN"} · ${themeMode === "dark" ? t("Dark", "다크") : t("Light", "라이트")}`;
-  const hasUnsavedChanges = dirtyItemIds.length > 0 || Boolean(creatingStudyItemKind) || Object.entries(chapterEditById).some(([id, draft]) => {
+  const metadataDirty = Boolean(activeBook && (bookMetadataEdit.title !== activeBook.title || bookMetadataEdit.author !== (activeBook.author || "") || bookMetadataEdit.readingLevel !== (activeBook.readingLevel || "")));
+  const hasUnsavedChanges = metadataDirty || dirtyItemIds.length > 0 || Boolean(creatingStudyItemKind) || Object.entries(chapterEditById).some(([id, draft]) => {
     const saved = chapterDetailById[id];
     return saved && (Number(draft.chapterNumber) !== saved.chapterNumber || draft.title !== saved.title || draft.textContent !== saved.textContent);
   });
   function selectBook(id: string) {
-    if (isSavingNewStudyItem) return;
+    if (isSavingNewStudyItem || isSavingBookMetadata) return;
+    if (id !== activeBook?.id && metadataDirty && !window.confirm(t("Discard unsaved book information?", "저장되지 않은 책 정보를 버릴까요?"))) return;
     if (id !== activeBook?.id && (isUploading || extractingSourceId || splittingParsedDocumentId)) { setStatusMessage(t("Wait for the import operation to finish before switching books.", "가져오기가 완료된 후 책을 전환하세요.")); return; }
     if (id !== activeBook?.id && (isGeneratingBook || generatingRun)) { setStatusMessage(t("Wait for generation to finish or cancel it before switching books.", "생성이 끝날 때까지 기다리거나 취소한 후 책을 전환하세요.")); return; }
     if (creatingStudyItemKind && !window.confirm(t("Discard the new unsaved item?", "저장되지 않은 새 항목을 버릴까요?"))) return;
@@ -1187,7 +1189,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
         setActiveBookId(loadedBooks.find(book => book.id === requested)?.id || loadedBooks[0]?.id || null);
         if (modern) {
           const tab = new URLSearchParams(window.location.search).get("section");
-          setActiveWorkspaceTab((["source", "split", "chapters", "review", "generate", "sets", "export"].includes(tab || "") ? tab : "review") as WorkspaceTab);
+          setActiveWorkspaceTab((["source", "split", "chapters", "review", "generate", "sets", "export", "info"].includes(tab || "") ? tab : "review") as WorkspaceTab);
           setLibraryOpen(!loadedBooks.some(book => book.id === requested));
         }
       })
@@ -1326,6 +1328,8 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   }, [activeBook, activeWorkspaceTab, hasChapters, hasSourceFiles, hasStudySets]);
 
   async function handleCreateBook() {
+    if (isSavingBookMetadata) return;
+    if (metadataDirty && !window.confirm(t("Discard unsaved book information?", "저장되지 않은 책 정보를 버릴까요?"))) return;
     if (isSavingNewStudyItem || isUploading || extractingSourceId || splittingParsedDocumentId) return;
     if (isGeneratingBook || generatingRun) { setStatusMessage(t("Finish or cancel generation before creating another book.", "다른 책을 만들기 전에 생성을 완료하거나 취소하세요.")); return; }
     setIsCreating(true);
@@ -1351,7 +1355,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
       setActiveBookId(payload.book.id);
       setLibraryOpen(false);
       setActiveWorkspaceTab("source");
-      setStatusMessage("Book created. Use Edit Book Info to add author or reading level.");
+      setStatusMessage("Book created. Use Book info to add author or reading level.");
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "Could not create the book.");
     } finally { setIsCreating(false); }
@@ -2882,7 +2886,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   function renderSecondaryStudyActions(kind: StudyItemKind, itemId: string, index: number, count: number) {
     const busy = Boolean(deletingId || savingStudyItemId || movingStudyItemId || isSavingNewStudyItem);
     return <>
-      {kind === "vocabulary" && renderMoveStudyItemButtons(kind,itemId,index,count)}
+
       {pendingDeleteItemId === itemId ? <span className="question-delete-confirm" role="group" aria-label={t("Confirm deletion", "삭제 확인")}>
         <span>{t("Delete this item?", "이 항목을 삭제할까요?")}</span>
         <button className="danger-button" type="button" disabled={busy} onClick={()=>void handleDeleteStudyItem(kind,itemId)}>{t("Delete", "삭제")}</button>
@@ -3029,6 +3033,39 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
           </button>
         </div>
       </article>
+    );
+  }
+
+  function renderBookMetadataForm() {
+    if (!activeBook) return null;
+    return (
+            <form className="metadata-form" onSubmit={handleSaveBookMetadata}>
+              <label>
+                {t("Title", "제목")}
+                <input value={bookMetadataEdit.title} required disabled={isSavingBookMetadata || deletingId === activeBook.id}
+                  onChange={(event) => setBookMetadataEdit((current) => ({ ...current, title: event.target.value }))} />
+              </label>
+              <label>
+                {t("Author", "저자")}
+                <input value={bookMetadataEdit.author} placeholder={t("Optional", "선택 사항")} disabled={isSavingBookMetadata || deletingId === activeBook.id}
+                  onChange={(event) => setBookMetadataEdit((current) => ({ ...current, author: event.target.value }))} />
+              </label>
+              <label>
+                {t("Reading level", "읽기 수준")}
+                <input value={bookMetadataEdit.readingLevel} placeholder={t("Optional", "선택 사항")} disabled={isSavingBookMetadata || deletingId === activeBook.id}
+                  onChange={(event) => setBookMetadataEdit((current) => ({ ...current, readingLevel: event.target.value }))} />
+              </label>
+              {bookMetadataError && <p className="reading-book-error" role="alert">{bookMetadataError}</p>}
+              <footer className="dialog-actions">
+                <button className="reading-book-delete" type="button" disabled={isSavingBookMetadata || deletingId === activeBook.id} onClick={handleDeleteBook}>
+                  {deletingId === activeBook.id ? t("Deleting...", "삭제 중...") : t("Delete book", "책 삭제")}
+                </button>
+                <button type="button" disabled={isSavingBookMetadata || deletingId === activeBook.id} onClick={() => { if (!modern) bookDialogRef.current?.close(); else {setBookMetadataEdit({title:activeBook.title,author:activeBook.author||"",readingLevel:activeBook.readingLevel||""});setBookMetadataError("");} }}>{modern ? t("Reset", "되돌리기") : t("Cancel", "취소")}</button>
+                <button type="submit" disabled={isSavingBookMetadata || deletingId === activeBook.id}>
+                  {isSavingBookMetadata ? t("Saving...", "저장 중...") : t("Save", "저장")}
+                </button>
+              </footer>
+            </form>
     );
   }
 
@@ -3228,7 +3265,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
             ) : null}
           </div>
           <div className="workspace-header-actions">
-            {activeBook ? (
+            {!modern && activeBook ? (
               <button type="button" onClick={openBookMetadata}>
                 {t("Edit Book Info", "책 정보 수정")}
               </button>
@@ -3311,7 +3348,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
         {modern && <WorkspaceNavigation tab={activeWorkspaceTab} onTab={navigateTo} hasBook={Boolean(activeBook)} hasChapters={hasChapters} hasSources={hasSourceFiles} t={t} />}
         {modern && saveError && <div className="reading-save-error" role="alert">{saveError}</div>}
 
-        {activeBook && isBookMetadataOpen ? (
+        {!modern && activeBook && isBookMetadataOpen ? (
           <dialog ref={bookDialogRef} className="metadata-dialog reading-book-dialog" aria-labelledby="book-details-title"
             onCancel={(event) => { if (isSavingBookMetadata || deletingId === activeBook.id) event.preventDefault(); }}
             onClose={() => setIsBookMetadataOpen(false)}>
@@ -3320,33 +3357,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
               <button type="button" aria-label={t("Close", "닫기")} disabled={isSavingBookMetadata || deletingId === activeBook.id}
                 onClick={() => bookDialogRef.current?.close()}>×</button>
             </header>
-            <form className="metadata-form" onSubmit={handleSaveBookMetadata}>
-              <label>
-                {t("Title", "제목")}
-                <input value={bookMetadataEdit.title} required disabled={isSavingBookMetadata || deletingId === activeBook.id}
-                  onChange={(event) => setBookMetadataEdit((current) => ({ ...current, title: event.target.value }))} />
-              </label>
-              <label>
-                {t("Author", "저자")}
-                <input value={bookMetadataEdit.author} placeholder={t("Optional", "선택 사항")} disabled={isSavingBookMetadata || deletingId === activeBook.id}
-                  onChange={(event) => setBookMetadataEdit((current) => ({ ...current, author: event.target.value }))} />
-              </label>
-              <label>
-                {t("Reading level", "읽기 수준")}
-                <input value={bookMetadataEdit.readingLevel} placeholder={t("Optional", "선택 사항")} disabled={isSavingBookMetadata || deletingId === activeBook.id}
-                  onChange={(event) => setBookMetadataEdit((current) => ({ ...current, readingLevel: event.target.value }))} />
-              </label>
-              {bookMetadataError && <p className="reading-book-error" role="alert">{bookMetadataError}</p>}
-              <footer className="dialog-actions">
-                <button className="reading-book-delete" type="button" disabled={isSavingBookMetadata || deletingId === activeBook.id} onClick={handleDeleteBook}>
-                  {deletingId === activeBook.id ? t("Deleting...", "삭제 중...") : t("Delete book", "책 삭제")}
-                </button>
-                <button type="button" disabled={isSavingBookMetadata || deletingId === activeBook.id} onClick={() => bookDialogRef.current?.close()}>{t("Cancel", "취소")}</button>
-                <button type="submit" disabled={isSavingBookMetadata || deletingId === activeBook.id}>
-                  {isSavingBookMetadata ? t("Saving...", "저장 중...") : t("Save", "저장")}
-                </button>
-              </footer>
-            </form>
+            {renderBookMetadataForm()}
           </dialog>
         ) : null}
 
@@ -3541,9 +3552,13 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
         ) : null}
 
         <div className="workspace-scroll">
-        {modern && (isLoading || isBookLoading) && <p role="status">{t("Loading saved book…", "저장된 책을 불러오는 중…")}</p>}
+        {modern && (isLoading || isBookLoading) && <div className="reading-load-state" role="status" aria-live="polite"><span className="reading-loading-mark" aria-hidden="true" /><p>{t("Loading saved book…", "저장된 책을 불러오는 중…")}</p></div>}
         {modern && (bookLoadError || libraryError) && <p role="alert">{bookLoadError || libraryError} <button type="button" onClick={() => libraryError ? window.location.reload() : setBookLoadAttempt(n => n + 1)}>{t("Retry", "다시 시도")}</button></p>}
         <div className="workspace-stack" hidden={modern && (isLoading || isBookLoading || Boolean(bookLoadError || libraryError))}>
+          {modern && activeBook && activeWorkspaceTab === "info" && <section className="reading-book-info" aria-labelledby="inline-book-info-title">
+            <h3 id="inline-book-info-title">{t("Book info", "책 정보")}</h3>
+            {renderBookMetadataForm()}
+          </section>}
           {activeWorkspaceTab === "source" || activeWorkspaceTab === "split" ? (
           <section className={activeWorkspaceTab === "split" ? "split-panel" : "source-panel"}>
             <div className="panel-title-row">
@@ -4525,10 +4540,10 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                             </button>
                           </div>
                           <div className="study-item-toolbar">
-                            {activeStudySetView !== "vocabulary" && <>
+                            <>
                               <button type="button" onClick={()=>setQuestionExpansion(v=>({open:true,version:v.version+1}))}>{t("Expand all", "모두 펼치기")}</button>
                               <button type="button" onClick={()=>setQuestionExpansion(v=>({open:false,version:v.version+1}))}>{t("Collapse all", "모두 접기")}</button>
-                            </>}
+                            </>
                             <button
                               type="button"
                               onClick={() => startCreatingStudyItem(activeStudySetView)}
@@ -4540,9 +4555,25 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                           {activeStudySetView === "vocabulary" ? (
                           <div className="study-items-grid single-column">
                             <section className="study-item-section">
-                              {renderNewStudyItemForm("vocabulary")}
+                              {!newItemAtEnd && renderNewStudyItemForm("vocabulary")}
                               {selectedStudyItems.vocabularyItems.map((item, index) => (
-                                <article className="study-item-card" key={item.id}>
+                                <QuestionCard vocabulary id={item.id} group={`${selectedStudySetId}:${selectedChapter.id}:vocabulary`} index={index} title={item.term}
+                                  editing={editingStudyItemId === item.id} busy={Boolean(movingStudyItemId || savingStudyItemId || deletingId || isSavingNewStudyItem || editingStudyItemId)}
+                                  review={false} expansion={questionExpansion} korean={uiLanguage === "ko"} key={item.id}
+                                  onMove={direction=>{if((direction === "up" && index>0)||(direction === "down" && index<selectedStudyItems.vocabularyItems.length-1)) void handleMoveStudyItem("vocabulary",item.id,direction);}}
+                                  onDrop={targetId=>void handleMoveStudyItem("vocabulary",item.id,{targetId})}
+                                  actions={<div className="study-item-actions">
+                                    {editingStudyItemId === item.id ? (
+                                      <>
+                                        {modern && dirtyItemIds.includes(item.id) && <span className="reading-unsaved" role="status">{t("Unsaved changes", "저장되지 않은 변경")}</span>}
+                                        <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("vocabulary", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
+                                        <button type="button" onClick={() => cancelStudyItemEdit(item.id)}>{t("Cancel", "취소")}</button>
+                                      </>
+                                    ) : (
+                                      <button type="button" onClick={() => startEditingStudyItem("vocabulary", item)}>{t("Edit", "수정")}</button>
+                                    )}
+                                    {renderSecondaryStudyActions("vocabulary", item.id, index, selectedStudyItems.vocabularyItems.length)}
+                                  </div>}>
                                   {editingStudyItemId === item.id ? (
                                     <div className="study-item-edit-form">
                                       <label>
@@ -4560,7 +4591,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                                     </div>
                                   ) : (
                                     <>
-                                      <strong>{item.term}</strong>
+
                                       <p>{formatVocabularyDefinition(item.definition)}</p>
                                       {item.contextSentence ? (
                                         <small className="vocabulary-example">
@@ -4569,20 +4600,11 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                                       ) : null}
                                     </>
                                   )}
-                                  <div className="study-item-actions">
-                                    {editingStudyItemId === item.id ? (
-                                      <>
-                                        {modern && dirtyItemIds.includes(item.id) && <span className="reading-unsaved" role="status">{t("Unsaved changes", "저장되지 않은 변경")}</span>}
-                                        <button type="button" disabled={savingStudyItemId === item.id} onClick={() => handleSaveStudyItem("vocabulary", item.id)}>{savingStudyItemId === item.id ? t("Saving...", "저장 중...") : t("Save", "저장")}</button>
-                                        <button type="button" onClick={() => cancelStudyItemEdit(item.id)}>{t("Cancel", "취소")}</button>
-                                      </>
-                                    ) : (
-                                      <button type="button" onClick={() => startEditingStudyItem("vocabulary", item)}>{t("Edit", "수정")}</button>
-                                    )}
-                                    {renderSecondaryStudyActions("vocabulary", item.id, index, selectedStudyItems.vocabularyItems.length)}
-                                  </div>
-                                </article>
+
+                                </QuestionCard>
                               ))}
+                              {newItemAtEnd && renderNewStudyItemForm("vocabulary")}
+                              <button type="button" className="question-add-bottom" disabled={isSavingNewStudyItem} onClick={()=>startCreatingStudyItem("vocabulary", true)}>{getAddStudyItemLabel("vocabulary")}</button>
                             </section>
                           </div>
                           ) : activeStudySetView === "multiple-choice" ? (

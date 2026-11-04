@@ -1,7 +1,7 @@
 "use client";
 import {useEffect, useRef, useState, type ReactNode} from 'react';
-export function QuestionCard({id,group,index,title,editing,busy,review,expansion,actions,children,onMove,onDrop,korean}: {
-  id:string;group:string;index:number;title:string;editing:boolean;busy:boolean;review:boolean;
+export function QuestionCard({id,group,index,title,editing,busy,review,expansion,actions,children,onMove,onDrop,korean,vocabulary=false}: {
+  vocabulary?:boolean;id:string;group:string;index:number;title:string;editing:boolean;busy:boolean;review:boolean;
   expansion:{open:boolean;version:number};actions:ReactNode;children:ReactNode;
   onMove:(direction:'up'|'down')=>void;onDrop:(target:string)=>void;korean:boolean;
 }) {
@@ -17,7 +17,7 @@ export function QuestionCard({id,group,index,title,editing,busy,review,expansion
   return <article className={`study-item-card question-card ${dragging?'is-dragging':''}`} data-question-id={id} data-question-group={group}>
     <div className="question-row-heading">
       <button type="button" className="question-drag-handle" disabled={busy||editing}
-        aria-label={korean?`문제 ${index+1} 순서 변경: 드래그하거나 위아래 방향키 사용`:`Reorder question ${index+1}: drag or use Up and Down arrow keys`}
+        aria-label={korean?`${vocabulary?"단어":"문제"} ${index+1} 순서 변경: 드래그하거나 위아래 방향키 사용`:`Reorder ${vocabulary?"word":"question"} ${index+1}: drag or use Up and Down arrow keys`}
         onKeyDown={e=>{if(e.key==='ArrowUp'||e.key==='ArrowDown'){e.preventDefault();onMove(e.key==='ArrowUp'?'up':'down');} if(e.key==='Escape')clear();}}
         onPointerDown={e=>{if(e.button!==0)return;start.current={x:e.clientX,y:e.clientY};moved.current=false;e.currentTarget.setPointerCapture(e.pointerId);}}
         onPointerMove={e=>{

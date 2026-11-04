@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useRef } from "react";
 
-export type WorkspaceDestination = "source" | "split" | "chapters" | "generate" | "sets" | "review" | "export";
+export type WorkspaceDestination = "source" | "split" | "chapters" | "generate" | "sets" | "review" | "export" | "info";
 type Book = { id: string; title: string; author: string | null; pinnedAt: string | null };
 type Translate = (en: string, ko: string) => string;
 
@@ -62,6 +62,7 @@ export function WorkspaceNavigation({ tab, onTab, hasBook, hasChapters, hasSourc
       <button type="button" aria-current={text ? "page" : undefined} disabled={!hasBook} onClick={() => onTab(hasChapters ? "chapters" : "source")}>{t("Text", "텍스트")}</button>
       <button type="button" aria-current={guides ? "page" : undefined} disabled={!hasBook} onClick={() => onTab("review")}>{t("Study guides", "학습지")}</button>
       <button type="button" aria-current={tab === "export" ? "page" : undefined} disabled={!hasBook} onClick={() => onTab("export")}>{t("Export", "내보내기")}</button>
+      <button type="button" aria-current={tab === "info" ? "page" : undefined} disabled={!hasBook} onClick={() => onTab("info")}>{t("Book info", "책 정보")}</button>
     </nav>
     {text && <QuietMenu label={t("Text tools", "텍스트 도구")}>
       <button type="button" aria-current={tab === "chapters" ? "page" : undefined} disabled={!hasChapters} onClick={() => onTab("chapters")}>{t("Chapters", "챕터")}</button>
