@@ -1309,3 +1309,11 @@ Validation: production build/type checking and local browser checks passed with 
 ### 2026-11-04: teacher-facing guide format review
 
 The product scope is teacher/tutor authoring for primarily secondary-school audiences; a student learning platform is separate. The [guide format review](study-guide-format-review.md) records a read-only audit of current code and historical restored guides, a proposed chapter teaching format and an additive migration sequence. The restored sample predates the latest Ubuntu generation, so its metrics must not be attributed to the current model. No generation, database or deployment changes were made. Begin with a small editorial/export prototype before rolling out a new generation schema.
+
+### 2026-11-06: generation content quality v3
+
+New generation uses shared prompt version `openai-study-guide-v3-content-quality` for both worker and web paths. MCQ review now checks unsupported question premises and flags repeated stems and all/none-of-the-above options. Short-answer generation asks for task-aligned scoring criteria and partial credit; vocabulary generation targets the chapter's sense and faithful paraphrased context. The book's reading-level note is supplied to generation. All requested item types and the summary are still produced together.
+
+Required-content and exact-count validation now runs before normalization. An invalid chapter response fails instead of silently dropping excess items or saving placeholders; completed chapters remain preserved. Existing vocabulary deduplication can still reduce saved totals. No new paid review stage, database migration, dependency or environment setting is required. Existing guides are unchanged. See [generation quality notes](ui-behaviors-and-mcq-quality.md) for limitations and checks.
+
+Deploy while generation is idle using the normal staging pull/build/restart procedure for both web and worker. Validate with one newly generated chapter version before a whole book: inspect premise accuracy, distractors, source support, rubric criteria and contextual definitions, and compare with the older version. Synthetic regression tests passed; actual model quality and Ubuntu acceptance remain to be confirmed.

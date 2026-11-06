@@ -182,3 +182,9 @@ Open decisions: actual class language-support profiles, preferred handout length
 - `apps/web/src/lib/pdf-export.ts`, `scripts/render_study_set_docx.py`: document content and rendering.
 - `apps/web/src/components/book-workspace.tsx`: generation planning, item-type editing and export selection.
 - `database/migrations/0001_postgres.sql`, `0002_runtime_auth.sql`: content tables and chapter revisions.
+
+## 2026-11-06: clarified product decisions and first implementation
+
+The full chapter structure above is a longer-term option, not the default workflow. The primary user's core need is high-quality chapter-by-chapter MCQs. Chapter counts and adjustment already exist; their presentation will be revisited separately. Generate the complete MCQ/short-answer/vocabulary/summary bank together and let teachers select portions at export. Do not introduce generation selection checkboxes or require a lesson blueprint UI. A compact teacher overview may later build on the existing summary.
+
+The first implementation is generation content quality v3, described in [UI behaviors and MCQ quality](ui-behaviors-and-mcq-quality.md): improved instructions across all item types, reading-level context, explicit MCQ premise checking, repeated-stem/collective-option flags and validation before normalization. This does not implement the new summary structure, project ownership or export presets.

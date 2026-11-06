@@ -8,10 +8,16 @@ export function reviewFlags(raw: unknown, chapterId: string | null, question: {q
   const signature = (choices: unknown) => Array.isArray(choices) ? JSON.stringify([...choices].sort()) : null;
   const matches = outputs.flatMap((o: any) => Array.isArray(o?.mcq_quality?.records) ? o.mcq_quality.records : [])
     .filter((r: any) => r?.final?.questionText === question.questionText && signature(r.final.choices) === signature(question.choices));
+  // Identical duplicates cannot be uniquely matched, but a duplicate flag shared
+  // by every matching record is safe to show. Never borrow other review reasons.
+  if (matches.length > 1 && matches.every((r: any) => Array.isArray(r.flags) && r.flags.includes("duplicate_question"))) return ["duplicate_question"];
   return matches.length === 1 && Array.isArray(matches[0].flags)
     ? matches[0].flags.filter((f: unknown): f is string => typeof f === 'string') : [];
 }
 export const reviewReasonLabels: Record<string, [string, string]> = {
+  unsupported_premise: ['The question assumes something the passage does not support.', '문제의 전제가 본문에서 뒷받침되지 않습니다.'],
+  duplicate_question: ['Another question in this chapter has the same question wording.', '이 챕터에 같은 문항이 있습니다.'],
+  collective_choice: ['A choice uses all/none of the above instead of a distinct answer.', '모두 정답 또는 정답 없음 형식의 선택지가 있습니다.'],
   correct_answer_length: ['The correct answer is noticeably longer than the distractors.', '정답이 오답보다 눈에 띄게 깁니다.'],
   very_short_distractor: ['Some distractors are much shorter than the correct answer.', '일부 오답이 정답보다 훨씬 짧습니다.'],
   duplicate_choices: ['Two or more choices have the same wording.', '같은 내용의 선택지가 있습니다.'],

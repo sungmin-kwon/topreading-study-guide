@@ -8,6 +8,7 @@ export function checkMcq(q: Mcq): string[] {
   if (new Set(q.choices.map(c => c.trim().toLowerCase().replace(/\s+/g," "))).size !== q.choices.length) flags.push("duplicate_choices");
   if (correct > 1.5 * Math.max(...others) && correct - Math.max(...others) >= 5) flags.push("correct_answer_length");
   if (correct >= 8 && Math.min(...others) <= 2) flags.push("very_short_distractor");
+  if (q.choices.some(c => /^(?:all|none) of (?:the above|these|them)[.!]?$/i.test(c.trim()))) flags.push("collective_choice");
   if (hasAnswerLetterReference(`${q.questionText} ${q.explanation} ${q.choices.join(" ")}`)) flags.push("answer_letter_reference");
   return flags;
 }

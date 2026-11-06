@@ -4,7 +4,7 @@ function loader(overrides={}){overrides={'@/lib/admin-settings':{getRuntimeSetti
 const load=loader();const {checkMcq}=load('mcq-checks');const {assessMcqs}=load('mcq-quality');const {balanceCorrectChoicePositions}=load('mcq-shuffle');
 const passage='Mina opened the gate. Daniel stayed inside.';
 const q=()=>({questionText:'Who opened the gate?',choices:['Mina','Daniel','The librarian','The neighbour'],correctChoiceIndex:0,explanation:'Mina opened it; the others did not.',sortOrder:1});
-const verdict=(question)=>({supported_index:question.choices.indexOf('Mina'),ambiguous:false,cues:[],evidence_quote:'Mina opened the gate.',choice_reasons:question.choices.map(c=>c==='Mina'?'Supported by passage':'Not the person named in the passage')});
+const verdict=(question)=>({supported_index:question.choices.indexOf('Mina'),ambiguous:false,stem_supported:true,cues:[],evidence_quote:'Mina opened the gate.',choice_reasons:question.choices.map(c=>c==='Mina'?'Supported by passage':'Not the person named in the passage')});
 const provider={review:async(_,question)=>verdict(question),repair:async()=>q()};
 test('length, duplicates and invalid index are distinguished',()=>{assert.deepEqual(checkMcq(q()),[]);assert(checkMcq({...q(),choices:['Mina is the person who opened the gate in this particular passage','Daniel','The librarian','The neighbour']}).includes('correct_answer_length'));assert(checkMcq({...q(),choices:['Mina',' mina ','Daniel','Someone']}).includes('duplicate_choices'));assert.deepEqual(checkMcq({...q(),correctChoiceIndex:4}),['invalid_structure']);});
 test('blind review gets no answer, explanation or quality flags',async()=>{const original=q();const result=await assessMcqs([original],passage,{...provider,review:async(p,question)=>{assert.deepEqual(Object.keys(question).sort(),['choices','questionText']);return verdict(question);}});assert.equal(result.questions[0].status,'draft');assert.deepEqual(original,q());assert.equal(result.records[0].reviewed,true);});
@@ -43,4 +43,50 @@ test('preview loader rejects malformed nested content instead of overwriting it'
  assert.equal(storage.readPreview(JSON.stringify(fixture)).books.length,2);
  fixture.books[0].chapters[0].text=null;
  assert.throws(()=>storage.readPreview(JSON.stringify(fixture)),/Invalid preview data/);
+});
+
+test('a true answer does not excuse an unsupported question premise',async()=>{
+ const r=await assessMcqs([q()],passage,{...provider,review:async(_,question)=>({...verdict(question),stem_supported:false})},1);
+ assert.equal(r.questions[0].status,'needs_review');assert(r.records[0].flags.includes('unsupported_premise'));
+ assert.equal(r.records[0].reviews[0].verdict.supported_index>=0,true);
+});
+test('missing premise verdict is an incomplete review, not an approval',async()=>{
+ const r=await assessMcqs([q()],passage,{...provider,review:async(_,question)=>{const v=verdict(question);delete v.stem_supported;return v;}},1);
+ assert(r.records[0].flags.includes('review_unavailable'));assert.equal(r.questions[0].status,'needs_review');
+});
+test('collective options are flagged without flagging ordinary negative answers',()=>{
+ assert(checkMcq({...q(),choices:['Mina','Daniel','All of the above','Neither person opened it']} ).includes('collective_choice'));
+ assert(!checkMcq({...q(),choices:['Mina','Daniel','No one opened the gate','The gate was already open']}).includes('collective_choice'));
+});
+test('duplicate question stems remain flagged even after otherwise successful reviews',async()=>{
+ const r=await assessMcqs([q(),{...q(),questionText:'WHO opened the gate ?'}],passage,provider);
+ assert(r.records.every(r=>r.flags.includes('duplicate_question')));assert(r.questions.every(q=>q.status==='needs_review'));
+});
+test('complete vocabulary and written answers are validated before normalization',()=>{
+ const {validateGeneratedContent}=load('generation-content-checks');
+ const plan={vocabularyCount:1,multipleChoiceCount:0,shortAnswerCount:1};
+ const data={chapter_summary:'Mina opens a gate.',vocabulary_items:[{term:'gate',english_definition:'a barrier that opens at an entrance',korean_definition:'문',context_sentence:'Mina opens the gate.',part_of_speech:'noun'}],multiple_choice_questions:[],short_answer_questions:[{question_text:'Name the person who opens the gate.',suggested_answer:'Mina.',rubric:'1 point: identifies Mina; 0: another person or no answer. Total: 1.'}]};
+ assert.doesNotThrow(()=>validateGeneratedContent(data,plan));
+ for(const [group,field] of [['vocabulary_items','context_sentence'],['vocabulary_items','english_definition'],['short_answer_questions','rubric'],['short_answer_questions','suggested_answer']]) {
+  const invalid=structuredClone(data);invalid[group][0][field]='  ';assert.throws(()=>validateGeneratedContent(invalid,plan),/missing required content/);
+ }
+ for(const group of ['vocabulary_items','short_answer_questions']){
+  const missing=structuredClone(data);missing[group]=[];assert.throws(()=>validateGeneratedContent(missing,plan),/count/);
+  const extra=structuredClone(data);extra[group].push(extra[group][0]);assert.throws(()=>validateGeneratedContent(extra,plan),/count/);
+ }
+});
+test('mixed chapter generation retains all sections and the shared quality provenance',async()=>{
+ const oldFetch=global.fetch,oldKey=process.env.OPENAI_API_KEY;process.env.OPENAI_API_KEY='test-placeholder';let mainRequest;
+ const payload={chapter_summary:'Mina opened the gate.',vocabulary_items:[{term:'gate',english_definition:'a movable entrance barrier',korean_definition:'문',context_sentence:'Mina opened the gate.',part_of_speech:'noun',difficulty:'core'}],short_answer_questions:[{question_text:'Who opened the gate?',suggested_answer:'Mina.',rubric:'1 point: Mina. 0 points: incorrect or absent. Total: 1.',skill:'literal-comprehension',difficulty:'standard'}],multiple_choice_questions:[{question_text:q().questionText,choices:q().choices,correct_choice_index:0,explanation:q().explanation,skill:'literal-comprehension',difficulty:'standard'}]};
+ try {
+  global.fetch=async(_url,init)=>{const body=JSON.parse(init.body);let output;if(body.text.format.name==='chapter_study_guide'){mainRequest=body;output=payload;}else output=verdict(JSON.parse(body.input[1].content).question);return {ok:true,json:async()=>({output_text:JSON.stringify(output),usage:{input_tokens:10,output_tokens:5,total_tokens:15}})};};
+  const generate=loader({'@topreading/core':{deriveGenerationPlan:()=>({vocabularyCount:1,multipleChoiceCount:1,shortAnswerCount:1})},'@/lib/study-items':{},'@/lib/study-sets':{}})('openai-generator').generateOpenAIChapterItems;
+  const r=await generate({title:'Fixture',author:'Fixture',readingLevel:'Intermediate; concise language'},{chapterNumber:1,title:'Gate',wordCount:9,textContent:passage});
+  assert.equal(r.generatedItems.vocabularyItems[0].contextSentence,payload.vocabulary_items[0].context_sentence);
+  assert.equal(r.generatedItems.shortAnswerQuestions[0].rubric,payload.short_answer_questions[0].rubric);
+  assert.equal(r.generatedItems.chapterSummaries.length,1);assert.equal(r.generatedItems.multipleChoiceQuestions.length,1);
+  assert(mainRequest.input[1].content.includes('Intermediate; concise language'));
+  assert.deepEqual(mainRequest.text.format.schema.properties.short_answer_questions.items.properties.skill.enum,load('generation-guidance').generationSkills);
+  assert.equal(r.usage.total_tokens,30);
+ } finally {global.fetch=oldFetch;if(oldKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=oldKey;}
 });

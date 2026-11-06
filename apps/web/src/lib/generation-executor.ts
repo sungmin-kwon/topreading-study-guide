@@ -1,3 +1,4 @@
+import { studyGuidePromptVersion } from "./generation-guidance";
 import { getRuntimeSetting } from "@/lib/admin-settings";
 import { atomic } from "@/lib/db/client";
 import { cancellationRequested } from "@/lib/generation-queue";
@@ -230,7 +231,7 @@ export async function executeGeneration(bookId: string, generationRunId: string)
     title: generationRun.name || `${book.title} - ${nowIso().slice(0, 16).replace("T", " ")}`,
     generator: "openai",
     model: await getRuntimeSetting("OPENAI_MODEL"),
-    promptVersion: "openai-study-guide-v2-mcq-quality",
+    promptVersion: studyGuidePromptVersion,
     settings: JSON.parse(generationRun.configJson || "{}")
   });
   await updateGenerationRun({

@@ -1,6 +1,6 @@
 import { checkMcq, type Mcq } from "./mcq-checks";
 export type BlindQuestion = { questionText: string; choices: string[] };
-export type Review = { supported_index: number; ambiguous: boolean; cues: string[]; evidence_quote: string; choice_reasons: string[] };
+export type Review = { supported_index: number; ambiguous: boolean; stem_supported: boolean; cues: string[]; evidence_quote: string; choice_reasons: string[] };
 export type QualityProvider = { review: (passage: string, question: BlindQuestion) => Promise<Review>; repair: (passage: string, question: Mcq, issues: string[]) => Promise<Mcq> };
 export type QualityRecord = { original: Mcq; final: Mcq; flags: string[]; initialFlags: string[]; repairs: number; reviewed: boolean; evidence: string | null; reviews: { choices: string[]; verdict: Review }[]; status: "draft" | "needs_review" };
 function blind(q: Mcq) {
@@ -22,10 +22,11 @@ export async function assessMcqs(questions: Mcq[], passage: string, provider: Qu
           const hidden=blind(candidate); calls++;
           const verdict=await provider.review(passage,hidden.question);
           reviewed=true;
-          if (!Number.isInteger(verdict.supported_index) || verdict.supported_index < -1 || verdict.supported_index > 3 || typeof verdict.ambiguous!=="boolean" || !Array.isArray(verdict.cues) || verdict.cues.some(c=>typeof c!=="string") || typeof verdict.evidence_quote!=="string" || !Array.isArray(verdict.choice_reasons) || verdict.choice_reasons.length!==4 || verdict.choice_reasons.some(r=>typeof r!=="string" || !r.trim())) throw new Error("Invalid review");
+          if (!Number.isInteger(verdict.supported_index) || verdict.supported_index < -1 || verdict.supported_index > 3 || typeof verdict.ambiguous!=="boolean" || typeof verdict.stem_supported!=="boolean" || !Array.isArray(verdict.cues) || verdict.cues.some(c=>typeof c!=="string") || typeof verdict.evidence_quote!=="string" || !Array.isArray(verdict.choice_reasons) || verdict.choice_reasons.length!==4 || verdict.choice_reasons.some(r=>typeof r!=="string" || !r.trim())) throw new Error("Invalid review");
           reviews.push({choices:hidden.question.choices,verdict});
           flags=checkMcq(candidate);
           if (verdict.ambiguous || hidden.order[verdict.supported_index]!==candidate.correctChoiceIndex) flags.push("semantic_disagreement");
+          if (!verdict.stem_supported) flags.push("unsupported_premise");
           if (verdict.cues.length) flags.push("wording_cues");
           if (!verdict.evidence_quote.trim() || verdict.evidence_quote.length>240 || !passage.includes(verdict.evidence_quote)) flags.push("unsupported_evidence");
           evidence=flags.includes("unsupported_evidence")?null:verdict.evidence_quote;
@@ -40,6 +41,13 @@ export async function assessMcqs(questions: Mcq[], passage: string, provider: Qu
     }
     const status=flags.length?"needs_review":"draft";
     records.push({original,final:candidate,initialFlags,flags:[...new Set(flags)],repairs,reviewed,evidence,reviews,status});
+  }
+  // Cross-item checks run after repairs, which can introduce duplicate stems.
+  const stemKey = (value: string) => value.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const counts = new Map<string, number>();
+  for (const record of records) { const key = stemKey(record.final.questionText); counts.set(key, (counts.get(key) || 0) + 1); }
+  for (const record of records) {
+    if ((counts.get(stemKey(record.final.questionText)) || 0) > 1) { record.flags.push("duplicate_question"); record.status = "needs_review"; }
   }
   return { questions:records.map(r=>({...r.final,status:r.status})), records, calls };
 }

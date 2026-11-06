@@ -15,3 +15,10 @@ test('edited, missing and ambiguous historical matches never borrow another ques
  assert.deepEqual(reviewFlags(null,null,q),[]);
  assert.deepEqual(reviewFlags({mcq_quality:{records:[record,record]}},null,q),[]);
 });
+
+test('identical duplicated items expose only their shared duplicate finding',()=>{
+ const a={final:q,flags:['duplicate_question','wording_cues']};
+ const b={final:q,flags:['duplicate_question','unsupported_premise']};
+ assert.deepEqual(reviewFlags({mcq_quality:{records:[a,b]}},null,q),['duplicate_question']);
+ assert.deepEqual(reviewFlags({mcq_quality:{records:[a,record]}},null,q),[]);
+});
