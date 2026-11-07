@@ -323,6 +323,8 @@ export async function executeGeneration(bookId: string, generationRunId: string)
       const result = await generateOpenAIChapterItems(book, chapter, chapterConfig.plan);
       const reviewCount = result.generatedItems.multipleChoiceQuestions?.filter(q => q.status === "needs_review").length || 0;
       if (reviewCount) runLog = [...runLog, logEntry("warn", `${reviewCount} MCQ(s) in Chapter ${chapter.chapterNumber} need human review after quality checks.`)];
+      const reviewRecords = result.rawOutput?.mcq_quality?.records;
+      if (Array.isArray(reviewRecords)) runLog = [...runLog, logEntry("info", `MCQ coverage: ${reviewRecords.filter(record => record.reviewed).length}/${reviewRecords.length} received model review; all received structural checks. Unflagged does not mean independently verified.`)];
       const deduplicated = filterDuplicateVocabularyItems(result.generatedItems, seenVocabularyTerms);
       skippedDuplicateVocabularyCount += deduplicated.skippedTerms.length;
       await atomic(async () => {

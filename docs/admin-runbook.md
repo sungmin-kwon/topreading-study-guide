@@ -1317,3 +1317,13 @@ New generation uses shared prompt version `openai-study-guide-v3-content-quality
 Required-content and exact-count validation now runs before normalization. An invalid chapter response fails instead of silently dropping excess items or saving placeholders; completed chapters remain preserved. Existing vocabulary deduplication can still reduce saved totals. No new paid review stage, database migration, dependency or environment setting is required. Existing guides are unchanged. See [generation quality notes](ui-behaviors-and-mcq-quality.md) for limitations and checks.
 
 Deploy while generation is idle using the normal staging pull/build/restart procedure for both web and worker. Validate with one newly generated chapter version before a whole book: inspect premise accuracy, distractors, source support, rubric criteria and contextual definitions, and compare with the older version. Synthetic regression tests passed; actual model quality and Ubuntu acceptance remain to be confirmed.
+
+### 2026-11-08: review selection diagnosis and configurable export
+
+An operator reported nearly every chapter flagging its first MCQ. The cause of the position pattern was the fixed semantic-review sample (1st, 11th, 21st, etc.), not a cap on the number of warnings. The reported reasons were wording cues and unverified source quotation. A strict character match could falsely reject line-wrapped quotations; whether any specific historical warning was incorrect cannot be determined without its verdict/source.
+
+The routine sample is now ranked by content rather than index, while structural warnings and the existing budget remain. Evidence comparison tolerates whitespace/Unicode-normalization differences but still requires source wording. New generation logs disclose review coverage. Historical flags are unchanged; unflagged items are not all independently reviewed.
+
+Export has independent content checkboxes, per-section layout options, combined PDF/Word download, and an optional concise MCQ key at the end. Preferences are stored per account in the current browser. Existing chapter/all-chapter scope and guide-version selection remain available. No migration, dependency installation or environment change is required. Deploy with generation idle using the existing web/worker build and restart procedure. Test exports on existing guides immediately; assess the sampling change with a small new chapter version, not a paid full-book rerun solely to remove flags.
+
+See [review and export release notes](ui-behaviors-and-mcq-quality.md) for validation and limitations. Local automated checks passed; Ubuntu deployment and acceptance are pending.

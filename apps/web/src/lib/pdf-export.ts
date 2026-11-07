@@ -291,6 +291,41 @@ function buildBookPayload(input: {
   };
 }
 
+// A single download assembled from one read of each chapter's items. Existing
+// single-type export callers retain their format and filenames.
+export function parseExportSelection(params: URLSearchParams): PdfExportType[] | null {
+  const values = params.has("types") ? params.getAll("types") : [params.get("type") || ""];
+  if (!values.length || values.length > 8) return null;
+  const types = values.map(normalizeExportType);
+  return types.every((type): type is PdfExportType => type !== null) ? [...new Set(types)] : null;
+}
+
+export function buildSelectedExportPayload(bookTitle: string, types: PdfExportType[], chapters: Array<{chapterNumber: number; chapterTitle: string; items: Awaited<ReturnType<typeof listStudyItems>>}>) {
+  const counters = new Map<PdfExportType, number>();
+  const sections: Array<{heading: string; items: PdfPayloadItem[]}> = [];
+  // Concise keys go at the end; their counters follow the same chapter/item order.
+  const main = types.filter(type => type !== "multiple-choice-concise-key");
+  for (const chapter of chapters) {
+    for (const type of main) {
+      const count = countItemsForType(chapter.items, type);
+      if (!count) continue;
+      const start = counters.get(type) || 1;
+      sections.push({heading: `${formatChapterLabel(chapter.chapterNumber, chapter.chapterTitle)} — ${exportLabels[type]}`, items: buildItemsForType(chapter.items, type, start)});
+      counters.set(type, start + count);
+    }
+  }
+  if (types.includes("multiple-choice-concise-key")) {
+    let start = 1;
+    for (const chapter of chapters) {
+      if (!chapter.items.multipleChoice.length) continue;
+      sections.push({heading: `${formatChapterLabel(chapter.chapterNumber, chapter.chapterTitle)} — Multiple Choice Answer Key`, items: buildMultipleChoiceConciseKeyItems(chapter.items, start)});
+      start += chapter.items.multipleChoice.length;
+    }
+  }
+  if (!sections.length) throw new Error("No items are available for the selected content and chapters.");
+  return {title: `${bookTitle} - Study guide`, header: `${bookTitle} - Study guide`, show_title: false, subtitle: "Selected content", sections};
+}
+
 export function parsePdfExportType(value: string | null) {
   return normalizeExportType(value);
 }
@@ -325,7 +360,7 @@ async function renderPayloadFile(input: { payload: unknown; basename: string; fo
   };
 }
 
-export async function exportStudySetFile(bookId: string, studySetId: string, type: PdfExportType, format: ExportFileFormat, chapterId?: string | null) {
+export async function exportStudySetFile(bookId: string, studySetId: string, type: PdfExportType, format: ExportFileFormat, chapterId?: string | null, selection?: PdfExportType[]) {
   const book = await getBook(bookId);
   const studySet = book ? await getStudySetForBook(book.id, studySetId) : null;
   const selectedChapterId = chapterId || studySet?.chapterId || null;
@@ -336,7 +371,7 @@ export async function exportStudySetFile(bookId: string, studySetId: string, typ
   }
 
   const items = await listStudyItems(studySet.id, { chapterId: chapter.id });
-  const payload = buildPayload({
+  const payload = selection ? buildSelectedExportPayload(book.title, selection, [{chapterNumber: chapter.chapterNumber, chapterTitle: chapter.title, items}]) : buildPayload({
     bookTitle: book.title,
     chapterNumber: chapter.chapterNumber,
     chapterTitle: chapter.title,
@@ -349,7 +384,7 @@ export async function exportStudySetFile(bookId: string, studySetId: string, typ
   await fs.mkdir(exportDir, { recursive: true });
   const basename = [
     sanitizeFilename(book.title || "book"),
-    type,
+    selection ? "selected-guide" : type,
     `chapter_${chapter.chapterNumber}`,
     randomUUID().slice(0, 8)
   ].join("_");
@@ -361,7 +396,7 @@ export async function exportStudySetPdf(bookId: string, studySetId: string, type
   return exportStudySetFile(bookId, studySetId, type, "pdf");
 }
 
-export async function exportBookFile(bookId: string, type: PdfExportType, format: ExportFileFormat, generationRunId?: string | null) {
+export async function exportBookFile(bookId: string, type: PdfExportType, format: ExportFileFormat, generationRunId?: string | null, selection?: PdfExportType[]) {
   const book = await getBook(bookId);
   if (!book) {
     throw new Error("Book not found.");
@@ -393,14 +428,14 @@ export async function exportBookFile(bookId: string, type: PdfExportType, format
       : "No generated study sets are available for this book.");
   }
 
-  const payload = buildBookPayload({
+  const payload = selection ? buildSelectedExportPayload(book.title, selection, sections) : buildBookPayload({
     bookTitle: book.title,
     type,
     sections
   });
   const basename = [
     sanitizeFilename(book.title || "book"),
-    type,
+    selection ? "selected-guide" : type,
     "all_chapters",
     randomUUID().slice(0, 8)
   ].join("_");

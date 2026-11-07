@@ -90,3 +90,22 @@ test('mixed chapter generation retains all sections and the shared quality prove
   assert.equal(r.usage.total_tokens,30);
  } finally {global.fetch=oldFetch;if(oldKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=oldKey;}
 });
+
+test('verified evidence tolerates line wrapping but not paraphrase or changed words',async()=>{
+ const wrapped='Mina\n opened\t the gate. Daniel stayed inside.';
+ const good=await assessMcqs([q()],wrapped,provider,1);assert.equal(good.records[0].status,'draft');
+ const bad=await assessMcqs([q()],wrapped,{...provider,review:async(_,question)=>({...verdict(question),evidence_quote:'Mina closed the gate.'})},1);
+ assert(bad.records[0].flags.includes('unsupported_evidence'));
+});
+test('content sampling is stable across list order and not tied to the first question',async()=>{
+ const questions=Array.from({length:20},(_,i)=>({...q(),questionText:`Who opened gate number ${i+1}?`}));
+ const a=await assessMcqs(questions,passage,provider,40),b=await assessMcqs([...questions].reverse(),passage,provider,40);
+ const selected=r=>r.records.filter(x=>x.reviewed).map(x=>x.original.questionText).sort();
+ assert.deepEqual(selected(a),selected(b));assert.equal(selected(a).length,2);
+ assert(a.records.some((r,i)=>r.reviewed && i!==0 && i!==10));
+});
+test('several defective questions in one chapter can all need review',async()=>{
+ const questions=Array.from({length:4},(_,i)=>({...q(),questionText:`Who opened gate ${i}?`,choices:['Mina','Mina','Daniel','Sam']}));
+ const result=await assessMcqs(questions,passage,provider,0);
+ assert.equal(result.questions.filter(q=>q.status==='needs_review').length,4);
+});

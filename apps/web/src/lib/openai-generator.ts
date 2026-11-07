@@ -431,7 +431,7 @@ function normalizeGeneratedItems(rawPayload: RawStudyGuidePayload, plan: Generat
 
 const reviewSchema = {
   type: "object", additionalProperties: false,
-  properties: { supported_index: { type: "integer", minimum: -1, maximum: 3 }, ambiguous: { type: "boolean" }, stem_supported: { type: "boolean" }, cues: { type: "array", items: { type: "string" } }, evidence_quote: { type: "string" }, choice_reasons: { type: "array", items: { type: "string" }, minItems: 4, maxItems: 4 } },
+  properties: { supported_index: { type: "integer", minimum: -1, maximum: 3 }, ambiguous: { type: "boolean" }, stem_supported: { type: "boolean" }, cues: { type: "array", items: { type: "string" } }, evidence_quote: { type: "string", maxLength: 240 }, choice_reasons: { type: "array", items: { type: "string" }, minItems: 4, maxItems: 4 } },
   required: ["supported_index", "ambiguous", "stem_supported", "cues", "evidence_quote", "choice_reasons"]
 };
 const repairSchema = {
@@ -472,7 +472,7 @@ export async function generateOpenAIChapterItems(
   const budget = Number.isInteger(configuredBudget) ? Math.max(0,Math.min(40,configuredBudget)) : 12;
   const quality = await assessMcqs(candidates, chapter.textContent, {
     review: (passage, question) => requestQualityJson(generated.model,
-      "Independently solve this reading question using only the passage. You are not given an answer key. Return the zero-based supported_index, or -1 if none. Set stem_supported=false if the stem misstates the passage, assumes an unsupported event/motive, or needs outside knowledge. Check the premise even when one choice is true. Flag ambiguity, implausible distractors and wording/length clues. Distinguish a justified inference from speculation. Quote at most 240 characters verbatim from the passage as evidence. Explain each choice in choice_reasons in the supplied order; refer to its content, not a letter. Model agreement is not proof of correctness.",
+      "Independently solve this reading question using only the passage. You are not given an answer key. Return the zero-based supported_index, or -1 if none. Set stem_supported=false if the stem misstates the passage, assumes an unsupported event/motive, or needs outside knowledge. Check the premise even when one choice is true. Flag ambiguity, implausible distractors and wording/length clues. Distinguish a justified inference from speculation. Quote a short contiguous excerpt of at most 240 characters from the passage as evidence. Do not paraphrase, join separated excerpts, add ellipses, or surround the excerpt with quotation marks. Explain each choice in choice_reasons in the supplied order; refer to its content, not a letter. Model agreement is not proof of correctness.",
       { passage, question }, reviewSchema, addUsage) as Promise<Review>,
     repair: (passage, question, issues) => requestQualityJson(generated.model,
       "Repair the question to have exactly one passage-supported answer and three plausible but wrong distractors. Use parallel grammar, comparable detail, and similar lengths without padding. Address the listed issues. Preserve the intended learning objective. Correct unsupported stem premises, temporal/causal mistakes and overlapping or implausible distractors using only the passage. Explain why the correct content is supported and each distractor is wrong. Never refer to choice letters or positions in the question, choices, or explanation.",
@@ -483,7 +483,7 @@ export async function generateOpenAIChapterItems(
   return {
     plan,
     generatedItems,
-    rawOutput: { ...generated.payload, mcq_quality: { version: 1, records: quality.records, calls: quality.calls, budget }, saved_multiple_choice_questions: generatedItems.multipleChoiceQuestions },
+    rawOutput: { ...generated.payload, mcq_quality: { version: 2, sampling: "content-hash-10-percent-plus-structural", records: quality.records, calls: quality.calls, budget }, saved_multiple_choice_questions: generatedItems.multipleChoiceQuestions },
     usage,
     model: generated.model
   };

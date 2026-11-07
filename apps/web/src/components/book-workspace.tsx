@@ -1,5 +1,6 @@
 "use client";
 
+import { ExportContentSelection } from "./export-content-selection";
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { allocateCountByWordWeight, deriveBookGenerationPlan } from "@topreading/core";
 
@@ -733,7 +734,9 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   const [renamingGenerationRunId, setRenamingGenerationRunId] = useState<string | null>(null);
   const [renameError, setRenameError] = useState("");
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-  const [exportType, setExportType] = useState<PdfExportType>("multiple-choice");
+  const [exportSelection, setExportSelection] = useState<PdfExportType[]>(["multiple-choice"]);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState("");
   const [exportFormat, setExportFormat] = useState<"pdf" | "docx">("pdf");
   const [exportScope, setExportScope] = useState<"all" | "chapter">("all");
   const [showSingleChapterExport, setShowSingleChapterExport] = useState(false);
@@ -804,6 +807,24 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   const [statusToasts, setStatusToasts] = useState<StatusToast[]>([]);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [currentUserIsAdmin, setCurrentUserIsAdmin] = useState(false);
+
+  const [exportPreferencesUser, setExportPreferencesUser] = useState<string | null>(null);
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const allowed = new Set(["chapter-summaries", "vocabulary-list", "vocabulary-quiz", "multiple-choice", "multiple-choice-key", "multiple-choice-concise-key", "short-answer", "short-answer-key"]);
+    let selection: PdfExportType[] = ["multiple-choice"];
+    let format: "pdf" | "docx" = "pdf";
+    try {
+      const saved = JSON.parse(localStorage.getItem(`topreading:export:${currentUser.id}`) || "null");
+      if (Array.isArray(saved?.selection) && saved.selection.length <= 8 && saved.selection.every((type: unknown)=>typeof type === "string" && allowed.has(type))) selection = [...new Set<PdfExportType>(saved.selection)];
+      if (saved?.format === "docx") format = "docx";
+    } catch { /* Storage is optional. */ }
+    setExportSelection(selection); setExportFormat(format); setExportPreferencesUser(currentUser.id);
+  }, [currentUser?.id]);
+  useEffect(() => {
+    if (!currentUser?.id || exportPreferencesUser !== currentUser.id) return;
+    try { localStorage.setItem(`topreading:export:${currentUser.id}`, JSON.stringify({selection:exportSelection,format:exportFormat})); } catch { /* Storage is optional. */ }
+  }, [currentUser?.id, exportPreferencesUser, exportSelection, exportFormat]);
 
   const activeBook = useMemo(
     () => books.find((book) => book.id === activeBookId) || null,
@@ -2475,6 +2496,31 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
     } finally {
       setSavingGenerationRunId(null);
     }
+  }
+
+  async function handleExportSelection() {
+    if (!activeBook || !exportSelection.length || exportBusy || (exportScope === "chapter" && !selectedStudySet)) return;
+    setExportBusy(true); setExportError("");
+    const params = new URLSearchParams({format: exportFormat});
+    // Stable section order, independent of the order boxes were checked.
+    const order: PdfExportType[] = ["chapter-summaries", "vocabulary-list", "vocabulary-quiz", "multiple-choice", "multiple-choice-key", "short-answer", "short-answer-key", "multiple-choice-concise-key"];
+    order.filter(type=>exportSelection.includes(type)).forEach(type=>params.append("types",type));
+    let url = `/api/books/${activeBook.id}/export`;
+    if (exportScope === "chapter") {
+      url = `/api/books/${activeBook.id}/study-sets/${selectedStudySet!.id}/export`;
+      if (selectedChapter) params.set("chapterId", selectedChapter.id);
+    } else params.set("generationRunId", activeBook.activeGenerationRunId || "latest");
+    try {
+      const response = await fetch(`${url}?${params}`);
+      if (!response.ok) { const body = await response.json().catch(()=>({})); throw new Error(body.error || t("Could not export. Try again.", "내보내지 못했습니다. 다시 시도하세요.")); }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a"); link.href=objectUrl;
+      link.download = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] || `study-guide.${exportFormat}`;
+      document.body.appendChild(link); link.click(); link.remove();
+      window.setTimeout(()=>URL.revokeObjectURL(objectUrl), 1000);
+    } catch (error) { setExportError(error instanceof Error && !(error instanceof TypeError) ? error.message : t("Could not export. Try again.", "내보내지 못했습니다. 다시 시도하세요.")); }
+    finally { setExportBusy(false); }
   }
 
   function handleExportStudySet(type: PdfExportType, format: ExportFileFormat) {
@@ -4197,8 +4243,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
             ) : modern ? (
               <form className="reading-export-form" onSubmit={event => {
                 event.preventDefault();
-                if (exportScope === "all") handleExportBook(exportType, exportFormat);
-                else handleExportStudySet(exportType, exportFormat);
+                void handleExportSelection();
               }}>
                 <label>{t("Guide version", "학습지 버전")}<select aria-label={t("Guide version", "학습지 버전")} value={activeBook?.activeGenerationRunId || ""} disabled={switchingVersion} onChange={event => void handleSelectActiveGenerationRun(event.target.value)}>
                   {!activeBook?.activeGenerationRunId && <option value="">{t("Latest available", "사용 가능한 최신 버전")}</option>}
@@ -4215,12 +4260,11 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                 {exportScope === "chapter" && selectedChapterStudySets.length > 1 && <label>{t("Chapter guide version", "챕터 학습지 버전")}<select aria-label={t("Chapter guide version", "챕터 학습지 버전")} value={selectedStudySetId || ""} onChange={event => { if (selectedChapter) void handleSelectStudySet(selectedChapter.id, event.target.value); }}>
                   {selectedChapterStudySets.map(set => <option key={set.id} value={set.id}>{set.title}</option>)}
                 </select></label>}
-                <label>{t("Content", "내용")}<select aria-label={t("Content", "내용")} value={exportType} onChange={event => setExportType(event.target.value as PdfExportType)}>
-                  {exportOptionGroups.map(group => <optgroup key={group.title} label={group.title}>{group.options.map(option => <option key={option.type} value={option.type}>{group.title === option.label ? option.label : `${group.title} · ${option.label}`}</option>)}</optgroup>)}
-                </select></label>
+                <ExportContentSelection value={exportSelection} onChange={setExportSelection} t={t} />
                 <label>{t("Format", "형식")}<select aria-label={t("Format", "형식")} value={exportFormat} onChange={event => setExportFormat(event.target.value as "pdf" | "docx")}><option value="pdf">PDF</option><option value="docx">Word (.docx)</option></select></label>
                 {exportScope === "chapter" && (studyLoadError ? <p role="alert">{studyLoadError} <button type="button" onClick={() => selectedChapter && void loadStudySets(selectedChapter)}>{t("Retry", "다시 시도")}</button></p> : !selectedStudySet && selectedChapter && Object.prototype.hasOwnProperty.call(studySetsByChapterId, selectedChapter.id) && !loadingStudySetsChapterId && <p>{t("No guide is available for this chapter and version.", "이 챕터와 버전에 사용할 수 있는 학습지가 없습니다.")}</p>)}
-                <button className="primary-action" type="submit" disabled={switchingVersion || (exportScope === "chapter" && (!selectedStudySet || Boolean(loadingStudySetsChapterId) || Boolean(studyLoadError)))}>{t("Export", "내보내기")}</button>
+                <button className="primary-action" type="submit" disabled={exportBusy || !exportSelection.length || switchingVersion || (exportScope === "chapter" && (!selectedStudySet || Boolean(loadingStudySetsChapterId) || Boolean(studyLoadError)))}>{exportBusy ? t("Preparing…", "준비 중…") : t("Download", "다운로드")}</button>
+                {exportError && <p role="alert">{exportError}</p>}
               </form>
             ) : (
               <div className="export-page-stack">

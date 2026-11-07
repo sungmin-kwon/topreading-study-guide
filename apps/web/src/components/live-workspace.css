@@ -449,3 +449,13 @@
 @media (max-width:600px) { .reading-book-info { padding:24px 16px; } }
 
 .reading-shell .reading-book-info .reading-book-delete { background:var(--danger-ink); border-color:var(--danger-ink); color:var(--surface); }
+
+.reading-export-content { border:0; padding:0; margin:4px 0; min-width:0; grid-column:1/-1; }
+.reading-export-content legend { font-size:13px; color:var(--muted); margin-bottom:8px; }
+.reading-export-content-row { padding:12px 0; border-bottom:1px solid var(--line); display:grid; grid-template-columns:minmax(0,1fr) minmax(0,2fr); align-items:center; gap:8px; }
+.reading-export-form .reading-export-content-row label { display:flex; flex-direction:row; align-items:center; gap:10px; color:var(--ink); }
+.reading-export-content-row input[type=checkbox] { width:16px; height:16px; margin:0; accent-color:var(--accent); }
+.reading-export-content-row select { min-width:0; width:100%; }
+
+.reading-export-form { align-items:start; }
+@media (max-width:600px) { .reading-export-content-row { grid-template-columns:minmax(0,1fr); } }
