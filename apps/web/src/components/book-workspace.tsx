@@ -1,5 +1,6 @@
 "use client";
 
+import { SourceBoundaryEditor } from "./source-boundary-editor";
 import { ExportContentSelection } from "./export-content-selection";
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { allocateCountByWordWeight, deriveBookGenerationPlan } from "@topreading/core";
@@ -11,6 +12,7 @@ import { reviewReasonLabels } from "@/lib/mcq-review-reasons";
 import { ThemeToggle } from "./theme-toggle";
 
 type BookSummary = {
+  activeLayoutId?: string | null;
   id: string;
   title: string;
   author: string | null;
@@ -735,6 +737,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   const [renameError, setRenameError] = useState("");
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [exportSelection, setExportSelection] = useState<PdfExportType[]>(["multiple-choice"]);
+  const [sourceDraftDirty, setSourceDraftDirty] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState("");
   const [exportFormat, setExportFormat] = useState<"pdf" | "docx">("pdf");
@@ -746,6 +749,10 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   const [sourceUploadFilename, setSourceUploadFilename] = useState("");
   const [studySetCount, setStudySetCount] = useState(0);
   const [parsedDocumentsBySource, setParsedDocumentsBySource] = useState<Record<string, ParsedDocument[]>>({});
+  const [selectedSourceDocumentId, setSelectedSourceDocumentId] = useState("");
+  const sourceEditorDocuments = sourceFiles.flatMap(source => (parsedDocumentsBySource[source.id] || []).map(document => ({source, document})));
+  const sourceEditorDocumentId = sourceEditorDocuments.some(item => item.document.id === selectedSourceDocumentId)
+    ? selectedSourceDocumentId : sourceEditorDocuments[0]?.document.id;
   const [splitPreviewByParsedDocument, setSplitPreviewByParsedDocument] = useState<Record<string, SplitPreview>>({});
   const [parsedDocumentDetailById, setParsedDocumentDetailById] = useState<Record<string, ParsedDocumentDetail>>({});
   const [parsedPagesByDocumentId, setParsedPagesByDocumentId] = useState<Record<string, ParsedPageSummary[]>>({});
@@ -907,11 +914,12 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
     ? `${currentUser.role === "admin" ? t("Admin", "관리자") : t("Member", "회원")} · ${uiLanguage === "ko" ? "KO" : "EN"} · ${themeMode === "dark" ? t("Dark", "다크") : t("Light", "라이트")}`
     : `${uiLanguage === "ko" ? "KO" : "EN"} · ${themeMode === "dark" ? t("Dark", "다크") : t("Light", "라이트")}`;
   const metadataDirty = Boolean(activeBook && (bookMetadataEdit.title !== activeBook.title || bookMetadataEdit.author !== (activeBook.author || "") || bookMetadataEdit.readingLevel !== (activeBook.readingLevel || "")));
-  const hasUnsavedChanges = metadataDirty || dirtyItemIds.length > 0 || Boolean(creatingStudyItemKind) || Object.entries(chapterEditById).some(([id, draft]) => {
+  const hasUnsavedChanges = sourceDraftDirty || metadataDirty || dirtyItemIds.length > 0 || Boolean(creatingStudyItemKind) || Object.entries(chapterEditById).some(([id, draft]) => {
     const saved = chapterDetailById[id];
     return saved && (Number(draft.chapterNumber) !== saved.chapterNumber || draft.title !== saved.title || draft.textContent !== saved.textContent);
   });
   function selectBook(id: string) {
+    if (sourceDraftDirty) { setStatusMessage(t("Save or discard the chapter draft before leaving.", "이동하기 전에 챕터 초안을 저장하거나 취소하세요.")); return; }
     if (isSavingNewStudyItem || isSavingBookMetadata) return;
     if (id !== activeBook?.id && metadataDirty && !window.confirm(t("Discard unsaved book information?", "저장되지 않은 책 정보를 버릴까요?"))) return;
     if (id !== activeBook?.id && (isUploading || extractingSourceId || splittingParsedDocumentId)) { setStatusMessage(t("Wait for the import operation to finish before switching books.", "가져오기가 완료된 후 책을 전환하세요.")); return; }
@@ -926,6 +934,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
     setActiveBookId(id); setLibraryOpen(false); setSaveError("");
   }
   function navigateTo(tab: WorkspaceTab) {
+    if (sourceDraftDirty) { setStatusMessage(t("Save or discard the chapter draft before leaving.", "이동하기 전에 챕터 초안을 저장하거나 취소하세요.")); return; }
     if (isSavingNewStudyItem) return;
     if (creatingStudyItemKind && !window.confirm(t("Discard the new unsaved item?", "저장되지 않은 새 항목을 버릴까요?"))) return;
     setCreatingStudyItemKind(null); setNewStudyItemDraft({});
@@ -1261,7 +1270,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
       .catch(error => { if (!cancelled) setBookLoadError(error instanceof Error ? error.message : "Could not load this book."); })
       .finally(() => { if (!cancelled) setIsBookLoading(false); });
     return () => { cancelled = true; };
-  }, [activeBook?.id, bookLoadAttempt]);
+  }, [activeBook?.id, activeBook?.activeLayoutId, bookLoadAttempt]);
 
   useEffect(() => {
     if ((activeWorkspaceTab === "export" || activeWorkspaceTab === "review" || (modern && activeWorkspaceTab === "sets")) && selectedChapter) {
@@ -1349,6 +1358,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   }, [activeBook, activeWorkspaceTab, hasChapters, hasSourceFiles, hasStudySets]);
 
   async function handleCreateBook() {
+    if (sourceDraftDirty) { setStatusMessage(t("Save or discard the chapter draft before leaving.", "이동하기 전에 챕터 초안을 저장하거나 취소하세요.")); return; }
     if (isSavingBookMetadata) return;
     if (metadataDirty && !window.confirm(t("Discard unsaved book information?", "저장되지 않은 책 정보를 버릴까요?"))) return;
     if (isSavingNewStudyItem || isUploading || extractingSourceId || splittingParsedDocumentId) return;
@@ -1418,6 +1428,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
       form.reset();
       setSourceUploadFilename("");
       setStatusMessage("Source file uploaded and saved.");
+      if(modern) await handleExtractSource(payload.sourceFile);
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "Could not upload the source file.");
     } finally { setIsUploading(false); }
@@ -1652,6 +1663,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
         [sourceFile.id]: [payload.parsedDocument as ParsedDocument, ...(current[sourceFile.id] || [])]
       }));
       setStatusMessage("Source text extracted and saved.");
+      if(modern) { setSelectedSourceDocumentId(payload.parsedDocument.id); setActiveWorkspaceTab("split"); }
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "The request failed. Please try again.");
     } finally { setExtractingSourceId(null); }
@@ -3217,7 +3229,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   return (
     <main className={`app-shell ${modern ? `reading-shell${activeWorkspaceTab === "chapters" ? " reading-text-view" : ""}` : isLibraryCollapsed ? "library-collapsed" : ""}`}>
       {modern && <WorkspaceBar books={books} bookId={activeBook?.id || ""} libraryOpen={libraryOpen}
-        onLibrary={() => setLibraryOpen(true)} onBook={selectBook} preferences={<>
+        onLibrary={() => { if(sourceDraftDirty) {setStatusMessage(t("Save or discard the chapter draft before leaving.", "이동하기 전에 챕터 초안을 저장하거나 취소하세요."));return;} setLibraryOpen(true); }} onBook={selectBook} preferences={<>
           <ThemeToggle dark={themeMode === "dark"} label={t("Toggle dark mode", "다크 모드 전환")} text={themeMode === "dark" ? t("Light", "라이트") : t("Dark", "다크")} onToggle={() => setThemeMode(current => current === "dark" ? "light" : "dark")} />
           <select className="reading-language-toggle" aria-label={t("Interface language", "화면 언어")} value={uiLanguage} onChange={event => setUiLanguage(event.target.value as UiLanguage)}><option value="en">English</option><option value="ko">한국어</option></select>
           {preferences}
@@ -3647,6 +3659,13 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
             ) : null}
 
             <div className="source-list">
+              {modern && activeWorkspaceTab === "split" && sourceEditorDocuments.length > 1 && <label className="source-document-selector">
+                {t("Source text", "원본 텍스트")}
+                <select aria-label={t("Source text", "원본 텍스트")} value={sourceEditorDocumentId} disabled={sourceDraftDirty} onChange={event => setSelectedSourceDocumentId(event.target.value)}>
+                  {sourceEditorDocuments.map(({source, document}) => <option key={document.id} value={document.id}>{source.originalFilename} · {new Date(document.createdAt).toLocaleString()}</option>)}
+                </select>
+              </label>}
+
               {isLoadingSources ? <p className="muted-text">{t("Loading source files...", "원본 파일을 불러오는 중...")}</p> : null}
               {!isLoadingSources && activeBook && sourceFiles.length === 0 ? (
                 <div className="empty-state">
@@ -3654,7 +3673,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                   <p>{activeWorkspaceTab === "split" ? t("Upload a source file and extract text before splitting chapters.", "챕터를 나누기 전에 원본 파일을 업로드하고 텍스트를 추출하세요.") : t("Upload a PDF, EPUB, or TXT file to begin extracting book text.", "책 텍스트를 추출하려면 PDF, EPUB 또는 TXT 파일을 업로드하세요.")}</p>
                 </div>
               ) : null}
-              {sourceFiles.map((sourceFile) => (
+              {sourceFiles.filter(source => !modern || activeWorkspaceTab !== "split" || !sourceEditorDocumentId || (parsedDocumentsBySource[source.id] || []).some(document => document.id === sourceEditorDocumentId)).map((sourceFile) => (
                 <article className="source-card" key={sourceFile.id}>
                   {activeWorkspaceTab === "source" ? (
                   <div className="source-file-module">
@@ -3704,7 +3723,8 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                           ) : null}
                         </div>
                       ) : null}
-                      {(parsedDocumentsBySource[sourceFile.id] || []).map((parsedDocument) => {
+                      {(parsedDocumentsBySource[sourceFile.id] || []).filter(document => !modern || activeWorkspaceTab !== "split" || document.id === sourceEditorDocumentId).map((parsedDocument) => {
+                        if (modern && activeWorkspaceTab === "split" && activeBook) return <SourceBoundaryEditor key={parsedDocument.id} bookId={activeBook.id} documentId={parsedDocument.id} t={t} onDirty={setSourceDraftDirty} onApplied={()=>{setBookLoadAttempt(n=>n+1);void fetch(`/api/books/${activeBook.id}`).then(r=>r.json()).then(p=>{if(p.book)updateBookInState(p.book);});setActiveWorkspaceTab("chapters");}} />;
                         const activeParsedTool = activeParsedToolByDocumentId[parsedDocument.id];
                         const pageMarkerRows = getPageMarkerRows(parsedDocument.id);
 

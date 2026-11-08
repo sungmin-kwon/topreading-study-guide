@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { books, libraryMemberships, type Book } from "@/lib/db/schema";
+import { books, generationRuns, libraryMemberships, type Book } from "@/lib/db/schema";
 import { getUploadDir } from "@/lib/env";
 
 function nowIso() {
@@ -40,6 +40,7 @@ export async function createBook(input: {
     author: input.author?.trim() || null,
     readingLevel: input.readingLevel?.trim() || null,
     activeGenerationRunId: null,
+    activeLayoutId: null,
     pinnedAt: null,
     status: "draft",
     createdAt: timestamp,
@@ -75,10 +76,13 @@ export async function updateBook(input: {
 }
 
 export async function updateBookActiveGenerationRun(bookId: string, generationRunId: string | null): Promise<BookSummary | null> {
+  const [run] = generationRunId ? await db.select().from(generationRuns).where(and(eq(generationRuns.id, generationRunId), eq(generationRuns.bookId, bookId))) : [];
+  if (generationRunId && !run) throw new Error("Generation run not found.");
   await db
     .update(books)
     .set({
       activeGenerationRunId: generationRunId,
+      ...(run ? {activeLayoutId: run.layoutId} : {}),
       updatedAt: nowIso()
     })
     .where(eq(books.id, bookId));

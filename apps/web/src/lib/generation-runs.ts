@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, inArray, sql } from "drizzle-orm";
 import { atomic, db } from "@/lib/db/client";
-import { books, generationRuns, studySets, type GenerationRun } from "@/lib/db/schema";
+import { books, chapters, generationRuns, studySets, type GenerationRun } from "@/lib/db/schema";
 import { listStudyItems } from "@/lib/study-items";
 import { deleteStudySetsForRun, listStudySetsForRun } from "@/lib/study-sets";
 
@@ -94,24 +94,38 @@ function getConfiguredChapterIds(config: Record<string, unknown>) {
 }
 
 export async function createGenerationRun(input: CreateGenerationRunInput): Promise<GenerationRun> {
-  const timestamp = nowIso();
-  const row = {
-    id: randomUUID(),
-    bookId: input.bookId,
-    name: input.name?.trim() || null,
-    status: "draft",
-    configJson: JSON.stringify(input.config || {}),
-    progressJson: JSON.stringify({ completedChapters: 0 }),
-    logJson: JSON.stringify([]),
-    errorMessage: null,
-    startedAt: timestamp,
-    finishedAt: null,
-    createdAt: timestamp,
-    updatedAt: timestamp
-  };
-
-  await db.insert(generationRuns).values(row);
-  return row;
+  return atomic(async () => {
+    await db.execute(sql`SELECT id FROM ${books} WHERE id=${input.bookId} FOR UPDATE`);
+    const [sourceBook] = await db.select().from(books).where(eq(books.id, input.bookId));
+    if (!sourceBook) throw new Error("Book not found.");
+    const ids = getConfiguredChapterIds(input.config || {});
+    if (ids.length) {
+      const selected = await db.select().from(chapters).where(inArray(chapters.id, ids));
+      if (selected.length !== new Set(ids).size || selected.some(chapter =>
+        chapter.bookId !== input.bookId || chapter.layoutId !== sourceBook.activeLayoutId
+      )) {
+        throw new Error("Chapter selection is from another layout. Reload before generating.");
+      }
+    }
+    const timestamp = nowIso();
+    const row = {
+      id: randomUUID(),
+      bookId: input.bookId,
+      layoutId: sourceBook.activeLayoutId,
+      name: input.name?.trim() || null,
+      status: "draft",
+      configJson: JSON.stringify(input.config || {}),
+      progressJson: JSON.stringify({ completedChapters: 0 }),
+      logJson: JSON.stringify([]),
+      errorMessage: null,
+      startedAt: timestamp,
+      finishedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    await db.insert(generationRuns).values(row);
+    return row;
+  });
 }
 
 export async function getGenerationRun(id: string): Promise<GenerationRun | null> {
@@ -170,21 +184,26 @@ export async function deleteGenerationRun(id: string): Promise<void> {
 }
 
 async function backfillLegacyStudySetsForBook(bookId: string) {
-  const orphanStudySets = await db
+  const allOrphans = await db
     .select()
     .from(studySets)
     .where(and(eq(studySets.bookId, bookId), isNull(studySets.generationRunId)));
 
-  if (!orphanStudySets.length) {
+  if (!allOrphans.length) {
     return null;
   }
 
+  const sourceChapters = await db.select().from(chapters).where(eq(chapters.bookId,bookId));
+  const layouts = new Map(sourceChapters.map(chapter => [chapter.id, chapter.layoutId]));
+  const layoutId = layouts.get(allOrphans[0].chapterId || "") || null;
+  const orphanStudySets = allOrphans.filter(set => (layouts.get(set.chapterId || "") || null) === layoutId);
   const timestamp = nowIso();
   const chapterIds = [...new Set(orphanStudySets.map((studySet) => studySet.chapterId).filter(Boolean))];
   const run = {
     id: randomUUID(),
     bookId,
     name: "Legacy study sets",
+    layoutId,
     status: "completed",
     configJson: JSON.stringify({
       backfilledFromLegacyStudySets: true,
@@ -218,10 +237,10 @@ async function backfillLegacyStudySetsForBook(bookId: string) {
       generationRunId: run.id,
       updatedAt: timestamp
     })
-    .where(and(eq(studySets.bookId, bookId), isNull(studySets.generationRunId)));
+    .where(inArray(studySets.id, orphanStudySets.map(set => set.id)));
 
   const [book] = await db.select().from(books).where(eq(books.id, bookId)).limit(1);
-  if (book && !book.activeGenerationRunId) {
+  if (book && !book.activeGenerationRunId && book.activeLayoutId === layoutId) {
     await db
       .update(books)
       .set({
@@ -231,6 +250,7 @@ async function backfillLegacyStudySetsForBook(bookId: string) {
       .where(eq(books.id, bookId));
   }
 
+  if (allOrphans.length > orphanStudySets.length) await backfillLegacyStudySetsForBook(bookId);
   return run;
 }
 
@@ -265,7 +285,11 @@ export async function summarizeGenerationRun(run: GenerationRun, index = 0) {
 }
 
 export async function summarizeGenerationRunsForBook(bookId: string) {
-  await backfillLegacyStudySetsForBook(bookId);
+  await atomic(async () => {
+    // Backfill can select an active guide, so serialize it with layout changes.
+    await db.execute(sql`SELECT id FROM ${books} WHERE id=${bookId} FOR UPDATE`);
+    await backfillLegacyStudySetsForBook(bookId);
+  });
   const runs = await listGenerationRunsForBook(bookId);
   return Promise.all(runs.map((run, index) => summarizeGenerationRun(run, index)));
 }

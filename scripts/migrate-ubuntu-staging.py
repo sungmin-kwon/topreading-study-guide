@@ -61,7 +61,7 @@ def main():
                 output.write(cleaned)
             pending.chmod(0o600)
             pending.replace(config)
-        print('STAGING MIGRATION PASSED: generation settings are stored in PostgreSQL; credentials and login settings are unchanged.')
+        print('STAGING MIGRATION PASSED: pending database migrations applied; credentials and login settings are unchanged.')
 
 
 if __name__ == '__main__':

@@ -1,6 +1,9 @@
 # TopReading — Administration Manual, Operations Runbook, and Migration Log
 
-**Snapshot date:** 2026-10-26 (Asia/Seoul)  
+**Operational baseline:** 2026-10-26 (Asia/Seoul)
+
+**Latest release addendum:** 2026-11-08
+
 **Owner/operator:** Sungmin Kwon  
 **Repository:** https://github.com/sungmin-kwon/topreading-study-guide  
 **Modernization branch:** `modernization/postgres-auth`  
@@ -1327,3 +1330,13 @@ The routine sample is now ranked by content rather than index, while structural 
 Export has independent content checkboxes, per-section layout options, combined PDF/Word download, and an optional concise MCQ key at the end. Preferences are stored per account in the current browser. Existing chapter/all-chapter scope and guide-version selection remain available. No migration, dependency installation or environment change is required. Deploy with generation idle using the existing web/worker build and restart procedure. Test exports on existing guides immediately; assess the sampling change with a small new chapter version, not a paid full-book rerun solely to remove flags.
 
 See [review and export release notes](ui-behaviors-and-mcq-quality.md) for validation and limitations. Local automated checks passed; Ubuntu deployment and acceptance are pending.
+
+### 2026-11-08: source viewer and retained chapter layouts
+
+The modern import flow now extracts after upload and opens a source-boundary editor. It supports original PDF pages, full-document extracted-text navigation/search, PDF bookmark and EPUB contents suggestions, within-page starts, chapter previews, saved per-account drafts, optional printed-page ranges and front/back-matter exclusion. Multiple sources/extractions use a selector rather than stacked editors.
+
+**This release requires migration 0006 before the new web/worker build is started.** Applying a split creates a separate chapter layout and retains earlier chapters and guide versions. Selecting an old guide restores its layout; exports use the requested guide's layout. Queued/running generation prevents layout replacement, and obsolete generation drafts cannot enqueue against a changed layout.
+
+Follow [source-editor deployment and operations](https://github.com/sungmin-kwon/topreading-study-guide/blob/modernization/postgres-auth/docs/source-import-editor.md) for the backup, migration, build, restart and acceptance sequence. This supersedes the “no migration required” instructions for earlier UI-only releases. No environment, OAuth, Cloudflare or systemd changes are needed. Do not revert to pre-layout application code against a database containing multiple retained layouts; use a forward fix or a reconciled backup-based recovery.
+
+Local production build, synthetic import/editor checks, retained PDF/Word export checks and mocked worker regressions passed. Actual Ubuntu deployment and acceptance remain pending. OCR, extraction cleanup and durable background extraction are a subsequent milestone; extraction remains request-bound in this release.

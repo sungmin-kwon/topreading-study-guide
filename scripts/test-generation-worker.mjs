@@ -23,7 +23,7 @@ try {
   const c=await owner.connect();
   try{await c.query(`CREATE SCHEMA ${s}`);await c.query(`SET search_path TO ${s},pg_catalog`);for(const file of (await fs.readdir('database/migrations')).filter(f=>/^\d{4}.*sql$/.test(f)).sort())await c.query(await fs.readFile(`database/migrations/${file}`,'utf8'));const role=new URL(appUrl).username;assert(/^[a-z_]+$/.test(role));await c.query(`GRANT USAGE ON SCHEMA ${s} TO "${role}"; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA ${s} TO "${role}"`);}finally{c.release();}
   Object.assign(process.env,{DATABASE_URL:appUrl,DATABASE_SCHEMA:schema});
-  await build({...options,stdin:{contents:'export * from "./apps/web/src/lib/generation-queue"; export {pool} from "./apps/web/src/lib/db/client";',resolveDir:process.cwd()},outfile:`${dir}/queue.mjs`});
+  await build({...options,stdin:{contents:'export * from "./apps/web/src/lib/generation-queue"; export * from "./apps/web/src/lib/source-editor"; export {pool} from "./apps/web/src/lib/db/client";',resolveDir:process.cwd()},outfile:`${dir}/queue.mjs`});
   queue=await import(`../${dir}/queue.mjs`);applicationPool=queue.pool;
   await build({...options,entryPoints:['apps/web/src/worker/generation.ts'],outfile:`${dir}/worker.mjs`,plugins:[{name:'fake-provider',setup(b){b.onResolve({filter:/^@\/lib\/openai-generator$/},()=>({path:'fake',namespace:'fake'}));b.onLoad({filter:/.*/,namespace:'fake'},()=>({contents:`export async function generateOpenAIChapterItems(book,chapter,plan){if(chapter.chapterNumber===2) await new Promise(r=>setTimeout(r,5000)); return {generatedItems:{vocabularyItems:[{term:'word'+chapter.chapterNumber,definition:'fixture'}]},rawOutput:{},plan,model:'fixture',usage:{total_tokens:1}};}`,loader:'js'}));}}]});
   const lib=randomUUID(),user=randomUUID(),book=randomUUID(),source=randomUUID(),doc=randomUUID(),ch1=randomUUID(),ch2=randomUUID();
@@ -33,6 +33,7 @@ try {
   await rows(`INSERT INTO ${s}.books(id,library_id,title,created_at,updated_at) VALUES($1,$2,'Fixture',now(),now())`,[book,lib]);
   await rows(`INSERT INTO ${s}.source_files(id,book_id,original_filename,stored_path,mime_type,byte_size,sha256,created_at) VALUES($1,$2,'fixture.txt','fixture.txt','text/plain',1,'fixture',now())`,[source,book]);
   await rows(`INSERT INTO ${s}.parsed_documents(id,source_file_id,parser_name,parser_version,text_content,page_count,word_count,metadata_json,created_at) VALUES($1,$2,'test','1','hello',1,1,'{}',now())`,[doc,source]);
+  await rows(`INSERT INTO ${s}.parsed_pages(id,parsed_document_id,page_number,text_content,word_count,created_at) VALUES($1,$2,1,'hello',1,now())`,[randomUUID(),doc]);
   for(const [i,id] of [ch1,ch2].entries())await rows(`INSERT INTO ${s}.chapters(id,book_id,parsed_document_id,chapter_number,text_content,word_count,sort_order,created_at,updated_at) VALUES($1,$2,$3,$4,'fixture text',2,$4,now(),now())`,[id,book,doc,i+1]);
   const makeRun=async()=>{const id=randomUUID();await rows(`INSERT INTO ${s}.generation_runs(id,book_id,config_json,started_at,created_at,updated_at) VALUES($1,$2,$3,now(),now(),now())`,[id,book,JSON.stringify({chapters:[ch1,ch2].map((id,i)=>({chapterId:id,chapterNumber:i+1,plan:{vocabularyCount:1,multipleChoiceCount:0,shortAnswerCount:0}}))})]);return id;};
   const status=async id=>(await rows(`SELECT status FROM ${s}.generation_runs WHERE id=$1`,[id]))[0].status;
@@ -50,6 +51,9 @@ try {
   assert.equal(patch.status,200);assert.equal(await status(first),'generating');
   assert.equal((await rows(`SELECT count(*)::int n FROM ${s}.jobs`))[0].n,1);
   const competing=await makeRun();await assert.rejects(queue.enqueueGeneration(book,competing,user));
+  const sourceDraft=await queue.sourceEditorData(book,doc,user);
+  await assert.rejects(queue.saveSourcePlan(book,doc,user,{version:0,fingerprint:sourceDraft.fingerprint,plan:{starts:[{page:1,offset:0,title:'Draft'}],end:null}},true),/Finish or cancel generation/);
+  console.log('PASS: queued generation blocks chapter-layout replacement.');
   worker=start();await wait(()=>worker.output().includes('ready'));
   const second=start();await once(second,'exit');assert.match(second.output(),/already owns/);
   await wait(async()=>(await rows(`SELECT progress_json FROM ${s}.generation_runs WHERE id=$1`,[first]))[0].progress_json.currentChapterNumber===2);

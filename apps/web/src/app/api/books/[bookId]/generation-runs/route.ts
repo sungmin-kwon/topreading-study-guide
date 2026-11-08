@@ -49,11 +49,14 @@ export async function POST(request: Request, context: RouteContext) {
     ? body.config as Record<string, unknown>
     : {};
 
-  const run = await createGenerationRun({
-    bookId,
-    name: body?.name === undefined ? null : String(body.name),
-    config
-  });
-
-  return NextResponse.json({ generationRun: await summarizeGenerationRun(run) }, { status: 201 });
+  try {
+    const run = await createGenerationRun({
+      bookId,
+      name: body?.name === undefined ? null : String(body.name),
+      config
+    });
+    return NextResponse.json({ generationRun: await summarizeGenerationRun(run) }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not create generation run." }, { status: 400 });
+  }
 }

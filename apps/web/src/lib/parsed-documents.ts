@@ -105,7 +105,7 @@ export async function extractAndSaveParsedDocument(sourceFile: SourceFile): Prom
   const extracted = await extractSourceText(getSourceAbsolutePath(sourceFile));
   const textContent = normalizeText(extracted.text || "");
 
-  if (!textContent) {
+  if (!textContent && !(sourceFile.originalFilename.toLowerCase().endsWith(".pdf") && Number(extracted.page_count)>0)) {
     throw new Error("No readable text was extracted from this source file.");
   }
 
@@ -131,7 +131,7 @@ export async function extractAndSaveParsedDocument(sourceFile: SourceFile): Prom
       wordCount: countWords(page.text || ""),
       createdAt: parsedDocument.createdAt
     }))
-    .filter((page) => page.pageNumber > 0 && page.textContent);
+    .filter((page) => page.pageNumber > 0);
 
   if (pageRows.length) {
     await db.insert(parsedPages).values(pageRows);
@@ -141,6 +141,7 @@ export async function extractAndSaveParsedDocument(sourceFile: SourceFile): Prom
 }
 
 export function summarizeParsedDocument(parsedDocument: ParsedDocument) {
+  const {splitDrafts, chapterLayouts, ...metadata} = JSON.parse(parsedDocument.metadataJson || "{}");
   return {
     id: parsedDocument.id,
     sourceFileId: parsedDocument.sourceFileId,
@@ -148,7 +149,7 @@ export function summarizeParsedDocument(parsedDocument: ParsedDocument) {
     parserVersion: parsedDocument.parserVersion,
     pageCount: parsedDocument.pageCount,
     wordCount: parsedDocument.wordCount,
-    metadata: JSON.parse(parsedDocument.metadataJson || "{}"),
+    metadata,
     preview: parsedDocument.textContent.slice(0, 900),
     createdAt: parsedDocument.createdAt
   };

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { chapters, type Chapter, type ParsedDocument, type ParsedPage } from "@/lib/db/schema";
+import { books, chapters, type Chapter, type ParsedDocument, type ParsedPage } from "@/lib/db/schema";
 
 type ChapterDraft = {
   chapterNumber: number;
@@ -315,11 +315,11 @@ function splitParsedPagesByStarts(pages: ParsedPage[], pageStarts: PageStart[]):
   }).filter((chapter) => chapter.textContent && chapter.wordCount > 0);
 }
 
-export async function listChaptersByBook(bookId: string): Promise<Chapter[]> {
+export async function listChaptersByBook(bookId: string, layoutId?: string | null): Promise<Chapter[]> {
   return db
     .select()
     .from(chapters)
-    .where(eq(chapters.bookId, bookId))
+    .where(and(eq(chapters.bookId, bookId), layoutId === undefined ? sql`${chapters.layoutId} IS NOT DISTINCT FROM (SELECT ${books.activeLayoutId} FROM ${books} WHERE ${books.id} = ${bookId})` : sql`${chapters.layoutId} IS NOT DISTINCT FROM ${layoutId}`))
     .orderBy(asc(chapters.sortOrder), asc(chapters.chapterNumber));
 }
 
@@ -404,11 +404,13 @@ export async function createChaptersFromPageStarts(input: {
 }
 
 async function insertChapterDrafts(bookId: string, parsedDocumentId: string, drafts: ChapterDraft[]) {
+  const [book] = await db.select().from(books).where(eq(books.id, bookId));
   const timestamp = nowIso();
   const rows = drafts.map((draft) => ({
     id: randomUUID(),
     bookId,
     parsedDocumentId,
+    layoutId: book?.activeLayoutId || null,
     chapterNumber: draft.chapterNumber,
     title: draft.title,
     textContent: draft.textContent,

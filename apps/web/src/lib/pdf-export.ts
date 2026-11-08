@@ -1,3 +1,4 @@
+import { getGenerationRun } from "@/lib/generation-runs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -403,7 +404,9 @@ export async function exportBookFile(bookId: string, type: PdfExportType, format
   }
 
   const activeGenerationRunId = generationRunId === undefined ? book.activeGenerationRunId : generationRunId;
-  const chapters = await listChaptersByBook(book.id);
+  const run = activeGenerationRunId ? await getGenerationRun(activeGenerationRunId) : null;
+  if(activeGenerationRunId && (!run || run.bookId !== book.id)) throw new Error("Guide version not found.");
+  const chapters = await listChaptersByBook(book.id, run ? run.layoutId : undefined);
   const sections = [];
 
   for (const chapter of chapters) {

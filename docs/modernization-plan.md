@@ -200,3 +200,7 @@ This document is the agreed modernization direction. Older documents describe th
 ## 2026-10-26: backup and generation-worker release
 
 Implemented manual PostgreSQL backups with private recovery files and isolated restore verification, and a persistent generation queue consumed by a standalone systemd worker. Completed chapters/progress survive web restarts; worker interruption preserves partial results without automatic paid replay. Local restore and mocked-provider lifecycle tests passed. Ubuntu deployment, real generation acceptance and off-server backup storage are pending. See [deployment and operations](postgres-backup-worker.md). Extraction/export workers, automatic resumption, scheduled backups and VPS cutover remain future work.
+
+## 2026-11-08: source navigation and safe splitting milestone
+
+Implemented original PDF viewing, full-source text search/navigation, bookmark/EPUB-contents suggestions, editable page/within-page boundaries, saved drafts, chapter previews, printed-page ranges and retained chapter layouts. Guide versions and exports retain their matching chapters after re-splitting. Requires migration 0006 and both web/worker builds. See [source-editor operations](source-import-editor.md). Local validation passed; Ubuntu acceptance remains pending. Durable extraction/OCR, extraction cleanup and large-document text paging remain follow-up work.

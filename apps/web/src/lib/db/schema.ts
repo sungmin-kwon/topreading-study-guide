@@ -30,6 +30,7 @@ export const books = appSchema.table("books", {
   author: text("author"),
   readingLevel: text("reading_level"),
   activeGenerationRunId: uuid("active_generation_run_id"),
+  activeLayoutId: uuid("active_layout_id"),
   pinnedAt: isoTime("pinned_at"),
   status: text("status").notNull().default("draft"),
   createdAt: isoTime("created_at").notNull(),
@@ -70,6 +71,7 @@ export const parsedPages = appSchema.table("parsed_pages", {
 });
 
 export const chapters = appSchema.table("chapters", {
+  layoutId: uuid("layout_id"),
   id: uuid("id").primaryKey(),
   currentRevisionId: uuid("current_revision_id"),
   bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
@@ -84,6 +86,7 @@ export const chapters = appSchema.table("chapters", {
 });
 
 export const generationRuns = appSchema.table("generation_runs", {
+  layoutId: uuid("layout_id"),
   id: uuid("id").primaryKey(),
   bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
   name: text("name"),

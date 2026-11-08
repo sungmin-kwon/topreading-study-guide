@@ -7,6 +7,7 @@ import sys
 import zipfile
 from html.parser import HTMLParser
 from pathlib import PurePosixPath
+from urllib.parse import unquote, urldefrag
 from xml.etree import ElementTree
 
 import pymupdf
@@ -26,6 +27,7 @@ class TextExtractor(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self.skip_depth = 0
+        self.anchors = {}
 
     def handle_starttag(self, tag, attrs):
         lowered = tag.lower()
@@ -34,6 +36,9 @@ class TextExtractor(HTMLParser):
             return
         if lowered in self.block_tags:
             self.parts.append("\n")
+        anchor = dict(attrs).get("id")
+        if anchor:
+            self.anchors[anchor] = len(normalize_text("".join(self.parts)))
 
     def handle_endtag(self, tag):
         lowered = tag.lower()
@@ -86,8 +91,7 @@ def extract_pdf(source_path: str) -> dict:
 
     for index, page in enumerate(document, start=1):
         text = normalize_text(page.get_text("text"))
-        if text:
-            pages.append({"page_number": index, "text": text})
+        pages.append({"page_number": index, "text": text})
 
     return {
         "parser": "pymupdf",
@@ -100,6 +104,8 @@ def extract_pdf(source_path: str) -> dict:
             "creator": metadata.get("creator") or "",
             "producer": metadata.get("producer") or "",
             "source_format": "pdf",
+            "empty_text_pages": [p["page_number"] for p in pages if not p["text"]],
+            "outline": [{"page": e[2], "offset": 0, "title": e[1]} for e in document.get_toc() if 1 <= e[2] <= len(document)],
         },
         "pages": pages,
         "text": "\n\n".join(page["text"] for page in pages).strip(),
@@ -153,9 +159,11 @@ def extract_epub(source_path: str) -> dict:
                 manifest[item_id] = {
                     "href": href,
                     "media_type": media_type,
+                    "properties": item.attrib.get("properties", ""),
                 }
 
         pages = []
+        locations = {}
         for itemref in opf.findall(".//opf:spine/opf:itemref", namespace):
             item_id = itemref.attrib.get("idref")
             item = manifest.get(item_id or "")
@@ -167,14 +175,58 @@ def extract_epub(source_path: str) -> dict:
             if normalized_path not in epub.namelist():
                 continue
 
-            text = parse_html_text(epub.read(normalized_path))
+            parser = TextExtractor()
+            parser.feed(decode_text(epub.read(normalized_path)))
+            text = parser.text()
             if text:
-                pages.append({"page_number": len(pages) + 1, "text": text})
+                page_number = len(pages) + 1
+                pages.append({"page_number": page_number, "text": text})
+                anchors = {}
+                for anchor, offset in parser.anchors.items():
+                    while offset < len(text) and text[offset].isspace():
+                        offset += 1
+                    anchors[anchor] = len(text[:offset].encode("utf-16-le")) // 2
+                locations[posixpath.normpath(normalized_path)] = (page_number, anchors)
+
+        outline = []
+        def add_link(href, title, base):
+            target, fragment = urldefrag(unquote(href))
+            location = locations.get(posixpath.normpath(posixpath.join(base, target)))
+            if location and (not fragment or fragment in location[1]) and title:
+                outline.append({"page": location[0], "offset": location[1].get(fragment, 0), "title": title})
+        for item in manifest.values():
+            nav_path = posixpath.normpath(posixpath.join(opf_dir, item["href"]))
+            if nav_path not in epub.namelist():
+                continue
+            if "nav" in item["properties"].split():
+                tree = ElementTree.fromstring(epub.read(nav_path))
+                for nav in tree.iter():
+                    if nav.tag.split("}")[-1] != "nav" or "toc" not in nav.attrib.get("{http://www.idpf.org/2007/ops}type", "").split():
+                        continue
+                    for link in nav.iter():
+                        if link.tag.split("}")[-1] == "a":
+                            add_link(link.attrib.get("href", ""), xml_text(link), posixpath.dirname(nav_path))
+        if not outline:
+            for item in manifest.values():
+                if item["media_type"] != "application/x-dtbncx+xml":
+                    continue
+                nav_path = posixpath.normpath(posixpath.join(opf_dir, item["href"]))
+                if nav_path not in epub.namelist():
+                    continue
+                tree = ElementTree.fromstring(epub.read(nav_path))
+                for point in tree.iter():
+                    if point.tag.split("}")[-1] != "navPoint":
+                        continue
+                    label = point.find("{*}navLabel")
+                    content = point.find("{*}content")
+                    if content is not None:
+                        add_link(content.attrib.get("src", ""), xml_text(label), posixpath.dirname(nav_path))
 
         metadata = {
             "title": xml_text(opf.find(".//dc:title", namespace)),
             "author": xml_text(opf.find(".//dc:creator", namespace)),
             "source_format": "epub",
+            "outline": outline[:1000],
         }
 
     return {

@@ -10,10 +10,11 @@ export async function enqueueGeneration(bookId: string, runId: string, userId: s
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const run = (await client.query(`SELECT r.*, b.library_id FROM ${queueSchema}.generation_runs r JOIN ${queueSchema}.books b ON b.id=r.book_id WHERE r.id=$1 AND b.id=$2 FOR UPDATE OF r,b`, [runId, bookId])).rows[0];
+    const run = (await client.query(`SELECT r.*, b.library_id, b.active_layout_id FROM ${queueSchema}.generation_runs r JOIN ${queueSchema}.books b ON b.id=r.book_id WHERE r.id=$1 AND b.id=$2 FOR UPDATE OF r,b`, [runId, bookId])).rows[0];
     if (!run) throw new QueueError("Generation run not found.");
     const existing = (await client.query(`SELECT id FROM ${queueSchema}.jobs WHERE generation_run_id=$1`, [runId])).rows[0];
     if (existing) { await client.query("COMMIT"); return; } // duplicate HTTP delivery never duplicates work
+    if (run.layout_id !== run.active_layout_id) throw new QueueError("The chapter layout changed. Create a new guide version from the current chapters.");
     if (run.status !== "draft") throw new QueueError("Create a new guide version to generate again.");
     if ((await client.query(`SELECT 1 FROM ${queueSchema}.study_sets WHERE generation_run_id=$1 LIMIT 1`, [runId])).rowCount) throw new QueueError("Saved results cannot be overwritten. Create a new version.");
     const chapters = run.config_json?.chapters;
