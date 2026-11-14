@@ -50,13 +50,22 @@ doc.save(sys.argv[1])
   await page.screenshot({path:'/tmp/source-editor-original.png',fullPage:true});
   await editor.getByRole('button',{name:'Suggest starts',exact:true}).click();
   assert.equal(await editor.getByRole('textbox',{name:'Chapter title 1',exact:true}).inputValue(),'First section');
-  await editor.getByRole('button',{name:'Tools',exact:true}).click();
   await editor.getByRole('button',{name:'Discard changes',exact:true}).click();
   await editor.getByRole('button',{name:'Extracted text',exact:true}).click();
   await editor.getByRole('spinbutton',{name:'Source page',exact:true}).fill('2');await editor.getByRole('button',{name:'Start at cursor',exact:true}).click();
   const text=editor.getByRole('textbox',{name:'Page text',exact:true});
   await text.evaluate(el=>{el.focus();const at=el.value.indexOf('Second scene');el.setSelectionRange(at-1,at-1);});
   await text.press('ArrowRight');await editor.getByRole('button',{name:'Start at cursor',exact:true}).click();
+  assert((await editor.locator('.boundary-row').first().boundingBox()).height<60,'Chapter rows should stay compact');
+  await editor.getByRole('spinbutton',{name:'Source page',exact:true}).fill('3');
+  await editor.getByRole('button',{name:'Original PDF',exact:true}).click();
+  await editor.getByRole('button',{name:'End reading after this page',exact:true}).click();
+  assert((await editor.locator('.boundary-end').innerText()).includes('After page 3'));
+  await editor.getByRole('button',{name:'Extracted text',exact:true}).click();
+  await text.evaluate(el=>{el.focus();const at=el.value.indexOf('Closing words');el.setSelectionRange(at-1,at-1);});
+  await text.press('ArrowRight');
+  await editor.getByRole('button',{name:'End reading at cursor',exact:true}).click();
+  assert((await editor.locator('.boundary-end').innerText()).includes('Within page 3'));
   await editor.getByRole('button',{name:'Preview chapters',exact:true}).click();
   await page.getByRole('button',{name:'Library',exact:true}).first().click();assert(await editor.isVisible());
   await editor.getByRole('button',{name:'Tools',exact:true}).click();
@@ -65,7 +74,13 @@ doc.save(sys.argv[1])
   await editor.getByRole('spinbutton',{name:'Printed start',exact:true}).fill('10');
   await editor.getByRole('button',{name:'Close tools',exact:true}).click();
   const saveResponse=page.waitForResponse(r=>r.url().endsWith('/editor')&&r.request().method()==='PUT');await editor.getByRole('button',{name:'Save draft',exact:true}).click();const sr=await saveResponse;assert(sr.ok(),await sr.text());
-  let saved=await api(endpoint);assert.equal(saved.draft.plan.starts.length,2);assert.equal(saved.draft.plan.starts[0].page,2);assert(saved.draft.plan.starts[1].offset>0);assert.equal(saved.draft.plan.pageLabels[0].first,10);
+  let saved=await api(endpoint);assert.equal(saved.draft.plan.starts.length,2);assert.equal(saved.draft.plan.starts[0].page,2);assert(saved.draft.plan.starts[1].offset>0);assert.equal(saved.draft.plan.pageLabels[0].first,10);assert.equal(saved.draft.plan.end.page,3);assert(saved.draft.plan.end.offset>0);
+  await editor.getByRole('button',{name:'Chapter actions 1',exact:true}).click();
+  await editor.getByRole('button',{name:'Remove boundary 1',exact:true}).click();
+  assert.equal(await editor.getByRole('textbox',{name:/Chapter title/}).count(),1);
+  await editor.getByRole('button',{name:'Discard changes',exact:true}).click();
+  assert.equal(await editor.getByRole('textbox',{name:/Chapter title/}).count(),2);
+  assert((await editor.locator('.boundary-end').innerText()).includes('Within page 3'));
   const conflict=await context.request.put(base+endpoint,{data:{version:0,fingerprint:initial.fingerprint,plan:saved.draft.plan}});assert.equal(conflict.status(),400);
   await page.reload({waitUntil:'networkidle'});assert.equal(await editor.getByRole('textbox',{name:/Chapter title/}).count(),2);
   await editor.getByRole('button',{name:'Extracted text',exact:true}).click();
@@ -73,6 +88,8 @@ doc.save(sys.argv[1])
   const textBox=await editor.getByRole('textbox',{name:'Page text',exact:true}).boundingBox();assert(textBox.y+textBox.height<=1000,'Reading surface must fit below its controls');
   page.once('dialog',d=>d.accept());const applyResponse=page.waitForResponse(r=>r.url().endsWith('/editor')&&r.request().method()==='PUT');await editor.getByRole('button',{name:'Use these chapters',exact:true}).click();const ar=await applyResponse;assert(ar.ok(),await ar.text());await page.waitForLoadState('networkidle');
   const updated=(await api(`/api/books/${book.id}/chapters`)).chapters;assert.equal(updated.length,2);assert(!updated.some(c=>original.some(o=>o.id===c.id)));
+  const lastChapter=(await api(`/api/books/${book.id}/chapters/${updated[1].id}`)).chapter;
+  assert(lastChapter.textContent.endsWith('Second scene starts here.'));assert(!lastChapter.textContent.includes('Section 4'));
   const staleEnqueue=await context.request.post(`${base}/api/books/${book.id}/generation-runs/${staleRun.id}/execute`);assert.equal(staleEnqueue.status(),409);
   const staleSelection=await context.request.post(`${base}/api/books/${book.id}/generation-runs`,{data:{config:{chapters:[{chapterId:original[0].id}]}}});assert.equal(staleSelection.status(),400);
   const old=(await api(`/api/books/${book.id}/chapters/${original[0].id}`)).chapter;assert(old);
@@ -108,6 +125,13 @@ doc.save(sys.argv[1])
     await editor.getByRole('img',{name:/Original page/}).waitFor();
     await page.screenshot({path:`/tmp/source-compact-${viewport.width}.png`});
   }
+  await editor.getByRole('button',{name:'Chapters (2)',exact:true}).click();
+  await editor.getByRole('textbox',{name:'Chapter title 2',exact:true}).fill('Temporary edit');
+  await editor.getByRole('button',{name:'Back to source',exact:true}).click();
+  assert(await editor.getByRole('button',{name:'Discard changes',exact:true}).isVisible());
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+  await page.screenshot({path:'/tmp/source-compact-dirty-320.png'});
+  await editor.getByRole('button',{name:'Discard changes',exact:true}).click();
   await page.setViewportSize({width:390,height:844});
   await editor.getByRole('combobox',{name:'Zoom',exact:true}).selectOption('200');
   await editor.locator('.boundary-page-image').evaluate(el=>el.scrollTo(120,200));
@@ -122,7 +146,7 @@ doc.save(sys.argv[1])
   await editor.getByRole('combobox',{name:'Zoom',exact:true}).selectOption('100');
   await editor.getByRole('button',{name:'Chapters (2)',exact:true}).click();
   await editor.getByRole('textbox',{name:'Chapter title 2',exact:true}).waitFor();
-  await editor.getByRole('button',{name:/1 · Page 2 · page start/}).click();
+  await editor.getByRole('button',{name:'Go to chapter 1',exact:true}).click();
   assert(await editor.getByRole('textbox',{name:'Page text',exact:true}).isVisible());
   await editor.getByRole('button',{name:'Tools',exact:true}).click();
   await editor.getByRole('textbox',{name:'Find in source',exact:true}).fill('Second scene');
@@ -148,6 +172,6 @@ doc.save(sys.argv[1])
   const touchControls=await touchEditor.locator('.boundary-page-controls').boundingBox();assert(touchControls.y+touchControls.height<=761);
   await touchPage.screenshot({path:'/tmp/source-compact-touch.png'});
   await touchContext.close();
-  console.log('PASS: automatic upload/extraction/editor transition, bookmarks, printed numbering, unsaved navigation guard, multiple extraction selection, stale generation rejection, original page 30 and printed label, mid-page split, saved/conflicting drafts, safe layout apply/restore, old guide exports, source ownership and desktop/mobile reader height, pinned navigation, mobile outline return, search cursor focus, Escape focus restoration, dark/Korean layout and touch page navigation.');
+  console.log('PASS: compact chapter rows, direct Discard restoration, page/cursor reading end, exclusion of trailing content, automatic upload/extraction/editor transition, bookmarks, printed numbering, unsaved navigation guard, multiple extraction selection, stale generation rejection, original page 30 and printed label, mid-page split, saved/conflicting drafts, safe layout apply/restore, old guide exports, source ownership and desktop/mobile reader height, pinned navigation, mobile outline return, search cursor focus, Escape focus restoration, dark/Korean layout and touch page navigation.');
  }finally{if(book)await context.request.delete(`${base}/api/books/${book.id}`);await browser.close();fs.rmSync(fixtureDirectory,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exitCode=1;});

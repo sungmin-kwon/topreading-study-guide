@@ -63,6 +63,7 @@ export function SourceBoundaryEditor({
   const [mobilePanel, setMobilePanel] = useState<"source" | "chapters">(
     "source",
   );
+  const [openBoundary, setOpenBoundary] = useState<string | null>(null);
   const toolsRef = useRef<HTMLDialogElement>(null);
   const imageRef = useRef<HTMLDivElement>(null);
   function closeTools() {
@@ -254,6 +255,35 @@ export function SourceBoundaryEditor({
       ),
     );
   }
+  function discardDraft() {
+    if (!data || busy) return;
+    setPlan(data.draft.plan);
+    setOpenBoundary(null);
+    setError("");
+    setNotice("");
+  }
+  function markEnd() {
+    if (!current || !plan.starts.length) return;
+    setPlan({
+      ...plan,
+      end: {
+        page,
+        offset: view === "text" ? offset : current.textContent.length,
+      },
+    });
+    setError("");
+    setNotice(
+      view === "text"
+        ? t(
+            "Reading ends at the cursor. Later text is excluded.",
+            "커서 위치에서 읽기를 마칩니다. 이후 텍스트는 제외됩니다.",
+          )
+        : t(
+            `Reading ends after page ${page}. Later pages are excluded.`,
+            `${page}페이지 뒤에서 읽기를 마칩니다. 이후 페이지는 제외됩니다.`,
+          ),
+    );
+  }
   async function save(apply = false) {
     if (busy || !data) return;
     if (
@@ -347,6 +377,16 @@ export function SourceBoundaryEditor({
         >
           {t("Tools", "도구")}
         </button>
+        {dirty && (
+          <button
+            type="button"
+            aria-label={t("Discard changes", "변경 취소")}
+            disabled={busy}
+            onClick={discardDraft}
+          >
+            {t("Discard", "취소")}
+          </button>
+        )}
         <button
           type="button"
           aria-label={t("Save draft", "초안 저장")}
@@ -513,7 +553,31 @@ export function SourceBoundaryEditor({
               disabled={!current?.textContent}
               onClick={() => mark(view === "text" ? offset : 0)}
             >
-              {t("Mark start", "시작 표시")}
+              {t("Start", "시작")}
+            </button>
+            <button
+              type="button"
+              className="boundary-mark-end"
+              disabled={!plan.starts.length || !current}
+              aria-label={
+                view === "text"
+                  ? t("End reading at cursor", "커서 위치에서 읽기 종료")
+                  : t(
+                      "End reading after this page",
+                      "이 페이지 뒤에서 읽기 종료",
+                    )
+              }
+              title={
+                view === "text"
+                  ? t("Exclude text after the cursor", "커서 뒤 텍스트 제외")
+                  : t(
+                      "Include this page; exclude later pages",
+                      "이 페이지 포함, 이후 페이지 제외",
+                    )
+              }
+              onClick={markEnd}
+            >
+              {t("End", "끝")}
             </button>
           </footer>
         </div>
@@ -539,80 +603,148 @@ export function SourceBoundaryEditor({
                 )}
               </p>
             )}
-            {plan.starts.map((b, i) => (
-              <div className="boundary-row" key={`${b.page}:${b.offset}`}>
+            {plan.starts.map((b, i) => {
+              const key = `${b.page}:${b.offset}`;
+              return (
+                <div className="boundary-row" key={key}>
+                  <span className="boundary-number" aria-hidden="true">
+                    {i + 1}
+                  </span>
+                  <button
+                    className="boundary-location"
+                    type="button"
+                    aria-label={`${t("Go to chapter", "챕터로 이동")} ${i + 1}`}
+                    title={`${t("Page", "페이지")} ${b.page} · ${b.offset ? t("within page", "페이지 중간") : t("page start", "페이지 시작")}`}
+                    onClick={() => showTextAt(b.page, b.offset)}
+                  >
+                    {t("p.", "쪽")} {b.page}
+                  </button>
+                  <input
+                    aria-label={`${t("Chapter title", "챕터 제목")} ${i + 1}`}
+                    value={b.title}
+                    placeholder={`${t("Chapter", "챕터")} ${i + 1}`}
+                    onChange={(e) =>
+                      setPlan({
+                        ...plan,
+                        starts: plan.starts.map((v, n) =>
+                          n === i ? { ...v, title: e.target.value } : v,
+                        ),
+                      })
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="boundary-row-menu"
+                    aria-label={`${t("Chapter actions", "챕터 작업")} ${i + 1}`}
+                    aria-expanded={openBoundary === key}
+                    aria-controls={`boundary-actions-${i}`}
+                    onClick={() =>
+                      setOpenBoundary(openBoundary === key ? null : key)
+                    }
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <circle cx="3" cy="8" r="1.3" />
+                      <circle cx="8" cy="8" r="1.3" />
+                      <circle cx="13" cy="8" r="1.3" />
+                    </svg>
+                  </button>
+                  {openBoundary === key && (
+                    <div
+                      className="boundary-row-actions"
+                      id={`boundary-actions-${i}`}
+                    >
+                      <button
+                        type="button"
+                        disabled={!current?.textContent}
+                        onClick={() => {
+                          setPlan({
+                            ...plan,
+                            starts: plan.starts
+                              .map((v, n) =>
+                                n === i
+                                  ? {
+                                      ...v,
+                                      page,
+                                      offset: view === "text" ? offset : 0,
+                                    }
+                                  : v,
+                              )
+                              .sort(
+                                (a, b) =>
+                                  a.page - b.page || a.offset - b.offset,
+                              ),
+                          });
+                          setOpenBoundary(null);
+                        }}
+                      >
+                        {t("Move start here", "시작점을 여기로 이동")}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`${t("Remove boundary", "시작점 삭제")} ${i + 1}`}
+                        onClick={() => {
+                          setPlan({
+                            ...plan,
+                            starts: plan.starts.filter((_, n) => n !== i),
+                          });
+                          setOpenBoundary(null);
+                        }}
+                      >
+                        {t("Remove", "삭제")}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {plan.end && (
+              <div className="boundary-end">
                 <button
                   type="button"
-                  onClick={() => {
-                    showTextAt(b.page, b.offset);
-                  }}
+                  className="boundary-end-location"
+                  onClick={() => showTextAt(plan.end!.page, plan.end!.offset)}
+                  title={t(
+                    "Everything after this point is excluded",
+                    "이 위치 이후의 내용은 제외됩니다",
+                  )}
                 >
-                  {i + 1} · {pdf ? t("Page", "페이지") : t("Section", "구간")}{" "}
-                  {b.page} ·{" "}
-                  {b.offset === 0
-                    ? t("page start", "페이지 시작")
-                    : t("within page", "페이지 중간")}
-                </button>
-                <input
-                  aria-label={`${t("Chapter title", "챕터 제목")} ${i + 1}`}
-                  value={b.title}
-                  placeholder={`${t("Chapter", "챕터")} ${i + 1}`}
-                  onChange={(e) =>
-                    setPlan({
-                      ...plan,
-                      starts: plan.starts.map((v, n) =>
-                        n === i ? { ...v, title: e.target.value } : v,
-                      ),
-                    })
-                  }
-                />
-                <button
-                  type="button"
-                  disabled={!current?.textContent}
-                  onClick={() =>
-                    setPlan({
-                      ...plan,
-                      starts: plan.starts
-                        .map((v, n) =>
-                          n === i
-                            ? {
-                                ...v,
-                                page,
-                                offset: view === "text" ? offset : 0,
-                              }
-                            : v,
+                  <strong>{t("Reading end", "읽기 종료")}</strong>
+                  <span>
+                    {plan.end.offset ===
+                    data.pages.find((p) => p.pageNumber === plan.end!.page)
+                      ?.textContent.length
+                      ? t(
+                          `After page ${plan.end.page}`,
+                          `${plan.end.page}페이지 뒤`,
                         )
-                        .sort((a, b) => a.page - b.page || a.offset - b.offset),
-                    })
-                  }
-                >
-                  {t("Move start here", "시작점을 여기로 이동")}
+                      : plan.end.offset === 0
+                        ? t(
+                            `Before page ${plan.end.page}`,
+                            `${plan.end.page}페이지 앞`,
+                          )
+                        : t(
+                            `Within page ${plan.end.page}`,
+                            `${plan.end.page}페이지 중간`,
+                          )}
+                  </span>
                 </button>
                 <button
                   type="button"
-                  aria-label={`${t("Remove boundary", "시작점 삭제")} ${i + 1}`}
-                  onClick={() =>
-                    setPlan({
-                      ...plan,
-                      starts: plan.starts.filter((_, n) => n !== i),
-                    })
-                  }
+                  aria-label={t("Clear reading end", "읽기 종료 해제")}
+                  onClick={() => {
+                    setPlan({ ...plan, end: null });
+                    setNotice("");
+                  }}
                 >
                   ×
                 </button>
               </div>
-            ))}
-            {plan.end && (
-              <p>
-                {t("Reading ends at", "읽기 종료")}: {plan.end.page} ·{" "}
-                {t("selected position", "선택한 위치")}{" "}
-                <button
-                  type="button"
-                  onClick={() => setPlan({ ...plan, end: null })}
-                >
-                  {t("Clear", "해제")}
-                </button>
-              </p>
             )}
             <button
               type="button"
@@ -810,16 +942,6 @@ export function SourceBoundaryEditor({
             >
               {t("Start chapter on this page", "이 페이지에서 챕터 시작")}
             </button>
-            <button
-              type="button"
-              disabled={view !== "text" || !current?.textContent}
-              onClick={() => {
-                setPlan({ ...plan, end: { page, offset } });
-                closeTools();
-              }}
-            >
-              {t("End reading at cursor", "커서 위치에서 읽기 종료")}
-            </button>
           </details>
           {!current?.textContent && (
             <p>
@@ -829,18 +951,6 @@ export function SourceBoundaryEditor({
               )}
             </p>
           )}
-          <button
-            type="button"
-            disabled={busy || !dirty}
-            onClick={() => {
-              setPlan(data.draft.plan);
-              setError("");
-              setNotice("");
-              closeTools();
-            }}
-          >
-            {t("Discard changes", "변경 취소")}
-          </button>
         </div>
       </dialog>
     </section>
