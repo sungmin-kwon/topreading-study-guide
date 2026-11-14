@@ -2,7 +2,7 @@
 
 **Operational baseline:** 2026-10-26 (Asia/Seoul)
 
-**Latest release addendum:** 2026-11-08
+**Latest release addendum:** 2026-11-14
 
 **Owner/operator:** Sungmin Kwon  
 **Repository:** https://github.com/sungmin-kwon/topreading-study-guide  
@@ -1340,3 +1340,11 @@ The modern import flow now extracts after upload and opens a source-boundary edi
 Follow [source-editor deployment and operations](https://github.com/sungmin-kwon/topreading-study-guide/blob/modernization/postgres-auth/docs/source-import-editor.md) for the backup, migration, build, restart and acceptance sequence. This supersedes the “no migration required” instructions for earlier UI-only releases. No environment, OAuth, Cloudflare or systemd changes are needed. Do not revert to pre-layout application code against a database containing multiple retained layouts; use a forward fix or a reconciled backup-based recovery.
 
 Local production build, synthetic import/editor checks, retained PDF/Word export checks and mocked worker regressions passed. Actual Ubuntu deployment and acceptance remain pending. OCR, extraction cleanup and durable background extraction are a subsequent milestone; extraction remains request-bound in this release.
+
+### 2026-11-14: deployment confirmation and compact source reader
+
+Ubuntu applied migration 0006 successfully and reported eight books. The web and worker builds completed, and both services reported active. Origin access checks passed. The first public check timed out on `/api/admin/settings`; a subsequent run passed all public checks. The initial loopback curl connection refusal occurred during startup and succeeded on retry. No DNS or authentication change was needed to obtain the subsequent passing result. Actual source-editor acceptance remains underway.
+
+Following desktop/mobile screenshots, the split UI now gives most of the available viewport to the document. It removes the repeated book heading and oversized split-page heading, uses a compact file toolbar, and keeps page navigation and Mark start below the reader. Desktop has a separately scrolling chapter outline; mobile switches between source and outline. Search, printed numbering, reading-range tools and draft reset move into Tools. PDF zoom includes Whole page and Fit width, and page navigation resets the PDF scroll position.
+
+This compact-reader release needs no new migration or environment change for a staging instance already on 0006. Deploy with generation idle using the normal web/worker pull/build/restart procedure. See [source-editor operations](https://github.com/sungmin-kwon/topreading-study-guide/blob/modernization/postgres-auth/docs/source-import-editor.md) for the updated teacher workflow. Local build and browser verification are recorded with the release; Ubuntu deployment and phone-browser acceptance of this UI update remain pending.

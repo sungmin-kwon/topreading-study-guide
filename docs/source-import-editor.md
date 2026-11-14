@@ -1,18 +1,18 @@
 # Source import and chapter-boundary editor
 
-Release: 2026-11-08. Branch: `modernization/postgres-auth`.
+Initial release: 2026-11-08; compact reader update: 2026-11-14. Branch: `modernization/postgres-auth`.
 
 This release implements the source-navigation and safe chapter-splitting milestone. It requires PostgreSQL migration **0006**. Local validation is complete; Ubuntu acceptance is still pending.
 
 ## Teacher workflow
 
 1. Upload a PDF, EPUB or TXT in **Text → Text tools → Import sources**. The modern interface starts extraction automatically, then opens **Split text**. If extraction fails, the uploaded file remains available; use **Extract Text** to retry.
-2. Browse the entire source. PDFs open as rendered original pages; switch to **Extracted text** to position the cursor. EPUB sections follow the book's spine order, rather than pretending to have fixed printed pages. TXT has one section. **Find in source** searches extracted text throughout the document.
-3. Choose **Suggest starts** to use PDF bookmarks or EPUB contents links when available, with chapter-heading detection as a fallback. Suggestions are editable and are never applied automatically. Contents, part headings and appendices may also appear in a publisher's outline: check the results.
-4. On any readable page, choose **Start chapter on this page**. For a boundary within a page, switch to extracted text, click before the first character of the new chapter, and choose **Start at cursor**. Several chapters may start on the same page. Rename entries in the outline; use **Move start here** or the remove button to correct boundaries. Chapters follow source order.
-5. Text before the first start is omitted. To exclude back matter, place the cursor before it and choose **End reading at cursor**. This changes the chapter selection, not the retained source file.
+2. Browse the entire source. PDFs open as rendered original pages; switch to **Text** to position the cursor. Page navigation stays below the document while its contents scroll. On phones, use **Chapters** to open the outline and **Back to source** to return. Choosing a chapter location also returns to the text automatically. EPUB sections follow the book's spine order, rather than pretending to have fixed printed pages. TXT has one section. **Tools → Find in source** searches extracted text throughout the document.
+3. In the chapter outline, choose **Suggest starts** to use PDF bookmarks or EPUB contents links when available, with chapter-heading detection as a fallback. Suggestions are editable and are never applied automatically. Contents, part headings and appendices may also appear in a publisher's outline: check the results.
+4. On any readable PDF page, choose **Mark start**. In **Text** view, **Mark start** uses the text cursor instead: click before the first character of the new chapter. For a whole-page start while in Text view, use **Tools → Reading range → Start chapter on this page**. Several chapters may start on the same page. Rename entries in the outline; use **Move start here** or the remove button to correct boundaries. Chapters follow source order.
+5. Text before the first start is omitted. To exclude back matter, place the cursor before it and choose **Tools → Reading range → End reading at cursor**. This changes the chapter selection, not the retained source file.
 6. **Preview chapters** shows word counts and the opening/closing text. A short-chapter indicator helps find accidental boundaries. Duplicate, reversed, out-of-range or empty boundaries prevent applying the plan.
-7. **Save draft** persists this account's draft in PostgreSQL. Unsaved drafts block in-app navigation and warn before leaving the browser page. **Discard changes** returns to the last saved draft. Concurrent changes from another window are rejected instead of silently overwriting them; reload that window to get the latest saved draft.
+7. **Save** persists this account's draft in PostgreSQL. Unsaved drafts block in-app navigation and warn before leaving the browser page. **Tools → Discard changes** returns to the last saved draft. Concurrent changes from another window are rejected instead of silently overwriting them; reload that window to get the latest saved draft.
 8. **Use these chapters** creates a new chapter layout for this book. Previous chapters, edits, guide versions and items are retained. The new layout initially has no selected guide. Generate a new version when ready, or select an older guide version to return to its original chapter layout.
 
 If a file has multiple extractions, or a book has multiple sources, the **Source text** selector chooses which draft to edit. Only one editor is open at a time. Save or discard changes before switching it. Applying a source's plan selects that plan as the book's complete chapter layout; it does not append it to another source's chapters.
@@ -21,7 +21,7 @@ If a file has multiple extractions, or a book has multiple sources, the **Source
 
 **PDF page** always means the physical position in the file, starting at 1. The original-page viewer also displays embedded PDF page labels when available. It remembers labels for viewed pages when switching to extracted text.
 
-Use **Printed page numbering → Add numbering range** when the publisher's printed numbering differs. For example, PDF pages 9–200 with printed start 1 make physical PDF page 14 display printed page 6. Multiple non-overlapping numeric ranges are supported and saved with the draft. Embedded Roman labels can be displayed; manually configured ranges currently support positive Arabic numbers only. Numbering does not change chapter boundaries or source content.
+Use **Tools → Printed page numbering → Add numbering range** when the publisher's printed numbering differs. For example, PDF pages 9–200 with printed start 1 make physical PDF page 14 display printed page 6. Multiple non-overlapping numeric ranges are supported and saved with the draft. Embedded Roman labels can be displayed; manually configured ranges currently support positive Arabic numbers only. Numbering does not change chapter boundaries or source content.
 
 ### Scanned or difficult files
 
@@ -101,3 +101,13 @@ Take and verify another backup after acceptance, and keep an off-server copy.
 Local checks use synthetic sources and a disposable restored PostgreSQL library. Coverage includes exact within-page slicing, Unicode cursor positions, front/back matter exclusion, blank-page preservation, EPUB contents anchors, PDF page labels/bookmarks, draft persistence and conflicts, navigation guards, multiple extraction selection, layout restoration, retained guide exports, source ownership, stale generation rejection, and narrow-screen fit. The full application/worker build and existing MCQ/export regressions passed. Worker lifecycle tests use a fake provider, with no paid model calls.
 
 This release does **not** add OCR, editable extraction cleanup, automatic header/footer removal, or background extraction jobs. Extraction is still request-bound, and the editor loads the extracted page text into the browser. Very large sources will need paged text loading and durable extraction/OCR work in the next milestone. PDF bookmarks identify page starts; precise within-page PDF starts are set manually. EPUB navigation fragments are resolved to within-section text positions.
+
+## 2026-11-14 compact reader update
+
+The split page uses the available workspace width and height, omits the repeated book heading, and keeps only the file/draft controls above the reader. The chapter outline scrolls separately on desktop. Phones show either the source or the chapter outline, retaining the current page and draft when switching. PDF/text switching and zoom stay next to the reader, while page navigation and **Mark start** remain visible below it. **Whole page** zoom fits the complete PDF page; **Fit width**, 125%, 150% and 200% support closer reading. Changing pages resets the PDF scroll position.
+
+Search, printed numbering, reading-range controls and draft reset are in a keyboard-accessible **Tools** dialog. Escape closes it; choosing a search result returns to the source and selects the matching text. A short message identifies a page without selectable text, with the longer OCR explanation in Tools. A cover alone does not establish that the whole book needs OCR.
+
+For installations already on migration 0006, this is a UI-only update: use the normal staging pull/build/restart procedure while generation is idle. No additional migration, dependency or environment change is needed. The initial deployment commands above still apply to installations that have not yet deployed 0006.
+
+Validation for this UI update: production web/worker build and source-boundary tests passed. Chromium checks passed at widths 320, 375, 390, 800, 1366 and 1536 pixels, including document-area and page-control visibility, no outer workspace scrolling, blank covers, zoom/scroll reset, mobile outline return, search selection, Escape focus restoration, dark/Korean layouts and touch navigation. The same run verified saved/conflicting drafts, layout restoration and older-version PDF/Word exports using disposable fixtures. Actual phone-browser acceptance on Ubuntu remains pending deployment.

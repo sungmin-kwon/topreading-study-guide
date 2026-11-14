@@ -51,6 +51,7 @@ export function SourceBoundaryEditor({
     [image, setImage] = useState<{
       image: string;
       label: string;
+      page: number;
     } | null>(null),
     [imageError, setImageError] = useState(""),
     [zoom, setZoom] = useState(100),
@@ -59,26 +60,27 @@ export function SourceBoundaryEditor({
     [bookmarks, setBookmarks] = useState<SplitPlan["starts"]>([]);
   const [nativeLabels, setNativeLabels] = useState<Record<number, string>>({});
   const textRef = useRef<HTMLTextAreaElement>(null);
-  const sourceRef = useRef<HTMLDivElement>(null);
-  // Fit the reading surface beneath its actual controls, including expanded
-  // numbering ranges; a fixed viewport fraction hides its bottom on laptops.
+  const [mobilePanel, setMobilePanel] = useState<"source" | "chapters">(
+    "source",
+  );
+  const toolsRef = useRef<HTMLDialogElement>(null);
+  const imageRef = useRef<HTMLDivElement>(null);
+  function closeTools() {
+    toolsRef.current?.close();
+  }
+  function showTextAt(number: number, at: number, length = 0) {
+    navigate(number, at);
+    setView("text");
+    setMobilePanel("source");
+    closeTools();
+    requestAnimationFrame(() => {
+      textRef.current?.focus();
+      textRef.current?.setSelectionRange(at, at + length);
+    });
+  }
   useEffect(() => {
-    const fit = () => {
-      const surface = sourceRef.current?.querySelector<HTMLElement>(
-        ".boundary-text, .boundary-page-image",
-      );
-      if (surface)
-        surface.style.height = `${Math.max(220, window.innerHeight - surface.getBoundingClientRect().top - 24)}px`;
-    };
-    const observer = new ResizeObserver(fit);
-    if (sourceRef.current) observer.observe(sourceRef.current);
-    window.addEventListener("resize", fit);
-    fit();
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", fit);
-    };
-  }, [data, view]);
+    imageRef.current?.scrollTo(0, 0);
+  }, [page, view]);
   const url = `/api/books/${bookId}/parsed-documents/${documentId}/editor`;
   const dirty = JSON.stringify(plan) !== saved;
   useEffect(() => {
@@ -126,7 +128,7 @@ export function SourceBoundaryEditor({
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) throw Error(d.error);
-        setImage(d);
+        setImage({ ...d, page });
         setNativeLabels((labels) => ({ ...labels, [page]: d.label }));
         setBookmarks(d.bookmarks || []);
       })
@@ -281,7 +283,7 @@ export function SourceBoundaryEditor({
       if (!r.ok) throw Error(body.error);
       setData({ ...data, draft: body.draft });
       setSaved(JSON.stringify(plan));
-      setNotice(t("Draft saved.", "초안이 저장되었습니다."));
+      setNotice("");
       if (apply) onApplied();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save.");
@@ -327,37 +329,150 @@ export function SourceBoundaryEditor({
   return (
     <section
       className="source-boundary-editor"
+      data-panel={mobilePanel}
       aria-label={t("Chapter boundary editor", "챕터 시작점 편집기")}
     >
-      <div className="boundary-header">
-        <strong>{data.filename}</strong>
-        <span>
-          {dirty
-            ? t("Unsaved draft", "저장되지 않은 초안")
-            : notice || t("Draft saved", "저장된 초안")}
+      <header className="boundary-header">
+        <div className="boundary-filename">
+          <span>{t("Split text", "텍스트 분할")}</span>
+          <strong title={data.filename}>{data.filename}</strong>
+        </div>
+        <span className="boundary-save-status" role="status">
+          {dirty ? t("Unsaved", "미저장") : t("Saved", "저장됨")}
         </span>
         <button
           type="button"
-          disabled={busy || !dirty}
-          onClick={() => {
-            setPlan(data.draft.plan);
-            setError("");
-          }}
+          aria-haspopup="dialog"
+          onClick={() => toolsRef.current?.showModal()}
         >
-          {t("Discard changes", "변경 취소")}
+          {t("Tools", "도구")}
         </button>
         <button
           type="button"
+          aria-label={t("Save draft", "초안 저장")}
           disabled={busy || !dirty || Boolean(result.error)}
           onClick={() => void save()}
         >
-          {t("Save draft", "초안 저장")}
+          {t("Save", "저장")}
         </button>
-      </div>
-      {error && <p role="alert">{error}</p>}
+        <button
+          className="boundary-panel-toggle"
+          type="button"
+          aria-expanded={mobilePanel === "chapters"}
+          aria-controls="boundary-outline"
+          onClick={() =>
+            setMobilePanel(mobilePanel === "source" ? "chapters" : "source")
+          }
+        >
+          {mobilePanel === "source"
+            ? `${t("Chapters", "챕터")} (${plan.starts.length})`
+            : t("Back to source", "원본으로")}
+        </button>
+      </header>
+      {(error || result.error) && (
+        <p className="boundary-alert" role="alert">
+          {error || result.error}
+        </p>
+      )}
+      {notice && (
+        <p className="boundary-notice" role="status">
+          {notice}
+        </p>
+      )}
       <div className="boundary-columns">
-        <div ref={sourceRef} className="boundary-source">
-          <div className="boundary-toolbar">
+        <div className="boundary-source">
+          <div className="boundary-view-bar">
+            {pdf && (
+              <div className="boundary-view-switch">
+                <button
+                  type="button"
+                  aria-label={t("Original PDF", "원본 PDF")}
+                  aria-pressed={view === "original"}
+                  onClick={() => setView("original")}
+                >
+                  PDF
+                </button>
+                <button
+                  type="button"
+                  aria-label={t("Extracted text", "추출 텍스트")}
+                  aria-pressed={view === "text"}
+                  onClick={() => {
+                    setView("text");
+                    setOffset(0);
+                  }}
+                >
+                  {t("Text", "텍스트")}
+                </button>
+              </div>
+            )}
+            {pdf && printedLabel && (
+              <span className="boundary-printed-label">
+                {t("Printed", "인쇄")}: {printedLabel}
+              </span>
+            )}
+            {view === "original" && (
+              <select
+                aria-label={t("Zoom", "확대")}
+                value={zoom}
+                onChange={(e) => setZoom(Number(e.target.value))}
+              >
+                <option value={100}>{t("Fit width", "너비 맞춤")}</option>
+                <option value={0}>{t("Whole page", "전체 페이지")}</option>
+                <option value={125}>125%</option>
+                <option value={150}>150%</option>
+                <option value={200}>200%</option>
+              </select>
+            )}
+          </div>
+          {view === "original" ? (
+            <div
+              ref={imageRef}
+              className={`boundary-page-image${zoom === 0 ? " boundary-fit-page" : ""}`}
+              tabIndex={0}
+              aria-label={t("PDF viewer", "PDF 보기")}
+            >
+              {image?.page === page ? (
+                <img
+                  alt={`${t("Original page", "원본 페이지")} ${page}`}
+                  src={`data:image/png;base64,${image.image}`}
+                  style={
+                    zoom === 0
+                      ? undefined
+                      : { width: `${zoom}%`, maxWidth: "none" }
+                  }
+                />
+              ) : (
+                <p role="status">
+                  {imageError || t("Loading page…", "페이지를 불러오는 중…")}
+                </p>
+              )}
+            </div>
+          ) : (
+            <textarea
+              ref={textRef}
+              className="boundary-text"
+              aria-label={t("Page text", "페이지 텍스트")}
+              value={current?.textContent || ""}
+              readOnly
+              onSelect={(e) => setOffset(e.currentTarget.selectionStart)}
+              placeholder={t(
+                "No extracted text on this page.",
+                "이 페이지에는 추출된 텍스트가 없습니다.",
+              )}
+            />
+          )}
+          {!current?.textContent && (
+            <p className="boundary-page-note">
+              {t(
+                "No selectable text on this page.",
+                "이 페이지에는 선택할 텍스트가 없습니다.",
+              )}
+            </p>
+          )}
+          <footer
+            className="boundary-page-controls"
+            aria-label={t("Page navigation", "페이지 이동")}
+          >
             <button
               type="button"
               aria-label={t("Previous page", "이전 페이지")}
@@ -366,21 +481,18 @@ export function SourceBoundaryEditor({
             >
               ←
             </button>
-            <label>
-              {pdf ? t("PDF page", "PDF 페이지") : t("Section", "구간")}{" "}
-              <input
-                aria-label={t("Source page", "원본 페이지")}
-                type="number"
-                min={1}
-                max={data.pageCount}
-                value={page}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  if (Number.isInteger(n) && n >= 1 && n <= data.pageCount)
-                    navigate(n);
-                }}
-              />
-            </label>
+            <input
+              aria-label={t("Source page", "원본 페이지")}
+              type="number"
+              min={1}
+              max={data.pageCount}
+              value={page}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isInteger(n) && n >= 1 && n <= data.pageCount)
+                  navigate(n);
+              }}
+            />
             <span>/ {data.pageCount}</span>
             <button
               type="button"
@@ -390,25 +502,229 @@ export function SourceBoundaryEditor({
             >
               →
             </button>
-            {pdf && (
-              <>
+            <button
+              className="boundary-mark"
+              type="button"
+              aria-label={
+                view === "text"
+                  ? t("Start at cursor", "커서 위치에서 시작")
+                  : t("Start chapter on this page", "이 페이지에서 챕터 시작")
+              }
+              disabled={!current?.textContent}
+              onClick={() => mark(view === "text" ? offset : 0)}
+            >
+              {t("Mark start", "시작 표시")}
+            </button>
+          </footer>
+        </div>
+        <aside
+          className="boundary-outline"
+          id="boundary-outline"
+          aria-label={t("Chapter outline", "챕터 목록")}
+        >
+          <div className="boundary-outline-heading">
+            <h3>
+              {t("Chapters", "챕터")} ({plan.starts.length})
+            </h3>
+            <button type="button" onClick={suggest}>
+              {t("Suggest starts", "시작점 추천")}
+            </button>
+          </div>
+          <div className="boundary-outline-scroll">
+            {!plan.starts.length && (
+              <p className="boundary-empty">
+                {t(
+                  "Browse the source and mark where each chapter begins.",
+                  "원본을 읽으며 각 챕터의 시작점을 표시하세요.",
+                )}
+              </p>
+            )}
+            {plan.starts.map((b, i) => (
+              <div className="boundary-row" key={`${b.page}:${b.offset}`}>
                 <button
                   type="button"
-                  aria-pressed={view === "original"}
-                  onClick={() => setView("original")}
+                  onClick={() => {
+                    showTextAt(b.page, b.offset);
+                  }}
                 >
-                  {t("Original PDF", "원본 PDF")}
+                  {i + 1} · {pdf ? t("Page", "페이지") : t("Section", "구간")}{" "}
+                  {b.page} ·{" "}
+                  {b.offset === 0
+                    ? t("page start", "페이지 시작")
+                    : t("within page", "페이지 중간")}
+                </button>
+                <input
+                  aria-label={`${t("Chapter title", "챕터 제목")} ${i + 1}`}
+                  value={b.title}
+                  placeholder={`${t("Chapter", "챕터")} ${i + 1}`}
+                  onChange={(e) =>
+                    setPlan({
+                      ...plan,
+                      starts: plan.starts.map((v, n) =>
+                        n === i ? { ...v, title: e.target.value } : v,
+                      ),
+                    })
+                  }
+                />
+                <button
+                  type="button"
+                  disabled={!current?.textContent}
+                  onClick={() =>
+                    setPlan({
+                      ...plan,
+                      starts: plan.starts
+                        .map((v, n) =>
+                          n === i
+                            ? {
+                                ...v,
+                                page,
+                                offset: view === "text" ? offset : 0,
+                              }
+                            : v,
+                        )
+                        .sort((a, b) => a.page - b.page || a.offset - b.offset),
+                    })
+                  }
+                >
+                  {t("Move start here", "시작점을 여기로 이동")}
                 </button>
                 <button
                   type="button"
-                  aria-pressed={view === "text"}
-                  onClick={() => setView("text")}
+                  aria-label={`${t("Remove boundary", "시작점 삭제")} ${i + 1}`}
+                  onClick={() =>
+                    setPlan({
+                      ...plan,
+                      starts: plan.starts.filter((_, n) => n !== i),
+                    })
+                  }
                 >
-                  {t("Extracted text", "추출 텍스트")}
+                  ×
                 </button>
-              </>
+              </div>
+            ))}
+            {plan.end && (
+              <p>
+                {t("Reading ends at", "읽기 종료")}: {plan.end.page} ·{" "}
+                {t("selected position", "선택한 위치")}{" "}
+                <button
+                  type="button"
+                  onClick={() => setPlan({ ...plan, end: null })}
+                >
+                  {t("Clear", "해제")}
+                </button>
+              </p>
+            )}
+            <button
+              type="button"
+              disabled={!result.chapters.length}
+              onClick={() => setPreview(!preview)}
+            >
+              {t("Preview chapters", "챕터 미리보기")}
+            </button>
+            {preview && (
+              <div className="boundary-preview">
+                {result.chapters.map((c) => (
+                  <details key={c.chapterNumber}>
+                    <summary>
+                      {c.chapterNumber}. {c.title} · {c.wordCount}{" "}
+                      {t("words", "단어")}
+                      {c.wordCount < 50
+                        ? ` · ${t("Short chapter", "짧은 챕터")}`
+                        : ""}
+                    </summary>
+                    <p>{c.textContent.slice(0, 180)}</p>
+                    <p>…{c.textContent.slice(-180)}</p>
+                  </details>
+                ))}
+              </div>
+            )}
+            {(data.hasLegacy || data.layouts.length > 0) && (
+              <details className="boundary-history">
+                <summary>{t("Saved layouts", "저장된 구성")}</summary>
+                <select
+                  aria-label={t("Saved chapter layout", "저장된 챕터 구성")}
+                  value={restoreId}
+                  onChange={(e) => setRestoreId(e.target.value)}
+                >
+                  <option value="">{t("Choose layout", "구성 선택")}</option>
+                  {data.hasLegacy && (
+                    <option value="legacy">
+                      {t("Original chapters", "기존 챕터")}
+                    </option>
+                  )}
+                  {data.layouts.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {new Date(l.createdAt).toLocaleString()} · {l.count}{" "}
+                      {t("chapters", "챕터")}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!restoreId || busy || dirty}
+                  onClick={() => void restore()}
+                >
+                  {t("Use saved layout", "저장된 구성 사용")}
+                </button>
+              </details>
             )}
           </div>
+          <footer className="boundary-outline-actions">
+            <button
+              className="primary-action"
+              type="button"
+              disabled={
+                busy || !result.chapters.length || Boolean(result.error)
+              }
+              onClick={() => void save(true)}
+            >
+              {busy
+                ? t("Saving…", "저장 중…")
+                : t("Use these chapters", "이 챕터 구성 사용")}
+            </button>
+          </footer>
+        </aside>
+      </div>
+      <dialog
+        ref={toolsRef}
+        className="boundary-tools"
+        aria-labelledby="boundary-tools-title"
+      >
+        <header>
+          <h3 id="boundary-tools-title">{t("Source tools", "원본 도구")}</h3>
+          <button
+            type="button"
+            aria-label={t("Close tools", "도구 닫기")}
+            onClick={closeTools}
+          >
+            ×
+          </button>
+        </header>
+        <div className="boundary-tools-body">
+          {result.error && <p role="alert">{result.error}</p>}
+          <label className="boundary-search">
+            {t("Find in source", "원본에서 찾기")}
+            <input value={query} onChange={(e) => setQuery(e.target.value)} />
+          </label>
+          {query && (
+            <div className="boundary-search-results">
+              {matches.length ? (
+                matches.map((m) => (
+                  <button
+                    type="button"
+                    key={`${m.page}:${m.offset}`}
+                    onClick={() => {
+                      showTextAt(m.page, m.offset, query.length);
+                    }}
+                  >
+                    {m.page}: {m.snippet}
+                  </button>
+                ))
+              ) : (
+                <p>{t("No matches.", "검색 결과가 없습니다.")}</p>
+              )}
+            </div>
+          )}
           {pdf && (
             <details className="boundary-numbering">
               <summary>
@@ -475,271 +791,58 @@ export function SourceBoundaryEditor({
               </button>
             </details>
           )}
-          {pdf && printedLabel && (
+
+          <details className="boundary-reading-settings">
+            <summary>{t("Reading range", "읽기 범위")}</summary>
             <p>
-              {t("Printed page", "인쇄 페이지")}: {printedLabel}
-            </p>
-          )}
-          <label className="boundary-search">
-            {t("Find in source", "원본에서 찾기")}
-            <input value={query} onChange={(e) => setQuery(e.target.value)} />
-          </label>
-          {query && (
-            <div className="boundary-search-results">
-              {matches.length ? (
-                matches.map((m) => (
-                  <button
-                    type="button"
-                    key={`${m.page}:${m.offset}`}
-                    onClick={() => {
-                      navigate(m.page, m.offset);
-                      setView("text");
-                      setTimeout(() => {
-                        textRef.current?.focus();
-                        textRef.current?.setSelectionRange(
-                          m.offset,
-                          m.offset + query.length,
-                        );
-                      }, 0);
-                    }}
-                  >
-                    {m.page}: {m.snippet}
-                  </button>
-                ))
-              ) : (
-                <p>{t("No matches.", "검색 결과가 없습니다.")}</p>
+              {t(
+                "Text before the first chapter start is excluded. In Text view, place the cursor to mark a start or end within a page.",
+                "첫 챕터 시작점 이전 텍스트는 제외됩니다. 텍스트 보기에서 커서를 놓아 페이지 중간의 시작이나 끝을 표시하세요.",
               )}
-            </div>
-          )}
-          <div className="boundary-toolbar">
-            <button type="button" onClick={() => mark(0)}>
+            </p>
+            <button
+              type="button"
+              disabled={!current?.textContent}
+              onClick={() => {
+                mark(0);
+                closeTools();
+              }}
+            >
               {t("Start chapter on this page", "이 페이지에서 챕터 시작")}
             </button>
-            {view === "text" && (
-              <>
-                <button
-                  type="button"
-                  disabled={!current?.textContent}
-                  onClick={() => mark(offset)}
-                >
-                  {t("Start at cursor", "커서 위치에서 시작")}
-                </button>
-                <button
-                  type="button"
-                  disabled={!current?.textContent}
-                  onClick={() => setPlan({ ...plan, end: { page, offset } })}
-                >
-                  {t("End reading at cursor", "커서 위치에서 읽기 종료")}
-                </button>
-              </>
-            )}
-          </div>
+            <button
+              type="button"
+              disabled={view !== "text" || !current?.textContent}
+              onClick={() => {
+                setPlan({ ...plan, end: { page, offset } });
+                closeTools();
+              }}
+            >
+              {t("End reading at cursor", "커서 위치에서 읽기 종료")}
+            </button>
+          </details>
           {!current?.textContent && (
-            <p role="status">
-              {t(
-                "No text was extracted on this page. If it contains scanned text, upload an OCR-processed copy to split it.",
-                "이 페이지에는 추출된 텍스트가 없습니다. 스캔된 텍스트라면 OCR 처리한 파일을 업로드하세요.",
-              )}
-            </p>
-          )}
-          {view === "original" ? (
-            <>
-              <label>
-                {t("Zoom", "확대")}{" "}
-                <select
-                  value={zoom}
-                  onChange={(e) => setZoom(Number(e.target.value))}
-                >
-                  <option value={75}>75%</option>
-                  <option value={100}>100%</option>
-                  <option value={150}>150%</option>
-                </select>
-              </label>
-              <div className="boundary-page-image">
-                {image ? (
-                  <img
-                    alt={`${t("Original page", "원본 페이지")} ${page}`}
-                    src={`data:image/png;base64,${image.image}`}
-                    style={{ width: `${zoom}%`, maxWidth: "none" }}
-                  />
-                ) : (
-                  <p role="status">
-                    {imageError || t("Loading page…", "페이지를 불러오는 중…")}
-                  </p>
-                )}
-              </div>
-            </>
-          ) : (
-            <textarea
-              ref={textRef}
-              className="boundary-text"
-              aria-label={t("Page text", "페이지 텍스트")}
-              value={current?.textContent || ""}
-              readOnly
-              onSelect={(e) => setOffset(e.currentTarget.selectionStart)}
-              placeholder={t(
-                "No extracted text on this page.",
-                "이 페이지에는 추출된 텍스트가 없습니다.",
-              )}
-            />
-          )}
-        </div>
-        <aside className="boundary-outline">
-          <h3>
-            {t("Chapters", "챕터")} ({plan.starts.length})
-          </h3>
-          <button type="button" onClick={suggest}>
-            {t("Suggest starts", "시작점 추천")}
-          </button>
-          <p>
-            {t(
-              "Text before the first start is excluded. Place the text cursor to split within a page.",
-              "첫 시작점 이전 텍스트는 제외됩니다. 페이지 중간을 나누려면 커서를 놓으세요.",
-            )}
-          </p>
-          {plan.starts.map((b, i) => (
-            <div className="boundary-row" key={`${b.page}:${b.offset}`}>
-              <button
-                type="button"
-                onClick={() => {
-                  navigate(b.page, b.offset);
-                  setView("text");
-                  setTimeout(() => {
-                    textRef.current?.focus();
-                    textRef.current?.setSelectionRange(b.offset, b.offset);
-                  }, 0);
-                }}
-              >
-                {i + 1} · {pdf ? t("Page", "페이지") : t("Section", "구간")}{" "}
-                {b.page} ·{" "}
-                {b.offset === 0
-                  ? t("page start", "페이지 시작")
-                  : t("within page", "페이지 중간")}
-              </button>
-              <input
-                aria-label={`${t("Chapter title", "챕터 제목")} ${i + 1}`}
-                value={b.title}
-                placeholder={`${t("Chapter", "챕터")} ${i + 1}`}
-                onChange={(e) =>
-                  setPlan({
-                    ...plan,
-                    starts: plan.starts.map((v, n) =>
-                      n === i ? { ...v, title: e.target.value } : v,
-                    ),
-                  })
-                }
-              />
-              <button
-                type="button"
-                disabled={!current?.textContent}
-                onClick={() =>
-                  setPlan({
-                    ...plan,
-                    starts: plan.starts
-                      .map((v, n) =>
-                        n === i
-                          ? { ...v, page, offset: view === "text" ? offset : 0 }
-                          : v,
-                      )
-                      .sort((a, b) => a.page - b.page || a.offset - b.offset),
-                  })
-                }
-              >
-                {t("Move start here", "시작점을 여기로 이동")}
-              </button>
-              <button
-                type="button"
-                aria-label={`${t("Remove boundary", "시작점 삭제")} ${i + 1}`}
-                onClick={() =>
-                  setPlan({
-                    ...plan,
-                    starts: plan.starts.filter((_, n) => n !== i),
-                  })
-                }
-              >
-                ×
-              </button>
-            </div>
-          ))}
-          {plan.end && (
             <p>
-              {t("Reading ends at", "읽기 종료")}: {plan.end.page} ·{" "}
-              {t("selected position", "선택한 위치")}{" "}
-              <button
-                type="button"
-                onClick={() => setPlan({ ...plan, end: null })}
-              >
-                {t("Clear", "해제")}
-              </button>
+              {t(
+                "A cover or blank page may have no text. If the reading pages are scans too, upload an OCR-processed copy to split them.",
+                "표지나 빈 페이지에는 텍스트가 없을 수 있습니다. 본문도 스캔이라면 OCR 처리한 파일을 업로드하세요.",
+              )}
             </p>
           )}
-          {result.error && <p role="alert">{result.error}</p>}
           <button
             type="button"
-            disabled={!result.chapters.length}
-            onClick={() => setPreview(!preview)}
+            disabled={busy || !dirty}
+            onClick={() => {
+              setPlan(data.draft.plan);
+              setError("");
+              setNotice("");
+              closeTools();
+            }}
           >
-            {t("Preview chapters", "챕터 미리보기")}
+            {t("Discard changes", "변경 취소")}
           </button>
-          {preview && (
-            <div className="boundary-preview">
-              {result.chapters.map((c) => (
-                <details key={c.chapterNumber}>
-                  <summary>
-                    {c.chapterNumber}. {c.title} · {c.wordCount}{" "}
-                    {t("words", "단어")}
-                    {c.wordCount < 50
-                      ? ` · ${t("Short chapter", "짧은 챕터")}`
-                      : ""}
-                  </summary>
-                  <p>{c.textContent.slice(0, 180)}</p>
-                  <p>…{c.textContent.slice(-180)}</p>
-                </details>
-              ))}
-            </div>
-          )}
-          {(data.hasLegacy || data.layouts.length > 0) && (
-            <details className="boundary-history">
-              <summary>{t("Saved layouts", "저장된 구성")}</summary>
-              <select
-                aria-label={t("Saved chapter layout", "저장된 챕터 구성")}
-                value={restoreId}
-                onChange={(e) => setRestoreId(e.target.value)}
-              >
-                <option value="">{t("Choose layout", "구성 선택")}</option>
-                {data.hasLegacy && (
-                  <option value="legacy">
-                    {t("Original chapters", "기존 챕터")}
-                  </option>
-                )}
-                {data.layouts.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {new Date(l.createdAt).toLocaleString()} · {l.count}{" "}
-                    {t("chapters", "챕터")}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                disabled={!restoreId || busy || dirty}
-                onClick={() => void restore()}
-              >
-                {t("Use saved layout", "저장된 구성 사용")}
-              </button>
-            </details>
-          )}
-          <button
-            className="primary-action"
-            type="button"
-            disabled={busy || !result.chapters.length || Boolean(result.error)}
-            onClick={() => void save(true)}
-          >
-            {busy
-              ? t("Saving…", "저장 중…")
-              : t("Use these chapters", "이 챕터 구성 사용")}
-          </button>
-        </aside>
-      </div>
+        </div>
+      </dialog>
     </section>
   );
 }

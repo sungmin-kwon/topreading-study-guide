@@ -3227,7 +3227,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   );
 
   return (
-    <main className={`app-shell ${modern ? `reading-shell${activeWorkspaceTab === "chapters" ? " reading-text-view" : ""}` : isLibraryCollapsed ? "library-collapsed" : ""}`}>
+    <main className={`app-shell ${modern ? `reading-shell${activeWorkspaceTab === "chapters" ? " reading-text-view" : ""}${activeWorkspaceTab === "split" && !libraryOpen ? " reading-split-view" : ""}` : isLibraryCollapsed ? "library-collapsed" : ""}`}>
       {modern && <WorkspaceBar books={books} bookId={activeBook?.id || ""} libraryOpen={libraryOpen}
         onLibrary={() => { if(sourceDraftDirty) {setStatusMessage(t("Save or discard the chapter draft before leaving.", "이동하기 전에 챕터 초안을 저장하거나 취소하세요."));return;} setLibraryOpen(true); }} onBook={selectBook} preferences={<>
           <ThemeToggle dark={themeMode === "dark"} label={t("Toggle dark mode", "다크 모드 전환")} text={themeMode === "dark" ? t("Light", "라이트") : t("Dark", "다크")} onToggle={() => setThemeMode(current => current === "dark" ? "light" : "dark")} />
