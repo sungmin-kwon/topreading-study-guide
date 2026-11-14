@@ -1365,3 +1365,12 @@ The mixed Text tools menu has been replaced by **Prepare text → Source / Split
 The desktop PDF and text readers now offer single pages, consecutive pairs (1–2) and book-facing pairs (cover, then 2–3). Select either page before placing a start/end; arrows advance by spread. Phones automatically use single-page viewing. PDF rendering keeps a private eight-page memory cache and preloads adjacent pages/spreads after visible pages, with one speculative request at a time. Cache contents are not persisted to browser storage and all rendering endpoints retain their authentication checks.
 
 Both origin and public access checks passed in the operator's latest report after an earlier public `/api/books` timeout. No cause for that intermittent timeout has been established. This UI release needs no new migration or environment changes. The production web/worker build, source-boundary/spread tests and full disposable Chromium regression passed, including PDF/text pairing, cache reuse, render-error recovery, saved-layout loading, retained exports and desktop/mobile layouts from 320 to 1536 pixels. No paid model calls were made. Actual Ubuntu deployment and PDF/mobile acceptance remain separate operator steps. See [source import operations](https://github.com/sungmin-kwon/topreading-study-guide/blob/modernization/postgres-auth/docs/source-import-editor.md) for controls, limits and checks.
+
+
+### 2026-11-14: remove the repeated book heading
+
+The modern book workspace no longer renders the large book-title/author header or its spacing on any destination. The Text / Study guides / Export / Book info navigation now follows the persistent top bar directly. The book selector supplies the visible book context; Library and Book info retain author details. Page headings, chapter titles and preparation controls remain. The workspace also has an accessible name using the current book title. The legacy comparison route retains its original header/navigation.
+
+This is a UI-only update: no database migration, dependencies or environment changes. Deploy with generation idle using the normal staging build/restart procedure.
+
+Validation: production web/worker build passed. Read-only Chromium checks covered all eight destinations at 1366px and 390px, confirming direct top-bar/tab adjacency, no horizontal overflow, current-book identification and Library access. Ubuntu deployment remains pending.

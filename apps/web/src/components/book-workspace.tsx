@@ -3319,8 +3319,8 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
         {preferences}
       </aside>)}
 
-      <section className="workspace" hidden={modern && libraryOpen}>
-        <header className="workspace-header">
+      <section className="workspace" hidden={modern && libraryOpen} aria-label={modern ? activeBook?.title : undefined}>
+        {!modern && <header className="workspace-header">
           <div className="workspace-title-block">
             <h2>{activeBook?.title || t("Create a book to begin", "책을 만들어 시작하세요")}</h2>
             {activeBook ? (
@@ -3417,7 +3417,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
             </div>
             )}
           </div>
-        </header>
+        </header>}
 
         {modern && <WorkspaceNavigation tab={activeWorkspaceTab} onTab={navigateTo} hasBook={Boolean(activeBook)} hasChapters={hasChapters} hasSources={sourceEditorDocuments.length > 0} t={t} />}
         {modern && saveError && <div className="reading-save-error" role="alert">{saveError}</div>}

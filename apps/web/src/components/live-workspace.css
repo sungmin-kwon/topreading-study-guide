@@ -17,12 +17,6 @@
 .reading-preferences .library-user-button { display:flex; border:0; padding:0; background:transparent; }
 .reading-preferences .library-user-popover { position:absolute; top:calc(100% + 14px); bottom:auto; left:auto; right:0; width:280px; z-index:80; }
 .reading-shell>.workspace { flex:1; display:flex; flex-direction:column; min-height:0; padding:0; }
-.reading-shell .workspace-header { align-items:center; padding:22px 36px 18px; border:0; background:var(--surface); flex-shrink:0; }
-.reading-shell .workspace-title-block { padding:0; }
-.reading-shell .workspace-header h2 { font-size:25px; line-height:1.3; letter-spacing:-.6px; overflow-wrap:anywhere; }
-.reading-shell .workspace-subtitle { font-size:12px; margin-top:6px; }
-.reading-shell .workspace-stat-row { display:none; }
-.reading-shell .workspace-header-actions>button { font-size:12px; font-weight:400; background:transparent; }
 .reading-navigation { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-right:36px; background:var(--surface); border-bottom:1px solid var(--line); flex-shrink:0; }
 .reading-destinations { display:flex; align-items:center; gap:26px; padding:0 36px; }
 .reading-destinations button { padding:12px 0; border:0; border-bottom:2px solid transparent; border-radius:0; background:transparent; color:var(--muted); font-size:13px; }
@@ -99,9 +93,6 @@
   .reading-preferences .user-menu-copy,.reading-preferences .user-menu-caret { display:none; }
   .reading-book-switcher { order:4; width:100%; }
   .reading-shell button { min-height:44px; }
-  .reading-shell .workspace-header { padding:18px 16px 12px; }
-  .reading-shell .workspace-header h2 { font-size:22px; }
-  .reading-shell .workspace-header-actions>button { max-width:100px; }
   .reading-destinations { padding:0 16px; gap:20px; overflow-x:auto; }
   .reading-destinations button { white-space:nowrap; }
   .reading-shell .chapter-editor-layout { grid-template-columns:minmax(0,1fr); }
@@ -131,9 +122,6 @@
 .reading-shell .chapter-panel>.panel-title-row>.danger-button { margin:8px 0; font-size:11px; }
 .reading-chapter-picker { display:none; }
 @media(max-width:760px) {
-  .reading-shell .workspace-header { flex-direction:row; align-items:center; text-align:left; gap:12px; }
-  .reading-shell .workspace-header-actions { align-self:center; }
-  .reading-shell .workspace-header-actions>button { max-width:none; padding:6px 8px; }
   .reading-shell .chapter-panel .chapter-list { display:none; }
   .reading-chapter-picker { display:flex; align-items:center; gap:10px; padding:10px 16px; font-size:12px; border-bottom:1px solid var(--line); background:var(--surface-soft); }
   .reading-chapter-picker select { flex:1; min-width:0; max-width:100%; background:var(--surface); color:var(--ink); border:1px solid var(--line); border-radius:4px; padding:8px; }
@@ -282,12 +270,8 @@
   .reading-text-view .chapter-document-editor { padding-top:12px; }
 }
 /* Keep a useful editing area in short windows and landscape layouts. */
-.reading-text-view .workspace-header { flex-direction:row; }
 @media(max-height:520px) {
   .reading-text-view .reading-chapter-picker { padding-block:6px; }
-  .reading-text-view .workspace-header { padding-top:8px; padding-bottom:8px; }
-  .reading-text-view .workspace-header h2 { font-size:20px; }
-  .reading-text-view .workspace-subtitle { display:none; }
   .reading-text-view .chapter-editor { gap:8px; padding-bottom:8px; }
   .reading-text-view .chapter-document-editor { padding-top:8px; gap:6px; }
   .reading-text-view input.reading-chapter-title { font-size:22px; padding-top:4px; padding-bottom:4px; }
@@ -461,7 +445,6 @@
 @media (max-width:600px) { .reading-export-content-row { grid-template-columns:minmax(0,1fr); } }
 
 /* The split workspace gives the remaining viewport to the document. */
-.reading-split-view .workspace-header { display:none; }
 .reading-split-view .workspace-scroll { display:flex; flex-direction:column; overflow:hidden; }
 .reading-split-view .workspace-stack:not([hidden]) { display:flex; flex:1; min-height:0; }
 .reading-split-view .split-panel { display:flex; flex-direction:column; flex:1; min-height:0; width:100%; max-width:none; padding:0; margin:0; }
