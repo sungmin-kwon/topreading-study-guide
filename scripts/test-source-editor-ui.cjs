@@ -44,9 +44,76 @@ doc.save(sys.argv[1])
   const initial=await api(endpoint);assert.equal(initial.pages.length,32);
   await page.goto(`${base}/?book=${book.id}&section=split`,{waitUntil:'networkidle'});
   const editor=page.getByRole('region',{name:'Chapter boundary editor'});await editor.waitFor();
+  const cachedNext=page.waitForResponse(r=>r.url().includes(`/source-files/${source.id}/preview?page=31`)&&r.ok());
   await editor.getByRole('spinbutton',{name:'Source page',exact:true}).fill('30');
   await editor.getByRole('button',{name:'Original PDF',exact:true}).click();await editor.getByRole('img',{name:'Original page 30',exact:true}).waitFor();
   assert((await editor.innerText()).includes('26'));
+  assert.equal(await page.getByText('Text tools',{exact:true}).count(),0);
+  const preparation=page.getByRole('navigation',{name:'Prepare text',exact:true});
+  assert(await preparation.getByRole('button',{name:'Source',exact:true}).isVisible());
+  const fetched=[];
+  const track=r=>{if(r.url().includes(`/source-files/${source.id}/preview?`))fetched.push(new URL(r.url()).searchParams.get('page'));};
+  // Wait for the speculative response body, then navigate.
+  await (await cachedNext).finished();
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));
+  page.on('request',track);
+  await editor.getByRole('spinbutton',{name:'Source page',exact:true}).fill('31');
+  await editor.getByRole('img',{name:'Original page 31',exact:true}).waitFor();
+  await page.waitForLoadState('networkidle');
+  assert(!fetched.includes('31'),'Adjacent page should be served from the private memory cache');
+  page.off('request',track);
+  await editor.getByRole('combobox',{name:'Page layout',exact:true}).selectOption('pairs');
+  await editor.getByRole('img',{name:'Original page 32',exact:true}).waitFor();
+  await editor.getByRole('button',{name:'Previous page',exact:true}).click();
+  assert.equal(await editor.getByRole('spinbutton',{name:'Source page',exact:true}).inputValue(),'29');
+  await editor.getByRole('img',{name:'Original page 30',exact:true}).waitFor();
+  await editor.getByRole('combobox',{name:'Zoom',exact:true}).selectOption('0');
+  await editor.getByRole('img',{name:'Original page 29',exact:true}).waitFor();
+  await page.screenshot({path:'/tmp/source-two-pages.png'});
+  const spreadFrame=await editor.locator('.boundary-page-image').boundingBox();
+  for(const image of await editor.getByRole('img').all()) {
+    const bounds=await image.boundingBox();assert(bounds.height>300 && bounds.y+bounds.height<=spreadFrame.y+spreadFrame.height+1);
+  }
+  await editor.getByRole('button',{name:'Select page 30',exact:true}).click();
+  await editor.getByRole('button',{name:'Start chapter on this page',exact:true}).click();
+  assert((await editor.getByRole('button',{name:'Go to chapter 1',exact:true}).innerText()).includes('30'));
+  await editor.getByRole('button',{name:'Extracted text',exact:true}).click();
+  const rightText=editor.getByRole('textbox',{name:'Page text 30',exact:true});
+  await rightText.evaluate(el=>{el.focus();const at=el.value.indexOf('Second scene');el.setSelectionRange(at-1,at-1);});
+  await rightText.press('ArrowRight');await editor.getByRole('button',{name:'Start at cursor',exact:true}).click();
+  assert.equal(await editor.locator('.boundary-row').count(),2);
+  await page.screenshot({path:'/tmp/source-two-text-pages.png'});
+  await editor.getByRole('button',{name:'Discard changes',exact:true}).click();
+  await editor.getByRole('combobox',{name:'Page layout',exact:true}).selectOption('facing');
+  await editor.getByRole('spinbutton',{name:'Source page',exact:true}).fill('1');
+  assert.equal(await editor.getByRole('textbox',{name:'Page text',exact:true}).count(),1);
+  await editor.getByRole('button',{name:'Next page',exact:true}).click();
+  assert.equal(await editor.getByRole('spinbutton',{name:'Source page',exact:true}).inputValue(),'2');
+  assert.equal(await editor.getByRole('textbox',{name:/Page text/}).count(),2);
+  await editor.getByRole('button',{name:'Previous page',exact:true}).click();
+  assert.equal(await editor.getByRole('spinbutton',{name:'Source page',exact:true}).inputValue(),'1');
+  await page.setViewportSize({width:390,height:844});
+  assert.equal(await editor.getByRole('textbox',{name:/Page text/}).count(),1);
+  assert.equal(await editor.getByRole('combobox',{name:'Page layout',exact:true}).count(),0);
+  await page.setViewportSize({width:1400,height:1000});
+  // A failed visible render stays visible when its neighbor finishes, and can retry.
+  let rejectTwelve=true;
+  const failOne=async route=>{if(rejectTwelve){rejectTwelve=false;await route.fulfill({status:500,contentType:'application/json',body:JSON.stringify({error:'Fixture page render failed'})});}else await route.continue();};
+  await page.route('**/preview?page=12',failOne);
+  await editor.getByRole('combobox',{name:'Page layout',exact:true}).selectOption('pairs');
+  await editor.getByRole('spinbutton',{name:'Source page',exact:true}).fill('12');
+  await editor.getByRole('button',{name:'Original PDF',exact:true}).click();
+  await editor.getByRole('img',{name:'Original page 11',exact:true}).waitFor();
+  await editor.getByText('Fixture page render failed',{exact:true}).waitFor();
+  await editor.getByRole('button',{name:'Next page',exact:true}).click();
+  await editor.getByRole('img',{name:'Original page 13',exact:true}).waitFor();
+  await editor.getByRole('button',{name:'Previous page',exact:true}).click();
+  await editor.getByRole('img',{name:'Original page 12',exact:true}).waitFor();
+  await page.unroute('**/preview?page=12',failOne);
+  await editor.getByRole('combobox',{name:'Page layout',exact:true}).selectOption('single');
+  await editor.getByRole('button',{name:'Original PDF',exact:true}).click();
+  await editor.getByRole('spinbutton',{name:'Source page',exact:true}).fill('30');
+  await editor.getByRole('combobox',{name:'Zoom',exact:true}).selectOption('100');
   await page.screenshot({path:'/tmp/source-editor-original.png',fullPage:true});
   await editor.getByRole('button',{name:'Suggest starts',exact:true}).click();
   assert.equal(await editor.getByRole('textbox',{name:'Chapter title 1',exact:true}).inputValue(),'First section');
@@ -83,6 +150,12 @@ doc.save(sys.argv[1])
   assert((await editor.locator('.boundary-end').innerText()).includes('Within page 3'));
   const conflict=await context.request.put(base+endpoint,{data:{version:0,fingerprint:initial.fingerprint,plan:saved.draft.plan}});assert.equal(conflict.status(),400);
   await page.reload({waitUntil:'networkidle'});assert.equal(await editor.getByRole('textbox',{name:/Chapter title/}).count(),2);
+  await editor.getByRole('combobox',{name:'Page layout',exact:true}).selectOption('pairs');
+  const labeledPage=saved.draft.plan.pageLabels[0].from;
+  await editor.getByRole('spinbutton',{name:'Source page',exact:true}).fill(String(labeledPage));
+  await editor.getByRole('img',{name:`Original page ${labeledPage}`,exact:true}).waitFor();
+  assert((await editor.getByRole('button',{name:`Select page ${labeledPage}`,exact:true}).innerText()).includes('Printed: 10'));
+  await editor.getByRole('combobox',{name:'Page layout',exact:true}).selectOption('single');
   await editor.getByRole('button',{name:'Extracted text',exact:true}).click();
   await page.screenshot({path:'/tmp/source-editor-text.png',fullPage:true});
   const textBox=await editor.getByRole('textbox',{name:'Page text',exact:true}).boundingBox();assert(textBox.y+textBox.height<=1000,'Reading surface must fit below its controls');
@@ -105,7 +178,26 @@ doc.save(sys.argv[1])
   const wrong=await context.request.get(`${base}/api/books/${foreign.id}/source-files/${source.id}/preview?page=1`);assert.equal(wrong.status(),404);
   await api(`/api/books/${book.id}/source-files/${source.id}/parsed-documents`,'POST');
   await page.goto(`${base}/?book=${book.id}&section=split`,{waitUntil:'networkidle'});
-  await page.locator('.source-document-selector select').selectOption(doc.id);
+  // Active layout source wins over a newer extraction when reopening preparation.
+  assert.equal(await page.locator('.source-document-selector select').inputValue(),doc.id);
+  await page.getByRole('navigation',{name:'Prepare text',exact:true}).getByRole('button',{name:'Read chapters',exact:true}).click();
+  await page.getByRole('button',{name:'Prepare text',exact:true}).click();
+  await page.getByRole('navigation',{name:'Prepare text',exact:true}).getByRole('button',{name:'Split chapters',exact:true}).click();
+  await editor.waitFor();
+  // A personal saved draft may differ from the active layout. Loading the active
+  // boundaries is explicit, does not apply chapters, and remains discardable.
+  saved=await api(endpoint);
+  await api(endpoint,'PUT',{version:saved.draft.version,fingerprint:saved.fingerprint,plan:{starts:[],end:null}});
+  await page.reload({waitUntil:'networkidle'});
+  await editor.getByRole('button',{name:'Load current boundaries',exact:true}).click();
+  assert.equal(await editor.locator('.boundary-row').count(),2);
+  assert((await editor.locator('.boundary-end').innerText()).includes('Within page 3'));
+  await editor.getByRole('button',{name:'Discard changes',exact:true}).click();
+  assert.equal(await editor.locator('.boundary-row').count(),0);
+  await editor.getByRole('button',{name:'Load current boundaries',exact:true}).click();
+  const currentSave=page.waitForResponse(r=>r.url().endsWith('/editor')&&r.request().method()==='PUT');
+  await editor.getByRole('button',{name:'Save draft',exact:true}).click();assert((await currentSave).ok());
+  assert.deepEqual((await api(`/api/books/${book.id}/chapters`)).chapters.map(c=>c.id),updated.map(c=>c.id));
   await editor.getByRole('textbox',{name:'Chapter title 2',exact:true}).waitFor();
   assert.equal(await page.getByRole('region',{name:'Chapter boundary editor'}).count(),1);
   // Keep both the document and page controls visible without scrolling the shell.
@@ -167,11 +259,12 @@ doc.save(sys.argv[1])
   const touchPage=await touchContext.newPage();
   await touchPage.goto(`${base}/?book=${book.id}&section=split`,{waitUntil:'networkidle'});
   const touchEditor=touchPage.getByRole('region',{name:'Chapter boundary editor'});
+  assert.equal(await touchEditor.getByRole('spinbutton',{name:'Source page',exact:true}).inputValue(),'2');
   await touchEditor.getByRole('button',{name:'Next page',exact:true}).tap();
-  await touchEditor.getByRole('img',{name:'Original page 2',exact:true}).waitFor();
+  await touchEditor.getByRole('img',{name:'Original page 3',exact:true}).waitFor();
   const touchControls=await touchEditor.locator('.boundary-page-controls').boundingBox();assert(touchControls.y+touchControls.height<=761);
   await touchPage.screenshot({path:'/tmp/source-compact-touch.png'});
   await touchContext.close();
-  console.log('PASS: compact chapter rows, direct Discard restoration, page/cursor reading end, exclusion of trailing content, automatic upload/extraction/editor transition, bookmarks, printed numbering, unsaved navigation guard, multiple extraction selection, stale generation rejection, original page 30 and printed label, mid-page split, saved/conflicting drafts, safe layout apply/restore, old guide exports, source ownership and desktop/mobile reader height, pinned navigation, mobile outline return, search cursor focus, Escape focus restoration, dark/Korean layout and touch page navigation.');
+  console.log('PASS: preparation navigation, current layout/source selection, PDF/text spread parity, selected-page and cursor markers, adjacent preview cache reuse, visible-render retry, mobile single-page fallback, custom spread labels, compact chapter rows, direct Discard restoration, page/cursor reading end, exclusion of trailing content, automatic upload/extraction/editor transition, bookmarks, printed numbering, unsaved navigation guard, multiple extraction selection, stale generation rejection, original page 30 and printed label, mid-page split, saved/conflicting drafts, safe layout apply/restore, old guide exports, source ownership and desktop/mobile reader height, pinned navigation, mobile outline return, search cursor focus, Escape focus restoration, dark/Korean layout and touch page navigation.');
  }finally{if(book)await context.request.delete(`${base}/api/books/${book.id}`);await browser.close();fs.rmSync(fixtureDirectory,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exitCode=1;});

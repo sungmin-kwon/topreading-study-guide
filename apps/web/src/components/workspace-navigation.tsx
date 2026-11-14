@@ -57,20 +57,23 @@ export function WorkspaceNavigation({ tab, onTab, hasBook, hasChapters, hasSourc
 }) {
   const text = ["source", "split", "chapters"].includes(tab);
   const guides = ["generate", "sets", "review"].includes(tab);
-  return <div className="reading-navigation">
+  return <><div className="reading-navigation">
     <nav className="reading-destinations" aria-label={t("Book destinations", "책 작업 메뉴")}>
       <button type="button" aria-current={text ? "page" : undefined} disabled={!hasBook} onClick={() => onTab(hasChapters ? "chapters" : "source")}>{t("Text", "텍스트")}</button>
       <button type="button" aria-current={guides ? "page" : undefined} disabled={!hasBook} onClick={() => onTab("review")}>{t("Study guides", "학습지")}</button>
       <button type="button" aria-current={tab === "export" ? "page" : undefined} disabled={!hasBook} onClick={() => onTab("export")}>{t("Export", "내보내기")}</button>
       <button type="button" aria-current={tab === "info" ? "page" : undefined} disabled={!hasBook} onClick={() => onTab("info")}>{t("Book info", "책 정보")}</button>
     </nav>
-    {text && <QuietMenu label={t("Text tools", "텍스트 도구")}>
-      <button type="button" aria-current={tab === "chapters" ? "page" : undefined} disabled={!hasChapters} onClick={() => onTab("chapters")}>{t("Chapters", "챕터")}</button>
-      <button type="button" aria-current={tab === "source" ? "page" : undefined} onClick={() => onTab("source")}>{t("Import sources", "원본 가져오기")}</button>
-      <button type="button" aria-current={tab === "split" ? "page" : undefined} disabled={!hasSources} onClick={() => onTab("split")}>{t("Chapter boundaries", "챕터 경계")}</button>
-    </QuietMenu>}
-
-  </div>;
+    {tab === "chapters" && <button className="reading-prepare-action" type="button" onClick={() => onTab("source")}>{t("Prepare text", "텍스트 준비")}</button>}
+  </div>
+  {(tab === "source" || tab === "split") && <nav className="reading-preparation" aria-label={t("Prepare text", "텍스트 준비")}>
+    <span>{t("Prepare text", "텍스트 준비")}</span>
+    <button type="button" aria-current={tab === "source" ? "step" : undefined} onClick={() => onTab("source")}>{t("Source", "원본")}</button>
+    <span aria-hidden="true">→</span>
+    <button type="button" aria-current={tab === "split" ? "step" : undefined} disabled={!hasSources} onClick={() => onTab("split")}>{t("Split chapters", "챕터 나누기")}</button>
+    {hasChapters && <button className="reading-return" type="button" onClick={() => onTab("chapters")}>{t("Read chapters", "챕터 읽기")}</button>}
+  </nav>}
+  </>;
 }
 
 /** Native disclosure keeps infrequent actions reachable with keyboard and touch. */

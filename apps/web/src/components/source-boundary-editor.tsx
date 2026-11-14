@@ -5,6 +5,12 @@ import {
   type SplitPlan,
   type SourcePage,
 } from "@/lib/source-boundaries";
+import {
+  sourceSpread,
+  nearbySourcePages,
+  type PageLayout,
+} from "@/lib/source-spread";
+import { useSourcePreviews } from "./use-source-previews";
 type Data = {
   suggestions: SplitPlan["starts"];
   pages: SourcePage[];
@@ -16,6 +22,7 @@ type Data = {
     id: string;
     createdAt: string;
     count: number;
+    plan: SplitPlan;
   }[];
   activeLayoutId: string | null;
   fingerprint: string;
@@ -48,17 +55,42 @@ export function SourceBoundaryEditor({
     [notice, setNotice] = useState(""),
     [query, setQuery] = useState(""),
     [offset, setOffset] = useState(0),
-    [image, setImage] = useState<{
-      image: string;
-      label: string;
-      page: number;
-    } | null>(null),
-    [imageError, setImageError] = useState(""),
     [zoom, setZoom] = useState(100),
     [preview, setPreview] = useState(false),
     [restoreId, setRestoreId] = useState(""),
     [bookmarks, setBookmarks] = useState<SplitPlan["starts"]>([]);
   const [nativeLabels, setNativeLabels] = useState<Record<number, string>>({});
+  const [pageLayout, setPageLayout] = useState<PageLayout>("single");
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1100px)");
+    const update = () => setWide(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  const effectiveLayout = wide ? pageLayout : "single";
+  const visiblePages = sourceSpread(
+    page,
+    data?.pageCount || 1,
+    effectiveLayout,
+  );
+  const spreadKey = visiblePages.join(",");
+  const previewBase =
+    data && view === "original"
+      ? `/api/books/${bookId}/source-files/${data.sourceId}/preview`
+      : null;
+  const getPreview = useSourcePreviews(
+    previewBase,
+    visiblePages,
+    nearbySourcePages(visiblePages, data?.pageCount || 1, effectiveLayout),
+  );
+  const activePreview = getPreview(page).preview;
+  useEffect(() => {
+    if (!activePreview) return;
+    setNativeLabels((labels) => ({ ...labels, [page]: activePreview.label }));
+    setBookmarks(activePreview.bookmarks || []);
+  }, [activePreview, page]);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const [mobilePanel, setMobilePanel] = useState<"source" | "chapters">(
     "source",
@@ -81,7 +113,7 @@ export function SourceBoundaryEditor({
   }
   useEffect(() => {
     imageRef.current?.scrollTo(0, 0);
-  }, [page, view]);
+  }, [spreadKey, view]);
   const url = `/api/books/${bookId}/parsed-documents/${documentId}/editor`;
   const dirty = JSON.stringify(plan) !== saved;
   useEffect(() => {
@@ -117,27 +149,6 @@ export function SourceBoundaryEditor({
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty, data]);
-  useEffect(() => {
-    setImage(null);
-    setImageError("");
-    if (!data || view !== "original") return;
-    const abort = new AbortController();
-    fetch(
-      `/api/books/${bookId}/source-files/${data.sourceId}/preview?page=${page}`,
-      { signal: abort.signal },
-    )
-      .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw Error(d.error);
-        setImage({ ...d, page });
-        setNativeLabels((labels) => ({ ...labels, [page]: d.label }));
-        setBookmarks(d.bookmarks || []);
-      })
-      .catch((e) => {
-        if (!abort.signal.aborted) setImageError(e.message);
-      });
-    return () => abort.abort();
-  }, [data?.sourceId, bookId, page, view]);
   const current = data?.pages.find((p) => p.pageNumber === page);
   const result = useMemo(() => {
     try {
@@ -349,13 +360,36 @@ export function SourceBoundaryEditor({
         {error || t("Loading source…", "원본을 불러오는 중…")}
       </div>
     );
+  const activePlan = data.layouts.find(
+    (layout) => layout.id === data.activeLayoutId,
+  )?.plan;
+  function loadCurrentBoundaries() {
+    if (!activePlan) return;
+    if (
+      dirty &&
+      !window.confirm(
+        t(
+          "Replace your unsaved draft with the current chapter boundaries?",
+          "미저장 초안을 현재 챕터 경계로 바꿀까요?",
+        ),
+      )
+    )
+      return;
+    setPlan(structuredClone(activePlan));
+    navigate(activePlan.starts[0]?.page || 1);
+    setOpenBoundary(null);
+    setError("");
+  }
   const pdf = data.filename.toLowerCase().endsWith(".pdf");
-  const pageLabelRange = plan.pageLabels?.find(
-    (r) => page >= r.from && page <= r.to,
-  );
-  const printedLabel = pageLabelRange
-    ? String(pageLabelRange.first + page - pageLabelRange.from)
-    : nativeLabels[page];
+  function printedPageLabel(number: number) {
+    const range = plan.pageLabels?.find(
+      (r) => number >= r.from && number <= r.to,
+    );
+    return range
+      ? String(range.first + number - range.from)
+      : nativeLabels[number] || getPreview(number).preview?.label;
+  }
+  const printedLabel = printedPageLabel(page);
   return (
     <section
       className="source-boundary-editor"
@@ -450,6 +484,21 @@ export function SourceBoundaryEditor({
                 {t("Printed", "인쇄")}: {printedLabel}
               </span>
             )}
+            {wide && (
+              <select
+                aria-label={t("Page layout", "페이지 배치")}
+                value={pageLayout}
+                onChange={(e) => setPageLayout(e.target.value as PageLayout)}
+              >
+                <option value="single">{t("Single page", "한 페이지")}</option>
+                <option value="pairs">
+                  {t("Two pages (1–2)", "두 페이지 (1–2)")}
+                </option>
+                <option value="facing">
+                  {t("Facing pages (2–3)", "맞쪽 (2–3)")}
+                </option>
+              </select>
+            )}
             {view === "original" && (
               <select
                 aria-label={t("Zoom", "확대")}
@@ -467,39 +516,112 @@ export function SourceBoundaryEditor({
           {view === "original" ? (
             <div
               ref={imageRef}
-              className={`boundary-page-image${zoom === 0 ? " boundary-fit-page" : ""}`}
+              className={`boundary-page-image${zoom === 0 ? " boundary-fit-page" : ""}${visiblePages.length > 1 ? " boundary-spread" : ""}`}
               tabIndex={0}
               aria-label={t("PDF viewer", "PDF 보기")}
             >
-              {image?.page === page ? (
-                <img
-                  alt={`${t("Original page", "원본 페이지")} ${page}`}
-                  src={`data:image/png;base64,${image.image}`}
-                  style={
-                    zoom === 0
-                      ? undefined
-                      : { width: `${zoom}%`, maxWidth: "none" }
-                  }
-                />
+              {visiblePages.length === 1 ? (
+                getPreview(page).preview ? (
+                  <img
+                    alt={`${t("Original page", "원본 페이지")} ${page}`}
+                    src={`data:image/png;base64,${getPreview(page).preview!.image}`}
+                    style={
+                      zoom === 0
+                        ? undefined
+                        : { width: `${zoom}%`, maxWidth: "none" }
+                    }
+                  />
+                ) : (
+                  <p role="status">
+                    {getPreview(page).error ||
+                      t("Loading page…", "페이지를 불러오는 중…")}
+                  </p>
+                )
               ) : (
-                <p role="status">
-                  {imageError || t("Loading page…", "페이지를 불러오는 중…")}
-                </p>
+                <div
+                  className="boundary-spread-pages"
+                  style={zoom === 0 ? undefined : { width: `${zoom}%` }}
+                >
+                  {visiblePages.map((number) => (
+                    <button
+                      type="button"
+                      key={number}
+                      className="boundary-sheet"
+                      aria-label={`${t("Select page", "페이지 선택")} ${number}`}
+                      aria-pressed={page === number}
+                      onClick={() => navigate(number)}
+                    >
+                      <span className="boundary-sheet-label">
+                        {t("Page", "페이지")} {number}
+                        {printedPageLabel(number)
+                          ? ` · ${t("Printed", "인쇄")}: ${printedPageLabel(number)}`
+                          : ""}
+                      </span>
+                      {getPreview(number).preview ? (
+                        <img
+                          alt={`${t("Original page", "원본 페이지")} ${number}`}
+                          src={`data:image/png;base64,${getPreview(number).preview!.image}`}
+                        />
+                      ) : (
+                        <span role="status">
+                          {getPreview(number).error ||
+                            t("Loading page…", "페이지를 불러오는 중…")}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           ) : (
-            <textarea
-              ref={textRef}
-              className="boundary-text"
-              aria-label={t("Page text", "페이지 텍스트")}
-              value={current?.textContent || ""}
-              readOnly
-              onSelect={(e) => setOffset(e.currentTarget.selectionStart)}
-              placeholder={t(
-                "No extracted text on this page.",
-                "이 페이지에는 추출된 텍스트가 없습니다.",
-              )}
-            />
+            <div
+              className={`boundary-text-pages${visiblePages.length > 1 ? " boundary-text-spread" : ""}`}
+            >
+              {visiblePages.map((number) => (
+                <div
+                  className="boundary-text-sheet"
+                  key={number}
+                  data-selected={page === number}
+                >
+                  {visiblePages.length > 1 && (
+                    <button
+                      type="button"
+                      className="boundary-text-label"
+                      aria-pressed={page === number}
+                      onClick={() => navigate(number)}
+                    >
+                      {t("Page", "페이지")} {number}
+                    </button>
+                  )}
+                  <textarea
+                    ref={page === number ? textRef : undefined}
+                    className="boundary-text"
+                    aria-label={
+                      visiblePages.length === 1
+                        ? t("Page text", "페이지 텍스트")
+                        : `${t("Page text", "페이지 텍스트")} ${number}`
+                    }
+                    value={
+                      data.pages.find((p) => p.pageNumber === number)
+                        ?.textContent || ""
+                    }
+                    readOnly
+                    onFocus={(e) => {
+                      setPage(number);
+                      setOffset(e.currentTarget.selectionStart);
+                    }}
+                    onSelect={(e) => {
+                      setPage(number);
+                      setOffset(e.currentTarget.selectionStart);
+                    }}
+                    placeholder={t(
+                      "No extracted text on this page.",
+                      "이 페이지에는 추출된 텍스트가 없습니다.",
+                    )}
+                  />
+                </div>
+              ))}
+            </div>
           )}
           {!current?.textContent && (
             <p className="boundary-page-note">
@@ -516,8 +638,15 @@ export function SourceBoundaryEditor({
             <button
               type="button"
               aria-label={t("Previous page", "이전 페이지")}
-              disabled={page <= 1}
-              onClick={() => navigate(page - 1)}
+              disabled={visiblePages[0] <= 1}
+              onClick={() =>
+                navigate(
+                  Math.max(
+                    1,
+                    visiblePages[0] - (effectiveLayout === "single" ? 1 : 2),
+                  ),
+                )
+              }
             >
               ←
             </button>
@@ -537,8 +666,10 @@ export function SourceBoundaryEditor({
             <button
               type="button"
               aria-label={t("Next page", "다음 페이지")}
-              disabled={page >= data.pageCount}
-              onClick={() => navigate(page + 1)}
+              disabled={visiblePages[visiblePages.length - 1] >= data.pageCount}
+              onClick={() =>
+                navigate(visiblePages[visiblePages.length - 1] + 1)
+              }
             >
               →
             </button>
@@ -595,6 +726,35 @@ export function SourceBoundaryEditor({
             </button>
           </div>
           <div className="boundary-outline-scroll">
+            {activePlan &&
+              JSON.stringify(activePlan) !== JSON.stringify(plan) && (
+                <div className="boundary-current-layout">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={loadCurrentBoundaries}
+                  >
+                    {t("Load current boundaries", "현재 경계 불러오기")}
+                  </button>
+                  <small>
+                    {t(
+                      "Replace this draft with the layout used by the chapter reader.",
+                      "초안을 챕터 읽기의 현재 경계로 바꿉니다.",
+                    )}
+                  </small>
+                </div>
+              )}
+            {!activePlan &&
+              data.hasLegacy &&
+              !data.activeLayoutId &&
+              !plan.starts.length && (
+                <p className="boundary-empty">
+                  {t(
+                    "This older layout has no saved boundary markers. Mark a new layout here; existing guides will be kept.",
+                    "이전 챕터에는 저장된 경계가 없습니다. 여기서 새 경계를 지정하세요. 기존 학습지는 유지됩니다.",
+                  )}
+                </p>
+              )}
             {!plan.starts.length && (
               <p className="boundary-empty">
                 {t(

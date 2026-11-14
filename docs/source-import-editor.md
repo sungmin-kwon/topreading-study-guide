@@ -2,11 +2,11 @@
 
 Initial release: 2026-11-08; compact reader update: 2026-11-14. Branch: `modernization/postgres-auth`.
 
-This release implements the source-navigation and safe chapter-splitting milestone. It requires PostgreSQL migration **0006**. Local validation is complete; Ubuntu acceptance is still pending.
+This release implements the source-navigation and safe chapter-splitting milestone. It requires PostgreSQL migration **0006**. Migration 0006 is deployed on Ubuntu staging. The latest preparation/spread UI update still needs deployment and acceptance there.
 
 ## Teacher workflow
 
-1. Upload a PDF, EPUB or TXT in **Text → Text tools → Import sources**. The modern interface starts extraction automatically, then opens **Split text**. If extraction fails, the uploaded file remains available; use **Extract Text** to retry.
+1. Upload a PDF, EPUB or TXT in **Text → Source** (or **Text → Prepare text → Source** when chapters already exist). The modern interface starts extraction automatically, then opens **Split text**. If extraction fails, the uploaded file remains available; use **Extract Text** to retry.
 2. Browse the entire source. PDFs open as rendered original pages; switch to **Text** to position the cursor. Page navigation stays below the document while its contents scroll. On phones, use **Chapters** to open the outline and **Back to source** to return. Choosing a chapter location also returns to the text automatically. EPUB sections follow the book's spine order, rather than pretending to have fixed printed pages. TXT has one section. **Tools → Find in source** searches extracted text throughout the document.
 3. In the chapter outline, choose **Suggest starts** to use PDF bookmarks or EPUB contents links when available, with chapter-heading detection as a fallback. Suggestions are editable and are never applied automatically. Contents, part headings and appendices may also appear in a publisher's outline: check the results.
 4. On any readable PDF page, choose **Start**. In **Text** view, **Start** uses the text cursor instead: click before the first character of the new chapter. For a whole-page start while in Text view, use **Tools → Reading range → Start chapter on this page**. Several chapters may start on the same page. Rename entries in the outline; open the chapter’s **…** actions for **Move start here** or **Remove**. Each entry occupies one compact row while its actions are closed. Chapters follow source order.
@@ -121,3 +121,22 @@ Chapter number, source-page link, editable title and an actions button now share
 A one-off `curl: (7)` during the deployment readiness command can precede success because systemd reports the process started before its HTTP listener is ready. The command retries connection refusal. If the later public checker reports `PUBLIC GOOGLE ACCESS CHECK PASSED`, that readiness retry recovered; do not rerun migration for this message. Persistent failures or a failing final checker require investigation.
 
 Follow-up validation: production build and browser tests passed for compact row height, direct Discard after removing a chapter, restored end markers, PDF-page and within-page cutoffs, exclusion of later text in the resulting chapters, and a dirty draft on a 320-pixel phone layout. Existing draft conflict, layout restoration, export, search, touch and dark/Korean checks also passed. No paid generation was used.
+
+
+## 2026-11-14 preparation navigation and two-page reader
+
+**Text** opens the chapter reader when chapters exist. **Prepare text** opens a separate workflow with **Source → Split chapters** steps. Before chapters exist, Text opens Source directly. An extracted source has a **Split chapters** action; extraction after a new upload still opens the splitter automatically. **Read chapters** returns to the current reader, and applying a layout also returns there. The mixed Text tools menu has been removed.
+
+To correct a split, use **Prepare text → Split chapters** on the same book. The editor prefers the source extraction used by the current chapters. If your saved personal draft differs from the active layout, **Load current boundaries** explicitly copies that layout into the editor. This does not change the current chapters until **Use these chapters** is chosen. Save persists the draft; Discard returns to the last saved draft. Earlier legacy chapters without recorded boundary markers cannot be reconstructed exactly: mark a new plan from the retained source instead. Neither path requires a new book or re-upload, and earlier guides remain available with their original layouts.
+
+On desktop widths of at least 1100 pixels, **Page layout** offers:
+
+- **Single page** (initial setting).
+- **Two pages (1–2)**: physical pages 1–2, 3–4, and so on.
+- **Facing pages (2–3)**: page 1 alone, then 2–3, 4–5, and so on. A final unpaired page is shown alone.
+
+The layout applies to both PDF and extracted text. Pairing uses physical source positions, not printed-page labels. Click a PDF page or place the cursor in either text pane to select it; the outline and page input identify the selected page. **Start** and **End** use that page/cursor. Arrows move by the displayed spread; entering a page number jumps to its containing spread. Whole page fits both PDF pages within the viewer. On smaller screens the reader automatically shows one page, preserving the desktop selection when enlarged again. EPUB pairs refer to extracted spine sections rather than print pagination; TXT remains a single section.
+
+PDF previews use a private in-memory cache of up to eight rendered pages. The visible page(s) load first, followed by the next and previous page/spread with one speculative request at a time. Navigation cancels obsolete fetches; speculative errors do not interrupt reading. A failed visible preview remains an error for that page and can be retried by navigating away and back. The cache is cleared when leaving the PDF view/source editor; it is not an offline download. All requests still pass the existing source authorization checks. Already-loaded extracted text needs no extra page requests. Very large books still load all extracted text at editor startup; this update does not change that limitation.
+
+This update requires no migration, dependency or environment changes beyond the already-deployed 0006 baseline. Deploy with generation idle using the standard staging build/restart procedure. Local validation includes production web/worker build, spread/boundary tests, and Chromium checks for source selection, active-layout versus personal-draft loading, PDF and text spreads, cache reuse, render-error recovery, mobile fallback, draft conflicts and retained exports. Check your actual PDF's pairing and mobile browser after deployment.

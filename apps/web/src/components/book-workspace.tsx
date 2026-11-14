@@ -751,8 +751,6 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   const [parsedDocumentsBySource, setParsedDocumentsBySource] = useState<Record<string, ParsedDocument[]>>({});
   const [selectedSourceDocumentId, setSelectedSourceDocumentId] = useState("");
   const sourceEditorDocuments = sourceFiles.flatMap(source => (parsedDocumentsBySource[source.id] || []).map(document => ({source, document})));
-  const sourceEditorDocumentId = sourceEditorDocuments.some(item => item.document.id === selectedSourceDocumentId)
-    ? selectedSourceDocumentId : sourceEditorDocuments[0]?.document.id;
   const [splitPreviewByParsedDocument, setSplitPreviewByParsedDocument] = useState<Record<string, SplitPreview>>({});
   const [parsedDocumentDetailById, setParsedDocumentDetailById] = useState<Record<string, ParsedDocumentDetail>>({});
   const [parsedPagesByDocumentId, setParsedPagesByDocumentId] = useState<Record<string, ParsedPageSummary[]>>({});
@@ -761,6 +759,8 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
   const [manualMarkersByParsedDocument, setManualMarkersByParsedDocument] = useState<Record<string, string>>({});
   const [pageMarkersByParsedDocument, setPageMarkersByParsedDocument] = useState<Record<string, PageMarkerDraft[]>>({});
   const [chapters, setChapters] = useState<ChapterSummary[]>([]);
+  const sourceEditorDocumentId = sourceEditorDocuments.some(item => item.document.id === selectedSourceDocumentId)
+    ? selectedSourceDocumentId : sourceEditorDocuments.find(item => item.document.id === chapters[0]?.parsedDocumentId)?.document.id || sourceEditorDocuments[0]?.document.id;
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   const [chapterDetailById, setChapterDetailById] = useState<Record<string, ChapterDetail>>({});
   const [chapterEditById, setChapterEditById] = useState<Record<string, {
@@ -938,6 +938,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
     if (isSavingNewStudyItem) return;
     if (creatingStudyItemKind && !window.confirm(t("Discard the new unsaved item?", "저장되지 않은 새 항목을 버릴까요?"))) return;
     setCreatingStudyItemKind(null); setNewStudyItemDraft({});
+    if (tab === "source" && activeWorkspaceTab === "chapters") setSelectedSourceDocumentId(chapters[0]?.parsedDocumentId || "");
     setActiveWorkspaceTab(tab); setSaveError("");
   }
   useEffect(() => {
@@ -3418,7 +3419,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
           </div>
         </header>
 
-        {modern && <WorkspaceNavigation tab={activeWorkspaceTab} onTab={navigateTo} hasBook={Boolean(activeBook)} hasChapters={hasChapters} hasSources={hasSourceFiles} t={t} />}
+        {modern && <WorkspaceNavigation tab={activeWorkspaceTab} onTab={navigateTo} hasBook={Boolean(activeBook)} hasChapters={hasChapters} hasSources={sourceEditorDocuments.length > 0} t={t} />}
         {modern && saveError && <div className="reading-save-error" role="alert">{saveError}</div>}
 
         {!modern && activeBook && isBookMetadataOpen ? (
@@ -3635,7 +3636,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
           {activeWorkspaceTab === "source" || activeWorkspaceTab === "split" ? (
           <section className={activeWorkspaceTab === "split" ? "split-panel" : "source-panel"}>
             <div className="panel-title-row">
-              <h3>{activeWorkspaceTab === "split" ? t("Split text", "텍스트 분할") : t("Files", "파일")}</h3>
+              <h3>{activeWorkspaceTab === "split" ? t("Split text", "텍스트 분할") : t("Source", "원본")}</h3>
             </div>
 
             {activeWorkspaceTab === "source" ? (
@@ -3739,6 +3740,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                               </span>
                             </div>
                               <div className="button-group parsed-danger-actions">
+                                {modern && <button className="primary-action" type="button" onClick={() => {setSelectedSourceDocumentId(parsedDocument.id); navigateTo("split");}}>{t("Split chapters", "챕터 나누기")}</button>}
                                 <button
                                   className="danger-button"
                                   type="button"

@@ -233,7 +233,7 @@ Review logs before sharing them. Do not share tokens, credentials, session cooki
 - The default landing page is **Library**, not the first database book.
 - Library supports search, sorting and pinning, with a header book switcher.
 - Each book has three main destinations: **Text**, **Study guides**, and **Export**.
-- Text tools hold source import and chapter-boundary operations; the main Text view is for chapter navigation/editing.
+- Text opens the chapter reader when chapters exist. Prepare text separates Source → Split chapters from reading; Read chapters returns to the current layout. Before chapters exist, Text opens Source.
 - Desktop has one chapter navigator. Mobile uses a compact chapter selector.
 - Light/dark and English/Korean controls remain visible outside the user dropdown.
 - Book, chapter and destination are represented in the URL for navigation/reload behavior.
@@ -1356,3 +1356,12 @@ The operator confirmed the compact reader looked better and supplied a screensho
 **Discard** is now directly beside **Save** whenever changes are pending. It restores the last saved draft, including its end marker. Deleting each marker also changes the draft and is not equivalent to discarding edits. No migration or environment change is required for this UI update; deploy with the normal staging build/restart sequence while generation is idle.
 
 The operator’s latest deployment again showed one initial curl connection refusal followed by a passing public access check. This is a recovered startup retry, not evidence of a failed deployment. Local build and browser verification cover the new controls; actual Ubuntu acceptance of this follow-up remains pending deployment.
+
+
+### 2026-11-14: separate text preparation, two-page viewing and preview caching
+
+The mixed Text tools menu has been replaced by **Prepare text → Source / Split chapters**, with **Read chapters** returning to the current reader. Existing books can reopen their original extraction and explicitly **Load current boundaries** when the personal saved draft differs from the active layout. Loading boundaries edits a draft; applying creates a retained layout as before. Legacy layouts without recorded boundaries require new markers from the retained source, not re-uploading or creating another book.
+
+The desktop PDF and text readers now offer single pages, consecutive pairs (1–2) and book-facing pairs (cover, then 2–3). Select either page before placing a start/end; arrows advance by spread. Phones automatically use single-page viewing. PDF rendering keeps a private eight-page memory cache and preloads adjacent pages/spreads after visible pages, with one speculative request at a time. Cache contents are not persisted to browser storage and all rendering endpoints retain their authentication checks.
+
+Both origin and public access checks passed in the operator's latest report after an earlier public `/api/books` timeout. No cause for that intermittent timeout has been established. This UI release needs no new migration or environment changes. The production web/worker build, source-boundary/spread tests and full disposable Chromium regression passed, including PDF/text pairing, cache reuse, render-error recovery, saved-layout loading, retained exports and desktop/mobile layouts from 320 to 1536 pixels. No paid model calls were made. Actual Ubuntu deployment and PDF/mobile acceptance remain separate operator steps. See [source import operations](https://github.com/sungmin-kwon/topreading-study-guide/blob/modernization/postgres-auth/docs/source-import-editor.md) for controls, limits and checks.

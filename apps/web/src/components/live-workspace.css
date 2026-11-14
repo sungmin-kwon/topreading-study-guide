@@ -569,3 +569,35 @@
   .boundary-row input { font-size:16px; }
   .reading-shell .boundary-row-menu,.reading-shell .boundary-row .boundary-location { min-height:40px; }
 }
+
+/* Preparation has its own steps; the Text destination remains the reader. */
+.reading-preparation { display:flex; align-items:center; gap:8px; padding:5px 16px; border-bottom:1px solid var(--line); background:var(--surface); flex-shrink:0; font-size:12px; }
+.reading-preparation>span { color:var(--muted); }
+.reading-preparation>span:first-child { margin-right:10px; }
+.reading-shell .reading-preparation button,.reading-shell .reading-prepare-action { font:inherit; font-size:12px; padding:6px 10px; background:transparent; border:1px solid transparent; color:var(--ink); border-radius:4px; }
+.reading-shell .reading-preparation button[aria-current=step] { background:var(--surface-tint); border-color:var(--line); }
+.reading-shell .reading-preparation button { min-height:28px; line-height:1.2; }
+.reading-preparation .reading-return { margin-left:auto; }
+.boundary-current-layout { padding:10px 0; border-bottom:1px solid var(--line); }
+.boundary-current-layout small { display:block; color:var(--muted); font-size:11px; line-height:1.5; margin-top:4px; }
+.boundary-text-pages { display:flex; flex:1; min-height:0; overflow:hidden; }
+.boundary-text-sheet { display:flex; flex-direction:column; flex:1; min-width:0; min-height:0; }
+.boundary-text-spread .boundary-text-sheet { border:2px solid transparent; }
+.boundary-text-spread .boundary-text-sheet[data-selected=true] { border-color:var(--accent); }
+.boundary-text-spread .boundary-text { padding:16px 24px; }
+.reading-shell .source-boundary-editor .boundary-text-label { border:0; border-radius:0; min-height:28px; padding:4px; }
+.boundary-spread-pages { display:flex; align-items:flex-start; gap:8px; min-width:100%; padding:4px; }
+.reading-shell .source-boundary-editor .boundary-sheet { flex:1; min-width:0; padding:0; border:2px solid transparent; border-radius:0; overflow:hidden; background:var(--surface); }
+.reading-shell .source-boundary-editor .boundary-sheet[aria-pressed=true] { border-color:var(--accent); }
+.boundary-sheet-label { display:block; font-size:11px; padding:4px; background:var(--surface); color:var(--muted); }
+.boundary-spread-pages img { width:100%; height:auto; }
+.boundary-fit-page .boundary-spread-pages { height:100%; width:100%; align-items:stretch; }
+.boundary-fit-page .boundary-sheet { display:flex; flex-direction:column; align-items:center; }
+.boundary-fit-page .boundary-sheet img { flex:1; min-height:0; width:100%; height:0; object-fit:contain; }
+@media(max-width:800px) {
+  .reading-preparation { padding:4px 10px; gap:2px; }
+  .reading-preparation>span:first-child { display:none; }
+  .reading-shell .reading-preparation button { padding:6px; }
+}
+
+.boundary-view-bar select + select { margin-left:0; }
