@@ -1,4 +1,5 @@
 import { contentQualityGuidance, generationSkills, studyGuidePromptVersion } from "./generation-guidance";
+import { ChapterGenerationError } from "./generation-error";
 import { validateGeneratedContent } from "./generation-content-checks";
 import { getRuntimeSetting } from "@/lib/admin-settings";
 import fs from "node:fs";
@@ -32,6 +33,8 @@ type OpenAIUsage = {
 export type OpenAIUsageSummary = OpenAIUsage;
 
 type OpenAIResponsePayload = {
+  status?: string;
+  incomplete_details?: { reason?: string };
   output_text?: string;
   output?: Array<{
     content?: Array<{
@@ -167,6 +170,18 @@ const studyGuideSchema = {
     "short_answer_questions"
   ]
 };
+
+function studyGuideSchemaForPlan(plan: GenerationPlan) {
+  return {
+    ...studyGuideSchema,
+    properties: {
+      ...studyGuideSchema.properties,
+      vocabulary_items: { ...studyGuideSchema.properties.vocabulary_items, minItems: plan.vocabularyCount, maxItems: plan.vocabularyCount },
+      multiple_choice_questions: { ...studyGuideSchema.properties.multiple_choice_questions, minItems: plan.multipleChoiceCount, maxItems: plan.multipleChoiceCount },
+      short_answer_questions: { ...studyGuideSchema.properties.short_answer_questions, minItems: plan.shortAnswerCount, maxItems: plan.shortAnswerCount },
+    },
+  };
+}
 
 function countWords(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -339,7 +354,7 @@ async function requestStudyGuideJson(book: Book, chapter: Chapter, plan: Generat
           type: "json_schema",
           name: "chapter_study_guide",
           strict: true,
-          schema: studyGuideSchema
+          schema: studyGuideSchemaForPlan(plan)
         }
       }
     })
@@ -347,19 +362,19 @@ async function requestStudyGuideJson(book: Book, chapter: Chapter, plan: Generat
 
   const payload = await response.json().catch(() => ({})) as OpenAIResponsePayload & { error?: { message?: string } };
   if (!response.ok) {
-    throw new Error(payload.error?.message || `OpenAI generation failed with HTTP ${response.status}.`);
+    throw new ChapterGenerationError(payload.error?.message || `OpenAI generation failed with HTTP ${response.status}.`, payload.usage || null, model);
   }
 
-  const text = extractResponseText(payload);
-  if (!text) {
-    throw new Error("OpenAI did not return study-guide JSON.");
+  try {
+    if (payload.status && payload.status !== "completed") {
+      throw new Error(`OpenAI generation was ${payload.status}${payload.incomplete_details?.reason ? ` (${payload.incomplete_details.reason})` : ""}.`);
+    }
+    const text = extractResponseText(payload);
+    if (!text) throw new Error("OpenAI did not return study-guide JSON.");
+    return { model, usage: payload.usage || null, payload: JSON.parse(text) as RawStudyGuidePayload };
+  } catch (error) {
+    throw new ChapterGenerationError(error instanceof Error ? error.message : "Invalid generation response.", payload.usage || null, model);
   }
-
-  return {
-    model,
-    usage: payload.usage || null,
-    payload: JSON.parse(text) as RawStudyGuidePayload
-  };
 }
 
 async function fetchModelResponse(url: string, init: RequestInit) {
@@ -367,7 +382,7 @@ async function fetchModelResponse(url: string, init: RequestInit) {
   return fetch(url, { ...init, signal: AbortSignal.timeout(600000) });
 }
 
-function normalizeGeneratedItems(rawPayload: RawStudyGuidePayload, plan: GenerationPlan): StudyItemsInput {
+function normalizeGeneratedItems(rawPayload: RawStudyGuidePayload): StudyItemsInput {
   const chapterSummary = asString(rawPayload.chapter_summary);
   const chapterSummaries = chapterSummary
     ? [{
@@ -377,7 +392,6 @@ function normalizeGeneratedItems(rawPayload: RawStudyGuidePayload, plan: Generat
     }]
     : [];
   const vocabularyItems = (Array.isArray(rawPayload.vocabulary_items) ? rawPayload.vocabulary_items : [])
-    .slice(0, plan.vocabularyCount)
     .map((item, index) => {
       const englishDefinition = asString(item.english_definition);
       const koreanDefinition = asString(item.korean_definition);
@@ -393,7 +407,6 @@ function normalizeGeneratedItems(rawPayload: RawStudyGuidePayload, plan: Generat
     });
 
   const multipleChoiceQuestions = (Array.isArray(rawPayload.multiple_choice_questions) ? rawPayload.multiple_choice_questions : [])
-    .slice(0, plan.multipleChoiceCount)
     .map((item, index) => {
       const choices = Array.isArray(item.choices) ? item.choices.map((choice) => asString(choice)) : [];
       const correctChoiceIndex = asNumber(item.correct_choice_index, NaN);
@@ -410,7 +423,6 @@ function normalizeGeneratedItems(rawPayload: RawStudyGuidePayload, plan: Generat
     });
 
   const shortAnswerQuestions = (Array.isArray(rawPayload.short_answer_questions) ? rawPayload.short_answer_questions : [])
-    .slice(0, plan.shortAnswerCount)
     .map((item, index) => ({
       questionText: asString(item.question_text, `Short-answer question ${index + 1}`),
       suggestedAnswer: asString(item.suggested_answer),
@@ -462,31 +474,35 @@ export async function generateOpenAIChapterItems(
 ) {
   const plan = normalizePlan(chapter, planOverride);
   const generated = await requestStudyGuideJson(book, chapter, plan);
-  validateGeneratedContent(generated.payload, plan);
-  const generatedItems = normalizeGeneratedItems(generated.payload, plan);
-  const candidates = generatedItems.multipleChoiceQuestions as Mcq[];
-  if (candidates.length !== plan.multipleChoiceCount) throw new Error("Generated MCQ count does not match the requested count.");
   let usage = generated.usage;
-  const addUsage = (next: OpenAIUsage | null) => { usage = combineUsage(usage, next); };
-  const configuredBudget = Number(getServerEnv("MCQ_REVIEW_MAX_CALLS") || 12);
-  const budget = Number.isInteger(configuredBudget) ? Math.max(0,Math.min(40,configuredBudget)) : 12;
-  const quality = await assessMcqs(candidates, chapter.textContent, {
-    review: (passage, question) => requestQualityJson(generated.model,
-      "Independently solve this reading question using only the passage. You are not given an answer key. Return the zero-based supported_index, or -1 if none. Set stem_supported=false if the stem misstates the passage, assumes an unsupported event/motive, or needs outside knowledge. Check the premise even when one choice is true. Flag ambiguity, implausible distractors and wording/length clues. Distinguish a justified inference from speculation. Quote a short contiguous excerpt of at most 240 characters from the passage as evidence. Do not paraphrase, join separated excerpts, add ellipses, or surround the excerpt with quotation marks. Explain each choice in choice_reasons in the supplied order; refer to its content, not a letter. Model agreement is not proof of correctness.",
-      { passage, question }, reviewSchema, addUsage) as Promise<Review>,
-    repair: (passage, question, issues) => requestQualityJson(generated.model,
-      "Repair the question to have exactly one passage-supported answer and three plausible but wrong distractors. Use parallel grammar, comparable detail, and similar lengths without padding. Address the listed issues. Preserve the intended learning objective. Correct unsupported stem premises, temporal/causal mistakes and overlapping or implausible distractors using only the passage. Explain why the correct content is supported and each distractor is wrong. Never refer to choice letters or positions in the question, choices, or explanation.",
-      { passage, question, issues }, repairSchema, addUsage) as Promise<Mcq>
-  }, budget);
-  generatedItems.multipleChoiceQuestions = balanceCorrectChoicePositions(quality.questions);
+  try {
+    validateGeneratedContent(generated.payload, plan);
+    const generatedItems = normalizeGeneratedItems(generated.payload);
+    const candidates = generatedItems.multipleChoiceQuestions as Mcq[];
+    if (candidates.length !== plan.multipleChoiceCount) throw new Error("Generated MCQ count does not match the requested count.");
+    const addUsage = (next: OpenAIUsage | null) => { usage = combineUsage(usage, next); };
+    const configuredBudget = Number(getServerEnv("MCQ_REVIEW_MAX_CALLS") || 12);
+    const budget = Number.isInteger(configuredBudget) ? Math.max(0,Math.min(40,configuredBudget)) : 12;
+    const quality = await assessMcqs(candidates, chapter.textContent, {
+      review: (passage, question) => requestQualityJson(generated.model,
+        "Independently solve this reading question using only the passage. You are not given an answer key. Return the zero-based supported_index, or -1 if none. Set stem_supported=false if the stem misstates the passage, assumes an unsupported event/motive, or needs outside knowledge. Check the premise even when one choice is true. Flag ambiguity, implausible distractors and wording/length clues. Distinguish a justified inference from speculation. Quote a short contiguous excerpt of at most 240 characters from the passage as evidence. Do not paraphrase, join separated excerpts, add ellipses, or surround the excerpt with quotation marks. Explain each choice in choice_reasons in the supplied order; refer to its content, not a letter. Model agreement is not proof of correctness.",
+        { passage, question }, reviewSchema, addUsage) as Promise<Review>,
+      repair: (passage, question, issues) => requestQualityJson(generated.model,
+        "Repair the question to have exactly one passage-supported answer and three plausible but wrong distractors. Use parallel grammar, comparable detail, and similar lengths without padding. Address the listed issues. Preserve the intended learning objective. Correct unsupported stem premises, temporal/causal mistakes and overlapping or implausible distractors using only the passage. Explain why the correct content is supported and each distractor is wrong. Never refer to choice letters or positions in the question, choices, or explanation.",
+        { passage, question, issues }, repairSchema, addUsage) as Promise<Mcq>
+    }, budget);
+    generatedItems.multipleChoiceQuestions = balanceCorrectChoicePositions(quality.questions);
 
-  return {
-    plan,
-    generatedItems,
-    rawOutput: { ...generated.payload, mcq_quality: { version: 2, sampling: "content-hash-10-percent-plus-structural", records: quality.records, calls: quality.calls, budget }, saved_multiple_choice_questions: generatedItems.multipleChoiceQuestions },
-    usage,
-    model: generated.model
-  };
+    return {
+      plan,
+      generatedItems,
+      rawOutput: { ...generated.payload, mcq_quality: { version: 2, sampling: "content-hash-10-percent-plus-structural", records: quality.records, calls: quality.calls, budget }, saved_multiple_choice_questions: generatedItems.multipleChoiceQuestions },
+      usage,
+      model: generated.model
+    };
+  } catch (error) {
+    throw new ChapterGenerationError(error instanceof Error ? error.message : "Invalid generated chapter.", usage, generated.model);
+  }
 }
 
 export async function generateOpenAIStudySet(

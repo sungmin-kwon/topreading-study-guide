@@ -1,3 +1,4 @@
+import { ChapterGenerationError } from "@/lib/generation-error";
 import { studyGuidePromptVersion } from "./generation-guidance";
 import { getRuntimeSetting } from "@/lib/admin-settings";
 import { atomic } from "@/lib/db/client";
@@ -411,10 +412,16 @@ export async function executeGeneration(bookId: string, generationRunId: string)
 
     return outcome({ generationRun: await summarizeGenerationRun(completed || generationRun) });
   } catch (error) {
+    if (error instanceof ChapterGenerationError) addUsage(usageSummary, error.usage, error.model);
     await updateStudySet({ studySetId: runStudySet.id, status: "failed", rawOutput: { chapters: rawChapters, incomplete: true, usage: finalizeUsage(usageSummary) } });
     const message = error instanceof Error ? error.message : "Generation failed.";
     const finalUsage = finalizeUsage(usageSummary);
-    runLog = [...runLog, logEntry("error", `Failed: ${message}`)];
+    runLog = [
+      ...runLog,
+      logEntry("error", `Failed: ${message}`),
+      logEntry("info", formatUsageLine(finalUsage)),
+      ...(completedChapters > 0 ? [logEntry("warn", `${completedChapters} completed chapter(s) were kept. Choose this version in Manage versions to review or export the saved results.`)] : [])
+    ];
     const failed = await updateGenerationRun({
       id: generationRun.id,
       status: "failed",

@@ -4163,7 +4163,9 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
               <div className="set-version-list">
                 {generationRuns.map((run) => {
                   const isActiveRun = activeBook?.activeGenerationRunId === run.id;
-                  const canUseRun = run.status !== "generating" && run.status !== "failed";
+                  const hasSavedResults = run.multipleChoiceCount + run.shortAnswerCount + run.vocabularyCount > 0;
+                  const isPartialRun = (run.status === "failed" || run.status === "cancelled") && hasSavedResults;
+                  const canUseRun = run.status !== "generating" && (run.status !== "failed" || hasSavedResults);
                   return (
                     <article className={`set-version-card ${isActiveRun ? "active" : ""}`} key={run.id}>
                       <div className="set-version-main">
@@ -4179,6 +4181,7 @@ export function BookWorkspace({ modern = true }: { modern?: boolean }) {
                         <p className="muted-text">
                           {t(`${run.chapterCount} chapters`, `챕터 ${run.chapterCount}개`)} · {t(`${run.multipleChoiceCount} MCQ`, `객관식 ${run.multipleChoiceCount}개`)} · {t(`${run.shortAnswerCount} short answer`, `단답형 ${run.shortAnswerCount}개`)} · {t(`${run.vocabularyCount} vocab`, `단어 ${run.vocabularyCount}개`)}
                         </p>
+                        {isPartialRun && <p className="muted-text">{t("Partial results are available. Chapters that did not finish have no generated items in this version.", "완료된 챕터의 결과를 사용할 수 있습니다. 완료되지 않은 챕터에는 생성 항목이 없습니다.")}</p>}
                         {run.errorMessage ? <p className="generation-error-text">{run.errorMessage}</p> : null}
                       </div>
                       {modern ? <div className="set-version-actions">

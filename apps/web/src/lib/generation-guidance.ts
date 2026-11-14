@@ -1,5 +1,5 @@
 // Shared by the web generator and background worker; changing this is a new prompt version.
-export const studyGuidePromptVersion = "openai-study-guide-v3-content-quality";
+export const studyGuidePromptVersion = "openai-study-guide-v4-exact-counts";
 export const generationSkills = ["literal-comprehension", "sequence-cause", "inference", "language-analysis", "argument-evidence", "synthesis"] as const;
 
 export const contentQualityGuidance = `

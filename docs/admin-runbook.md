@@ -1383,3 +1383,14 @@ Validation: production web/worker build passed. Read-only Chromium checks covere
 **Find** replaces the generic Tools dialog with source-text search. **Page numbers** (or **Printed: …**) beside PDF/Text opens a separate printed-numbering dialog. Start/End remain in the reader controls. Left/Right arrow keys navigate pages/spreads while leaving typing, text selection, dropdowns and open dialogs alone.
 
 The production build and disposable browser/API checks passed, including deletion protection, retained guide exports, draft preservation, keyboard exclusions and narrow-screen fit. No paid generation was used. Ubuntu deployment/acceptance is pending; use the standard staging pull/build/restart procedure with generation idle. No `.env.local` or migration changes are needed. See [source-editor operations](https://github.com/sungmin-kwon/topreading-study-guide/blob/modernization/postgres-auth/docs/source-import-editor.md) for exact deletion behavior and shortcut scope.
+
+
+### 2026-11-15: generated-count failure and access to completed chapters
+
+The operator reported a Night run stopping at Chapter 3 with an expected MCQ count of 17 after Chapters 1–2 succeeded. The old log lacks the actual count. The requested counts were prompt instructions and post-response checks, but were not enforced as array lengths in the response schema. The v4 generation schema now pins all three list lengths to the per-chapter plan. Validation remains strict and reports both expected and actual counts.
+
+Manage versions now permits selecting a failed version when it contains saved items, with a partial-results notice. Existing completed chapters remain available for reading/editing/export; empty failed versions remain disabled. This does not resume generation or regenerate any existing content. New failure logs include the usage reported by rejected responses and a completed-chapter retention message. Historical failed-response usage cannot be recovered from old application logs.
+
+Deploy with generation idle, rebuild both web and worker, and restart the staging services. No migration or environment changes are needed. After deployment, open Study guides → Manage versions and select the failed Night version to inspect the completed chapters before deciding what to generate next. See [generation validation notes](https://github.com/sungmin-kwon/topreading-study-guide/blob/modernization/postgres-auth/docs/ui-behaviors-and-mcq-quality.md) for the exact behavior and validation evidence.
+
+Validation passed: production web/worker build; mocked generation/count/usage/retention regressions; disposable browser/API selection, reading and Word export of a failed partial version. Empty failed versions remain disabled. No paid model calls were made. Actual Ubuntu deployment and a new real generation remain operator acceptance steps.

@@ -20,16 +20,17 @@ try {global.fetch=async(_url,init)=>{const body=JSON.parse(init.body);calls++;le
 const generate=loader({'@topreading/core':{deriveGenerationPlan:()=>({vocabularyCount:0,multipleChoiceCount:1,shortAnswerCount:0})},'@/lib/study-items':{},'@/lib/study-sets':{}})('openai-generator').generateOpenAIChapterItems;
 const r=await generate({title:'Fixture',author:'Fixture'},{chapterNumber:1,title:'Gate',wordCount:9,textContent:passage},{vocabularyCount:0,multipleChoiceCount:1,shortAnswerCount:0});assert.equal(calls,2);assert.equal(r.usage.total_tokens,30);const item=r.generatedItems.multipleChoiceQuestions[0];assert.equal(item.choices[item.correctChoiceIndex],'Mina');assert.equal(r.rawOutput.mcq_quality.calls,1);
 }finally{global.fetch=originalFetch;if(originalKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=originalKey;}});
-function runExecutorHarness(existing=false, failSecond=false) {
+function runExecutorHarness(existing=false, failSecond=false, failure=null) {
  const run={id:'run',bookId:'book',name:'Practice',status:'draft',configJson:JSON.stringify({chapters:[1,2].map(n=>({chapterId:'chapter-'+n,chapterNumber:n,plan:{vocabularyCount:0,multipleChoiceCount:1,shortAnswerCount:0}}))})};
  const state={appended:[],updates:[],generated:0};
  const execute=loader({
+  '@/lib/generation-error':load('generation-error'),
   '@/lib/db/client':{atomic:async fn=>fn()},
   '@/lib/generation-queue':{cancellationRequested:async()=>false},
   'next/server':{NextResponse:{json:(body,options={})=>({body,status:options.status||200})}},
   '@/lib/auth':{requireActiveUser:async()=>true,requireBookAccess:async()=>true}, '@/lib/books':{getBook:async()=>({id:'book',title:'Test'})}, '@/lib/chapters':{getChapter:async id=>({id,bookId:'book',chapterNumber:Number(id.slice(-1)),title:'Gate',wordCount:9})},
   '@/lib/generation-runs':{getGenerationRun:async()=>run,getGeneratingRunForBook:async()=>null,updateGenerationRun:async patch=>({...run,...patch}),summarizeGenerationRun:async r=>r},
-  '@/lib/openai-generator':{generateOpenAIChapterItems:async()=>{if(++state.generated===2&&failSecond)throw Error('Simulated model error');return {generatedItems:{multipleChoiceQuestions:[q()]},rawOutput:{},plan:{},usage:{input_tokens:10,output_tokens:5,total_tokens:15},model:'test-model'}}},
+  '@/lib/openai-generator':{generateOpenAIChapterItems:async()=>{if(++state.generated===2&&failSecond)throw failure || Error('Simulated model error');return {generatedItems:{multipleChoiceQuestions:[q()]},rawOutput:{},plan:{},usage:{input_tokens:10,output_tokens:5,total_tokens:15},model:'test-model'}}},
   '@/lib/study-items':{appendStudyItems:async(_id,items)=>state.appended.push(items),listStudyItems:async()=>({}),summarizeStudyItems:()=>({})},
   '@/lib/study-sets':{listStudySetsForRun:async()=>existing?[{id:'saved'}]:[],createStudySet:async()=>({id:'set'}),updateStudySet:async patch=>{state.updates.push(patch);return patch}}
  })('generation-executor').executeGeneration;
@@ -108,4 +109,48 @@ test('several defective questions in one chapter can all need review',async()=>{
  const questions=Array.from({length:4},(_,i)=>({...q(),questionText:`Who opened gate ${i}?`,choices:['Mina','Mina','Daniel','Sam']}));
  const result=await assessMcqs(questions,passage,provider,0);
  assert.equal(result.questions.filter(q=>q.status==='needs_review').length,4);
+});
+
+
+test('strict generation schema pins all counts, including zero, independently for each chapter',async()=>{
+ const oldFetch=global.fetch, oldKey=process.env.OPENAI_API_KEY, oldBudget=process.env.MCQ_REVIEW_MAX_CALLS;
+ process.env.OPENAI_API_KEY='fixture';process.env.MCQ_REVIEW_MAX_CALLS='0';
+ const plans=[{vocabularyCount:2,multipleChoiceCount:17,shortAnswerCount:3},{vocabularyCount:0,multipleChoiceCount:0,shortAnswerCount:0}];let calls=0;
+ try {
+  global.fetch=async(_url,init)=>{const request=JSON.parse(init.body),plan=plans[calls++];assert.equal(request.text.format.name,'chapter_study_guide');
+   for(const [key,count] of [['vocabulary_items',plan.vocabularyCount],['multiple_choice_questions',plan.multipleChoiceCount],['short_answer_questions',plan.shortAnswerCount]]) {
+    assert.equal(request.text.format.schema.properties[key].minItems,count);assert.equal(request.text.format.schema.properties[key].maxItems,count);
+   }
+   const output={chapter_summary:'Mina opened the gate.',vocabulary_items:Array.from({length:plan.vocabularyCount},()=>({term:'gate',english_definition:'entrance barrier',korean_definition:'문',context_sentence:'Mina opened the gate.',part_of_speech:'noun'})),multiple_choice_questions:Array.from({length:plan.multipleChoiceCount},(_,i)=>({question_text:`Who opened gate ${i}?`,choices:q().choices,correct_choice_index:0,explanation:q().explanation})),short_answer_questions:Array.from({length:plan.shortAnswerCount},()=>({question_text:'Who opened it?',suggested_answer:'Mina',rubric:'1 point for Mina.'}))};
+   return {ok:true,json:async()=>({status:'completed',output_text:JSON.stringify(output),usage:{input_tokens:10,output_tokens:5,total_tokens:15}})};
+  };
+  const generate=loader({'@topreading/core':{deriveGenerationPlan:()=>plans[0]},'@/lib/study-items':{},'@/lib/study-sets':{}})('openai-generator').generateOpenAIChapterItems;
+  for(const plan of plans){const result=await generate({title:'Fixture'},{chapterNumber:1,textContent:passage,wordCount:9},plan);assert.equal(result.generatedItems.multipleChoiceQuestions.length,plan.multipleChoiceCount);}
+  assert.equal(calls,2);
+ } finally {global.fetch=oldFetch;if(oldKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=oldKey;if(oldBudget===undefined)delete process.env.MCQ_REVIEW_MAX_CALLS;else process.env.MCQ_REVIEW_MAX_CALLS=oldBudget;}
+});
+
+test('rejected counts and incomplete responses preserve reported usage without replaying the paid request',async()=>{
+ const oldFetch=global.fetch,oldKey=process.env.OPENAI_API_KEY;process.env.OPENAI_API_KEY='fixture';
+ try {
+  for(const received of [16,18,'incomplete']){
+   let calls=0;
+   global.fetch=async()=>{calls++;return {ok:true,json:async()=>({status:received==='incomplete'?'incomplete':'completed',incomplete_details:{reason:'max_output_tokens'},usage:{input_tokens:10,output_tokens:5,total_tokens:15},output_text:JSON.stringify({chapter_summary:'Mina opens a gate.',vocabulary_items:[],short_answer_questions:[],multiple_choice_questions:Array.from({length:typeof received==='number'?received:17},()=>({question_text:q().questionText,explanation:q().explanation,choices:q().choices,correct_choice_index:0}))})})};};
+   const generate=loader({'@topreading/core':{deriveGenerationPlan:()=>({vocabularyCount:0,multipleChoiceCount:17,shortAnswerCount:0})},'@/lib/study-items':{},'@/lib/study-sets':{}})('openai-generator').generateOpenAIChapterItems;
+   await assert.rejects(()=>generate({title:'Fixture'},{chapterNumber:1,textContent:passage,wordCount:9}),error=>{
+    assert.match(error.message,received==='incomplete'?/incomplete.*max_output_tokens/:new RegExp(`expected 17, received ${received}`));assert.equal(error.usage.total_tokens,15);return true;
+   });
+   assert.equal(calls,1);
+  }
+ }finally{global.fetch=oldFetch;if(oldKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=oldKey;}
+});
+
+test('worker failure includes rejected-response usage and explicitly reports retained chapters',async()=>{
+ const {ChapterGenerationError}=load('generation-error');
+ const h=runExecutorHarness(false,true,new ChapterGenerationError('Generated MCQ count mismatch: expected 17, received 16.',{input_tokens:20,output_tokens:10,total_tokens:30},'test-model'));
+ const result=await h.post();assert.equal(h.state.appended.length,1);
+ assert.equal(result.generationRun.progress.usage.totalTokens,45);
+ assert.equal(h.state.updates.at(-1).rawOutput.usage.totalTokens,45);
+ assert(result.generationRun.log.some(line=>line.message.includes('1 completed chapter(s) were kept')));
+ assert(result.generationRun.log.some(line=>line.message.includes('total=45 tokens')));
 });
