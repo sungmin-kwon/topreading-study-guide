@@ -4,6 +4,7 @@ import {
   sourceEditorData,
   saveSourcePlan,
   restoreSourceLayout,
+  deleteSourceSplit,
 } from "@/lib/source-editor";
 export const runtime = "nodejs";
 type Context = {
@@ -22,6 +23,15 @@ async function handle(request: Request, context: Context, write: boolean) {
   try {
     if (write) {
       const input = await request.json();
+      if (input.action === "delete-split")
+        return NextResponse.json(
+          await deleteSourceSplit(
+            bookId,
+            parsedDocumentId,
+            user.id,
+            input.layoutId,
+          ),
+        );
       if (input.action === "restore")
         return NextResponse.json(
           await restoreSourceLayout(
@@ -57,6 +67,7 @@ async function handle(request: Request, context: Context, write: boolean) {
         layouts: data.layouts,
         hasLegacy: data.hasLegacy,
         activeLayoutId: data.activeLayoutId,
+        linkedLayoutIds: data.linkedLayoutIds,
       },
       { headers: { "Cache-Control": "private, no-store" } },
     );

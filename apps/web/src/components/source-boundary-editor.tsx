@@ -25,6 +25,7 @@ type Data = {
     plan: SplitPlan;
   }[];
   activeLayoutId: string | null;
+  linkedLayoutIds: (string | null)[];
   fingerprint: string;
   draft: {
     version: number;
@@ -96,16 +97,18 @@ export function SourceBoundaryEditor({
     "source",
   );
   const [openBoundary, setOpenBoundary] = useState<string | null>(null);
-  const toolsRef = useRef<HTMLDialogElement>(null);
+  const searchRef = useRef<HTMLDialogElement>(null);
+  const numberingRef = useRef<HTMLDialogElement>(null);
+  const editorRef = useRef<HTMLElement>(null);
   const imageRef = useRef<HTMLDivElement>(null);
-  function closeTools() {
-    toolsRef.current?.close();
+  function closeSearch() {
+    searchRef.current?.close();
   }
   function showTextAt(number: number, at: number, length = 0) {
     navigate(number, at);
     setView("text");
     setMobilePanel("source");
-    closeTools();
+    closeSearch();
     requestAnimationFrame(() => {
       textRef.current?.focus();
       textRef.current?.setSelectionRange(at, at + length);
@@ -149,6 +152,47 @@ export function SourceBoundaryEditor({
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty, data]);
+  function turnPage(direction: -1 | 1) {
+    if (!data) return;
+    const next =
+      direction === 1
+        ? visiblePages[visiblePages.length - 1] + 1
+        : Math.max(1, visiblePages[0] - (effectiveLayout === "single" ? 1 : 2));
+    if (next >= 1 && next <= data.pageCount) navigate(next);
+  }
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (
+        !data ||
+        !editorRef.current?.getClientRects().length ||
+        busy ||
+        mobilePanel !== "source" ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        !["ArrowLeft", "ArrowRight"].includes(event.key)
+      )
+        return;
+      if (document.querySelector("dialog[open]")) return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target !== document.body && !editorRef.current?.contains(target))
+        return;
+      if (
+        target.closest(
+          'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], [role="slider"], [role="menu"]',
+        )
+      )
+        return;
+      event.preventDefault();
+      turnPage(event.key === "ArrowLeft" ? -1 : 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [data, busy, mobilePanel, spreadKey, effectiveLayout]);
   const current = data?.pages.find((p) => p.pageNumber === page);
   const result = useMemo(() => {
     try {
@@ -301,8 +345,8 @@ export function SourceBoundaryEditor({
       apply &&
       !window.confirm(
         t(
-          "Create a new chapter layout? Previous chapters and guides will be retained.",
-          "새 챕터 구성을 만들까요? 이전 챕터와 학습지는 유지됩니다.",
+          "Use this chapter split? Previous splits and guides will be kept.",
+          "이 챕터 분할을 사용할까요? 이전 분할과 학습지는 유지됩니다.",
         ),
       )
     )
@@ -354,12 +398,66 @@ export function SourceBoundaryEditor({
       setBusy(false);
     }
   }
+  async function deleteSplit() {
+    if (!data || !restoreId || busy || dirty) return;
+    if (
+      !window.confirm(
+        t(
+          "Delete this saved chapter split and its chapter text edits? This cannot be undone. The source file and your saved draft will be kept.",
+          "저장된 챕터 분할과 챕터 텍스트 수정 내역을 삭제할까요? 되돌릴 수 없습니다. 원본 파일과 저장된 초안은 유지됩니다.",
+        ),
+      )
+    )
+      return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete-split",
+          layoutId: restoreId === "legacy" ? null : restoreId,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw Error(result.error);
+      setRestoreId("");
+      const refreshed = await fetch(url);
+      const latest = await refreshed.json();
+      if (!refreshed.ok) throw Error(latest.error);
+      setData(latest);
+      setPlan(latest.draft.plan);
+      setSaved(JSON.stringify(latest.draft.plan));
+      setNotice(
+        t("Saved chapter split deleted.", "저장된 챕터 분할을 삭제했습니다."),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete split.");
+    } finally {
+      setBusy(false);
+    }
+  }
   if (!data)
     return (
       <div className="boundary-loading" role="status">
         {error || t("Loading source…", "원본을 불러오는 중…")}
       </div>
     );
+  const selectedSplitId = restoreId === "legacy" ? null : restoreId;
+  const splitProtection = !restoreId
+    ? ""
+    : selectedSplitId === data.activeLayoutId
+      ? t(
+          "Currently in use. Choose another split before deleting this one.",
+          "현재 사용 중입니다. 다른 분할을 선택한 뒤 삭제하세요.",
+        )
+      : data.linkedLayoutIds.includes(selectedSplitId)
+        ? t(
+            "Used by a study guide or generation record. Kept to preserve its chapters and exports.",
+            "학습지 또는 생성 기록에서 사용 중입니다. 챕터와 내보내기를 보존하기 위해 유지됩니다.",
+          )
+        : "";
   const activePlan = data.layouts.find(
     (layout) => layout.id === data.activeLayoutId,
   )?.plan;
@@ -392,6 +490,7 @@ export function SourceBoundaryEditor({
   const printedLabel = printedPageLabel(page);
   return (
     <section
+      ref={editorRef}
       className="source-boundary-editor"
       data-panel={mobilePanel}
       aria-label={t("Chapter boundary editor", "챕터 시작점 편집기")}
@@ -407,9 +506,9 @@ export function SourceBoundaryEditor({
         <button
           type="button"
           aria-haspopup="dialog"
-          onClick={() => toolsRef.current?.showModal()}
+          onClick={() => searchRef.current?.showModal()}
         >
-          {t("Tools", "도구")}
+          {t("Find", "찾기")}
         </button>
         {dirty && (
           <button
@@ -479,10 +578,18 @@ export function SourceBoundaryEditor({
                 </button>
               </div>
             )}
-            {pdf && printedLabel && (
-              <span className="boundary-printed-label">
-                {t("Printed", "인쇄")}: {printedLabel}
-              </span>
+            {pdf && (
+              <button
+                className="boundary-numbering-button"
+                type="button"
+                aria-label={t("Page numbers", "페이지 번호")}
+                aria-haspopup="dialog"
+                onClick={() => numberingRef.current?.showModal()}
+              >
+                {printedLabel
+                  ? `${t("Printed", "인쇄")}: ${printedLabel}`
+                  : t("Page numbers", "페이지 번호")}
+              </button>
             )}
             {wide && (
               <select
@@ -639,14 +746,9 @@ export function SourceBoundaryEditor({
               type="button"
               aria-label={t("Previous page", "이전 페이지")}
               disabled={visiblePages[0] <= 1}
-              onClick={() =>
-                navigate(
-                  Math.max(
-                    1,
-                    visiblePages[0] - (effectiveLayout === "single" ? 1 : 2),
-                  ),
-                )
-              }
+              title={t("Previous page / spread (←)", "이전 페이지 / 맞쪽 (←)")}
+              aria-keyshortcuts="ArrowLeft"
+              onClick={() => turnPage(-1)}
             >
               ←
             </button>
@@ -667,9 +769,9 @@ export function SourceBoundaryEditor({
               type="button"
               aria-label={t("Next page", "다음 페이지")}
               disabled={visiblePages[visiblePages.length - 1] >= data.pageCount}
-              onClick={() =>
-                navigate(visiblePages[visiblePages.length - 1] + 1)
-              }
+              title={t("Next page / spread (→)", "다음 페이지 / 맞쪽 (→)")}
+              aria-keyshortcuts="ArrowRight"
+              onClick={() => turnPage(1)}
             >
               →
             </button>
@@ -738,7 +840,7 @@ export function SourceBoundaryEditor({
                   </button>
                   <small>
                     {t(
-                      "Replace this draft with the layout used by the chapter reader.",
+                      "Replace this draft with the split currently in use.",
                       "초안을 챕터 읽기의 현재 경계로 바꿉니다.",
                     )}
                   </small>
@@ -750,7 +852,7 @@ export function SourceBoundaryEditor({
               !plan.starts.length && (
                 <p className="boundary-empty">
                   {t(
-                    "This older layout has no saved boundary markers. Mark a new layout here; existing guides will be kept.",
+                    "These original chapters have no saved boundary markers. Mark a new split here; existing guides will be kept.",
                     "이전 챕터에는 저장된 경계가 없습니다. 여기서 새 경계를 지정하세요. 기존 학습지는 유지됩니다.",
                   )}
                 </p>
@@ -932,32 +1034,58 @@ export function SourceBoundaryEditor({
             )}
             {(data.hasLegacy || data.layouts.length > 0) && (
               <details className="boundary-history">
-                <summary>{t("Saved layouts", "저장된 구성")}</summary>
+                <summary>
+                  {t("Saved chapter splits", "저장된 챕터 분할")}
+                </summary>
                 <select
-                  aria-label={t("Saved chapter layout", "저장된 챕터 구성")}
+                  aria-label={t("Saved chapter split", "저장된 챕터 분할")}
                   value={restoreId}
                   onChange={(e) => setRestoreId(e.target.value)}
                 >
-                  <option value="">{t("Choose layout", "구성 선택")}</option>
+                  <option value="">{t("Choose split", "분할 선택")}</option>
                   {data.hasLegacy && (
                     <option value="legacy">
                       {t("Original chapters", "기존 챕터")}
+                      {data.activeLayoutId === null
+                        ? ` · ${t("Current", "현재")}`
+                        : ""}
                     </option>
                   )}
                   {data.layouts.map((l) => (
                     <option key={l.id} value={l.id}>
                       {new Date(l.createdAt).toLocaleString()} · {l.count}{" "}
                       {t("chapters", "챕터")}
+                      {data.activeLayoutId === l.id
+                        ? ` · ${t("Current", "현재")}`
+                        : ""}
                     </option>
                   ))}
                 </select>
                 <button
                   type="button"
-                  disabled={!restoreId || busy || dirty}
+                  disabled={
+                    !restoreId ||
+                    busy ||
+                    dirty ||
+                    selectedSplitId === data.activeLayoutId
+                  }
                   onClick={() => void restore()}
                 >
-                  {t("Use saved layout", "저장된 구성 사용")}
+                  {t("Use saved split", "저장된 챕터 분할 사용")}
                 </button>
+                <button
+                  className="boundary-delete-split"
+                  type="button"
+                  disabled={
+                    !restoreId || busy || dirty || Boolean(splitProtection)
+                  }
+                  onClick={() => void deleteSplit()}
+                >
+                  {t("Delete split", "분할 삭제")}
+                </button>
+                {splitProtection && (
+                  <p className="boundary-split-protection">{splitProtection}</p>
+                )}
               </details>
             )}
           </div>
@@ -978,25 +1106,33 @@ export function SourceBoundaryEditor({
         </aside>
       </div>
       <dialog
-        ref={toolsRef}
+        ref={searchRef}
         className="boundary-tools"
-        aria-labelledby="boundary-tools-title"
+        aria-labelledby="boundary-search-title"
       >
         <header>
-          <h3 id="boundary-tools-title">{t("Source tools", "원본 도구")}</h3>
+          <h3 id="boundary-search-title">
+            {t("Find in source", "원본에서 찾기")}
+          </h3>
           <button
             type="button"
-            aria-label={t("Close tools", "도구 닫기")}
-            onClick={closeTools}
+            aria-label={t("Close search", "검색 닫기")}
+            onClick={closeSearch}
           >
             ×
           </button>
         </header>
         <div className="boundary-tools-body">
-          {result.error && <p role="alert">{result.error}</p>}
           <label className="boundary-search">
-            {t("Find in source", "원본에서 찾기")}
-            <input value={query} onChange={(e) => setQuery(e.target.value)} />
+            <span className="visually-hidden">
+              {t("Find in source", "원본에서 찾기")}
+            </span>
+            <input
+              autoFocus
+              placeholder={t("Search words in the book…", "책에서 단어 검색…")}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
           </label>
           {query && (
             <div className="boundary-search-results">
@@ -1017,102 +1153,101 @@ export function SourceBoundaryEditor({
               )}
             </div>
           )}
-          {pdf && (
-            <details className="boundary-numbering">
-              <summary>
-                {t("Printed page numbering", "인쇄 페이지 번호")}
-              </summary>
-              <p>
-                {t(
-                  "Use a range when printed numbers differ from PDF pages.",
-                  "인쇄 번호가 PDF 페이지와 다를 때 범위를 지정하세요.",
-                )}
-              </p>
-              {(plan.pageLabels || []).map((r, i) => (
-                <div className="boundary-toolbar" key={i}>
-                  {(["from", "to", "first"] as const).map((key) => (
-                    <label key={key}>
-                      {key === "from"
-                        ? t("PDF from", "PDF 시작")
-                        : key === "to"
-                          ? t("PDF to", "PDF 끝")
-                          : t("Printed start", "인쇄 시작")}
-                      <input
-                        type="number"
-                        min={1}
-                        value={r[key]}
-                        onChange={(e) =>
-                          setPlan({
-                            ...plan,
-                            pageLabels: plan.pageLabels?.map((v, n) =>
-                              n === i
-                                ? { ...v, [key]: Number(e.target.value) }
-                                : v,
-                            ),
-                          })
-                        }
-                      />
-                    </label>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPlan({
-                        ...plan,
-                        pageLabels: plan.pageLabels?.filter((_, n) => n !== i),
-                      })
-                    }
-                  >
-                    {t("Remove range", "범위 삭제")}
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() =>
-                  setPlan({
-                    ...plan,
-                    pageLabels: [
-                      ...(plan.pageLabels || []),
-                      { from: page, to: data.pageCount, first: 1 },
-                    ],
-                  })
-                }
-              >
-                {t("Add numbering range", "번호 범위 추가")}
-              </button>
-            </details>
-          )}
-
-          <details className="boundary-reading-settings">
-            <summary>{t("Reading range", "읽기 범위")}</summary>
-            <p>
-              {t(
-                "Text before the first chapter start is excluded. In Text view, place the cursor to mark a start or end within a page.",
-                "첫 챕터 시작점 이전 텍스트는 제외됩니다. 텍스트 보기에서 커서를 놓아 페이지 중간의 시작이나 끝을 표시하세요.",
-              )}
-            </p>
-            <button
-              type="button"
-              disabled={!current?.textContent}
-              onClick={() => {
-                mark(0);
-                closeTools();
-              }}
-            >
-              {t("Start chapter on this page", "이 페이지에서 챕터 시작")}
-            </button>
-          </details>
-          {!current?.textContent && (
-            <p>
-              {t(
-                "A cover or blank page may have no text. If the reading pages are scans too, upload an OCR-processed copy to split them.",
-                "표지나 빈 페이지에는 텍스트가 없을 수 있습니다. 본문도 스캔이라면 OCR 처리한 파일을 업로드하세요.",
-              )}
-            </p>
-          )}
         </div>
       </dialog>
+      {pdf && (
+        <dialog
+          ref={numberingRef}
+          className="boundary-tools"
+          aria-labelledby="boundary-numbering-title"
+        >
+          <header>
+            <h3 id="boundary-numbering-title">
+              {t("Printed page numbers", "인쇄 페이지 번호")}
+            </h3>
+            <button
+              type="button"
+              aria-label={t("Close page numbers", "페이지 번호 닫기")}
+              onClick={() => numberingRef.current?.close()}
+            >
+              ×
+            </button>
+          </header>
+          <div className="boundary-tools-body boundary-numbering">
+            <p>
+              {t(
+                "Match the page numbers printed in your book. For example, if PDF page 9 is printed page 1, enter 9 as PDF from and 1 as Printed start. This changes labels only, not chapter boundaries.",
+                "책에 인쇄된 번호를 맞춥니다. 예를 들어 PDF 9쪽이 인쇄 1쪽이면 PDF 시작에 9, 인쇄 시작에 1을 입력하세요. 챕터 경계는 바뀌지 않습니다.",
+              )}
+            </p>
+            {result.error && <p role="alert">{result.error}</p>}
+            {(plan.pageLabels || []).map((r, i) => (
+              <div className="boundary-toolbar" key={i}>
+                {(["from", "to", "first"] as const).map((key) => (
+                  <label key={key}>
+                    {key === "from"
+                      ? t("PDF from", "PDF 시작")
+                      : key === "to"
+                        ? t("PDF to", "PDF 끝")
+                        : t("Printed start", "인쇄 시작")}
+                    <input
+                      type="number"
+                      min={1}
+                      value={r[key]}
+                      onChange={(e) =>
+                        setPlan({
+                          ...plan,
+                          pageLabels: plan.pageLabels?.map((v, n) =>
+                            n === i
+                              ? { ...v, [key]: Number(e.target.value) }
+                              : v,
+                          ),
+                        })
+                      }
+                    />
+                  </label>
+                ))}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPlan({
+                      ...plan,
+                      pageLabels: plan.pageLabels?.filter((_, n) => n !== i),
+                    })
+                  }
+                >
+                  {t("Remove range", "범위 삭제")}
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() =>
+                setPlan({
+                  ...plan,
+                  pageLabels: [
+                    ...(plan.pageLabels || []),
+                    { from: page, to: data.pageCount, first: 1 },
+                  ],
+                })
+              }
+            >
+              {t("Add numbering range", "번호 범위 추가")}
+            </button>
+            <p>
+              {t(
+                "Changes are included when you save the chapter draft.",
+                "챕터 초안을 저장하면 번호 변경도 저장됩니다.",
+              )}
+            </p>
+          </div>
+          <footer>
+            <button type="button" onClick={() => numberingRef.current?.close()}>
+              {t("Done", "완료")}
+            </button>
+          </footer>
+        </dialog>
+      )}
     </section>
   );
 }

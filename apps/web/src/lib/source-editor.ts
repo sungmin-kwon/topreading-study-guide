@@ -1,10 +1,46 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { atomic, db } from "./db/client";
-import { books, chapters, generationRuns, parsedDocuments } from "./db/schema";
+import {
+  appSchema,
+  books,
+  chapters,
+  generationRuns,
+  parsedDocuments,
+  studySets,
+  multipleChoiceQuestions,
+  shortAnswerQuestions,
+  vocabularyItems,
+  chapterSummaries,
+} from "./db/schema";
 import { getParsedDocument, listParsedPages } from "./parsed-documents";
 import { getSourceFile } from "./source-files";
 import { splitAtBoundaries, type SplitPlan } from "./source-boundaries";
+// Include legacy guides and item-level provenance, not only generation runs.
+async function linkedSplits(bookId: string): Promise<(string | null)[]> {
+  const revisions = sql`${sql.identifier(appSchema.schemaName)}.${sql.identifier("chapter_revisions")}`;
+  const itemReferences = [
+    multipleChoiceQuestions,
+    shortAnswerQuestions,
+    vocabularyItems,
+    chapterSummaries,
+  ].map(
+    (table) => sql`EXISTS (
+    SELECT 1 FROM ${table} WHERE ${table.chapterId}=${chapters.id}
+    OR ${table.chapterRevisionId} IN (SELECT id FROM ${revisions} WHERE chapter_id=${chapters.id})
+  )`,
+  );
+  const result = await db.execute(sql`
+    SELECT ${generationRuns.layoutId} AS layout_id FROM ${generationRuns} WHERE ${generationRuns.bookId}=${bookId}
+    UNION
+    SELECT ${chapters.layoutId} AS layout_id FROM ${chapters} WHERE ${chapters.bookId}=${bookId} AND (
+      EXISTS (SELECT 1 FROM ${studySets} WHERE ${studySets.chapterId}=${chapters.id})
+      OR ${sql.join(itemReferences, sql` OR `)}
+    )
+  `);
+  return result.rows.map((row) => row.layout_id as string | null);
+}
+
 export async function sourceEditorData(
   bookId: string,
   documentId: string,
@@ -27,6 +63,7 @@ export async function sourceEditorData(
     .limit(1);
   return {
     activeLayoutId: book?.activeLayoutId,
+    linkedLayoutIds: await linkedSplits(bookId),
     hasLegacy: legacy.length > 0,
     doc,
     source,
@@ -93,23 +130,21 @@ export async function saveSourcePlan(
         );
       layoutId = randomUUID();
       const now = new Date().toISOString();
-      await db
-        .insert(chapters)
-        .values(
-          preview.map((p) => ({
-            id: randomUUID(),
-            bookId,
-            parsedDocumentId: documentId,
-            layoutId,
-            chapterNumber: p.chapterNumber,
-            title: p.title,
-            textContent: p.textContent,
-            wordCount: p.wordCount,
-            sortOrder: p.sortOrder,
-            createdAt: now,
-            updatedAt: now,
-          })),
-        );
+      await db.insert(chapters).values(
+        preview.map((p) => ({
+          id: randomUUID(),
+          bookId,
+          parsedDocumentId: documentId,
+          layoutId,
+          chapterNumber: p.chapterNumber,
+          title: p.title,
+          textContent: p.textContent,
+          wordCount: p.wordCount,
+          sortOrder: p.sortOrder,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
       await db
         .update(books)
         .set({
@@ -155,7 +190,7 @@ export async function restoreSourceLayout(
         ? !data.hasLegacy
         : !data.layouts.some((l: any) => l.id === layoutId)
     )
-      throw new Error("Saved layout not found.");
+      throw new Error("Saved chapter split not found.");
     const busy = await db
       .select({ id: generationRuns.id })
       .from(generationRuns)
@@ -175,6 +210,79 @@ export async function restoreSourceLayout(
         updatedAt: new Date().toISOString(),
       })
       .where(eq(books.id, bookId));
+    return { ok: true };
+  });
+}
+
+export async function deleteSourceSplit(
+  bookId: string,
+  documentId: string,
+  userId: string,
+  layoutId: unknown,
+) {
+  if (
+    layoutId !== null &&
+    (typeof layoutId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        layoutId,
+      ))
+  )
+    throw new Error("Choose a saved chapter split.");
+  return atomic(async () => {
+    // Same lock order as applying a split and creating a generation run.
+    await db.execute(
+      sql`SELECT id FROM ${books} WHERE id=${bookId} FOR UPDATE`,
+    );
+    await db.execute(
+      sql`SELECT id FROM ${parsedDocuments} WHERE id=${documentId} FOR UPDATE`,
+    );
+    const layoutFilter =
+      layoutId === null
+        ? sql`${chapters.layoutId} IS NULL`
+        : eq(chapters.layoutId, layoutId);
+    // Serialize with FK-backed guide/item inserts as well as chapter edits.
+    await db.execute(
+      sql`SELECT id FROM ${chapters} WHERE ${chapters.bookId}=${bookId} AND ${layoutFilter} FOR UPDATE`,
+    );
+    const data = await sourceEditorData(bookId, documentId, userId);
+    if (
+      layoutId === null
+        ? !data.hasLegacy
+        : !data.layouts.some((l: { id: string }) => l.id === layoutId)
+    )
+      throw new Error("Saved chapter split not found.");
+    if (data.activeLayoutId === layoutId)
+      throw new Error(
+        "This split is currently in use. Choose another saved split before deleting it.",
+      );
+    if (data.linkedLayoutIds.includes(layoutId))
+      throw new Error(
+        "This split is used by a study guide or generation record and cannot be deleted.",
+      );
+    const [running] = await db
+      .select({ id: generationRuns.id })
+      .from(generationRuns)
+      .where(
+        and(
+          eq(generationRuns.bookId, bookId),
+          eq(generationRuns.status, "generating"),
+        ),
+      )
+      .limit(1);
+    if (running)
+      throw new Error(
+        "Finish or cancel generation before deleting a chapter split.",
+      );
+    await db
+      .delete(chapters)
+      .where(and(eq(chapters.bookId, bookId), layoutFilter));
+    data.metadata.chapterLayouts = data.layouts.filter(
+      (l: { id: string }) => l.id !== layoutId,
+    );
+    await db
+      .update(parsedDocuments)
+      .set({ metadataJson: JSON.stringify(data.metadata) })
+      .where(eq(parsedDocuments.id, documentId));
     return { ok: true };
   });
 }

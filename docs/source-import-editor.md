@@ -1,15 +1,15 @@
 # Source import and chapter-boundary editor
 
-Initial release: 2026-11-08; compact reader update: 2026-11-14. Branch: `modernization/postgres-auth`.
+Initial release: 2026-11-08; compact reader update: 2026-11-14; split-management update: 2026-11-15. Branch: `modernization/postgres-auth`.
 
 This release implements the source-navigation and safe chapter-splitting milestone. It requires PostgreSQL migration **0006**. Migration 0006 is deployed on Ubuntu staging. The latest preparation/spread UI update still needs deployment and acceptance there.
 
 ## Teacher workflow
 
 1. Upload a PDF, EPUB or TXT in **Text → Source** (or **Text → Prepare text → Source** when chapters already exist). The modern interface starts extraction automatically, then opens **Split text**. If extraction fails, the uploaded file remains available; use **Extract Text** to retry.
-2. Browse the entire source. PDFs open as rendered original pages; switch to **Text** to position the cursor. Page navigation stays below the document while its contents scroll. On phones, use **Chapters** to open the outline and **Back to source** to return. Choosing a chapter location also returns to the text automatically. EPUB sections follow the book's spine order, rather than pretending to have fixed printed pages. TXT has one section. **Tools → Find in source** searches extracted text throughout the document.
+2. Browse the entire source. PDFs open as rendered original pages; switch to **Text** to position the cursor. Page navigation stays below the document while its contents scroll. On phones, use **Chapters** to open the outline and **Back to source** to return. Choosing a chapter location also returns to the text automatically. EPUB sections follow the book's spine order, rather than pretending to have fixed printed pages. TXT has one section. **Find** searches extracted text throughout the document.
 3. In the chapter outline, choose **Suggest starts** to use PDF bookmarks or EPUB contents links when available, with chapter-heading detection as a fallback. Suggestions are editable and are never applied automatically. Contents, part headings and appendices may also appear in a publisher's outline: check the results.
-4. On any readable PDF page, choose **Start**. In **Text** view, **Start** uses the text cursor instead: click before the first character of the new chapter. For a whole-page start while in Text view, use **Tools → Reading range → Start chapter on this page**. Several chapters may start on the same page. Rename entries in the outline; open the chapter’s **…** actions for **Move start here** or **Remove**. Each entry occupies one compact row while its actions are closed. Chapters follow source order.
+4. On any readable PDF page, choose **Start**. In **Text** view, **Start** uses the text cursor instead: click before the first character of the new chapter. For a whole-page start in Text view, place the cursor before its first character. Several chapters may start on the same page. Rename entries in the outline; open the chapter’s **…** actions for **Move start here** or **Remove**. Each entry occupies one compact row while its actions are closed. Chapters follow source order.
 5. Each chapter ends at the next chapter start. For the last chapter, choose **End** in the reader controls: in PDF view it includes the current page and excludes all later pages; in Text view it excludes text after the cursor. This is useful for an epilogue or next-book preview, including one that begins midway through a page. Text before the first start is also omitted. The **Reading end** entry in the outline lets you revisit or clear the cutoff. These boundaries do not alter the retained source file.
 6. **Preview chapters** shows word counts and the opening/closing text. A short-chapter indicator helps find accidental boundaries. Duplicate, reversed, out-of-range or empty boundaries prevent applying the plan.
 7. **Save** persists this account's draft in PostgreSQL. Unsaved drafts block in-app navigation and warn before leaving the browser page. **Discard**, beside Save, returns to the last saved draft. Concurrent changes from another window are rejected instead of silently overwriting them; reload that window to get the latest saved draft.
@@ -21,7 +21,7 @@ If a file has multiple extractions, or a book has multiple sources, the **Source
 
 **PDF page** always means the physical position in the file, starting at 1. The original-page viewer also displays embedded PDF page labels when available. It remembers labels for viewed pages when switching to extracted text.
 
-Use **Tools → Printed page numbering → Add numbering range** when the publisher's printed numbering differs. For example, PDF pages 9–200 with printed start 1 make physical PDF page 14 display printed page 6. Multiple non-overlapping numeric ranges are supported and saved with the draft. Embedded Roman labels can be displayed; manually configured ranges currently support positive Arabic numbers only. Numbering does not change chapter boundaries or source content.
+Use **Page numbers → Add numbering range** when the publisher's printed numbering differs. For example, PDF pages 9–200 with printed start 1 make physical PDF page 14 display printed page 6. Multiple non-overlapping numeric ranges are supported and saved with the draft. Embedded Roman labels can be displayed; manually configured ranges currently support positive Arabic numbers only. Numbering does not change chapter boundaries or source content.
 
 ### Scanned or difficult files
 
@@ -37,7 +37,7 @@ Migration `0006_source_layouts.sql` adds nullable layout identifiers to books, c
 
 - Drafts are stored per user in parsed-document metadata, with a version and a SHA-256 fingerprint of the source pages. Shared applied-layout history is stored there too. General parsed-document summaries omit private drafts and layout history.
 - Applying a plan locks the book and parsed document, validates its text positions, inserts a new set of chapter IDs and switches the active layout in one transaction. Existing chapters and their immutable revisions are not deleted.
-- **Saved layouts** can restore an earlier chapter arrangement, including the original chapters. Restoring a layout clears the guide selection; choose the matching guide in the guide-version selector when needed.
+- **Saved chapter splits** can restore an earlier chapter arrangement, including the original chapters. Restoring a layout clears the guide selection; choose the matching guide in the guide-version selector when needed.
 - Generation runs record their layout. Creating a run rejects chapter IDs from another layout; enqueueing rejects a draft whose layout is no longer active. Queued/running generation blocks applying or restoring a chapter layout.
 - Selecting an older guide restores its layout. Explicit exports of an older guide use that guide's layout, even if another layout is currently active.
 
@@ -140,3 +140,22 @@ The layout applies to both PDF and extracted text. Pairing uses physical source 
 PDF previews use a private in-memory cache of up to eight rendered pages. The visible page(s) load first, followed by the next and previous page/spread with one speculative request at a time. Navigation cancels obsolete fetches; speculative errors do not interrupt reading. A failed visible preview remains an error for that page and can be retried by navigating away and back. The cache is cleared when leaving the PDF view/source editor; it is not an offline download. All requests still pass the existing source authorization checks. Already-loaded extracted text needs no extra page requests. Very large books still load all extracted text at editor startup; this update does not change that limitation.
 
 This update requires no migration, dependency or environment changes beyond the already-deployed 0006 baseline. Deploy with generation idle using the standard staging build/restart procedure. Local validation includes production web/worker build, spread/boundary tests, and Chromium checks for source selection, active-layout versus personal-draft loading, PDF and text spreads, cache reuse, render-error recovery, mobile fallback, draft conflicts and retained exports. Check your actual PDF's pairing and mobile browser after deployment.
+
+
+## 2026-11-15 saved chapter splits, focused controls and keyboard navigation
+
+The visible term **saved chapter splits** replaces **layouts**. These records keep a particular set of chapter boundaries and the corresponding chapter text. **Save** updates your personal draft; **Use these chapters** creates and activates a saved split. The database still uses `layout_id`; no migration or identifier conversion is required.
+
+Open **Saved chapter splits** in the chapter outline, choose an entry, and use **Use saved split** or **Delete split**. The active entry is marked **Current**. Delete requires confirmation and is available only after saving or discarding pending edits. It removes the selected split's chapters and their text-edit history; it retains the source extraction, source file and personal saved drafts. It does not merely hide the entry. A retained draft can be used to create a new split later.
+
+The current split cannot be deleted: activate another saved split first. A split referenced by any guide or generation record cannot be deleted, including legacy guides without an assigned generation run and item-level chapter/revision references. The interface explains these protections; the server checks them again in the deletion transaction. Queued/running generation also prevents deleting splits. Deletion uses the same book lock as split application and run creation, locks the affected chapter rows, and checks the document belongs to the authorized book. This release does not provide cascading deletion of guides from the split editor.
+
+The generic Tools / Source tools dialog has been removed:
+
+- **Find** opens a search-only dialog. Type text and choose a result to jump to its source page and cursor position.
+- **Page numbers**, beside PDF/Text, opens the printed-numbering form directly. When a printed label exists, this button displays **Printed: …**. The form explains physical PDF positions with an example; changing labels does not change boundaries. **Done** closes the form; use **Save** to persist the draft changes.
+- **Start** and **End** remain beside page navigation. Within-page positions use the Text view's cursor.
+
+**Left Arrow / Right Arrow** move to the previous/next page, or spread when two-page viewing is enabled. The arrow buttons expose the shortcut in their tooltips. Shortcuts operate while focus is in the visible source editor or on the page background. They do not override inputs, textareas, dropdowns, editable fields, modified shortcuts, IME composition, open dialogs or controls outside the editor. Thus normal cursor movement in extracted text remains available. On phones, the chapter-outline panel does not navigate the hidden source by arrow key.
+
+Validation passed: production web/worker build and the disposable PostgreSQL/Chromium regression, covering accepted and blocked deletions, cancellation, cross-book rejection, saved-draft preservation, chapter removal, retained exports, named dialogs, arrow navigation and desktop/mobile layout. No paid model calls were made. Deploy with generation idle using the normal staging build/restart procedure; no migration, dependency or environment changes are needed. Actual Ubuntu acceptance remains pending.

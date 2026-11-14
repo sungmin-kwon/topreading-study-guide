@@ -1374,3 +1374,12 @@ The modern book workspace no longer renders the large book-title/author header o
 This is a UI-only update: no database migration, dependencies or environment changes. Deploy with generation idle using the normal staging build/restart procedure.
 
 Validation: production web/worker build passed. Read-only Chromium checks covered all eight destinations at 1366px and 390px, confirming direct top-bar/tab adjacency, no horizontal overflow, current-book identification and Library access. Ubuntu deployment remains pending.
+
+
+### 2026-11-15: saved chapter split deletion and clearer source controls
+
+**Saved chapter splits** replaces the UI term **Saved layouts**. In the outline's saved-splits section, select an entry to use or delete it. Deletion is confirmed and removes only an inactive split with no linked guide or generation record, including legacy/item-level provenance checks. Current and linked splits display a reason and remain protected server-side. Source files, extractions and personal drafts remain; deleted chapters and their text-edit history are removed. Any generation in progress blocks deletion. No schema changes are required.
+
+**Find** replaces the generic Tools dialog with source-text search. **Page numbers** (or **Printed: …**) beside PDF/Text opens a separate printed-numbering dialog. Start/End remain in the reader controls. Left/Right arrow keys navigate pages/spreads while leaving typing, text selection, dropdowns and open dialogs alone.
+
+The production build and disposable browser/API checks passed, including deletion protection, retained guide exports, draft preservation, keyboard exclusions and narrow-screen fit. No paid generation was used. Ubuntu deployment/acceptance is pending; use the standard staging pull/build/restart procedure with generation idle. No `.env.local` or migration changes are needed. See [source-editor operations](https://github.com/sungmin-kwon/topreading-study-guide/blob/modernization/postgres-auth/docs/source-import-editor.md) for exact deletion behavior and shortcut scope.
