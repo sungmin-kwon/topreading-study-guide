@@ -1394,3 +1394,12 @@ Manage versions now permits selecting a failed version when it contains saved it
 Deploy with generation idle, rebuild both web and worker, and restart the staging services. No migration or environment changes are needed. After deployment, open Study guides → Manage versions and select the failed Night version to inspect the completed chapters before deciding what to generate next. See [generation validation notes](https://github.com/sungmin-kwon/topreading-study-guide/blob/modernization/postgres-auth/docs/ui-behaviors-and-mcq-quality.md) for the exact behavior and validation evidence.
 
 Validation passed: production web/worker build; mocked generation/count/usage/retention regressions; disposable browser/API selection, reading and Word export of a failed partial version. Empty failed versions remain disabled. No paid model calls were made. Actual Ubuntu deployment and a new real generation remain operator acceptance steps.
+
+
+### 2026-11-17: Korean vocabulary in downloaded PDFs
+
+The PDF renderer searched only Windows font paths and fell back to Helvetica on Ubuntu. Korean definitions were rendered as dots despite the input containing valid Unicode. The renderer now embeds PyMuPDF's bundled Korean-capable CJK font when Unicode content needs it and no supported Windows font is available. An Arial-only fallback was removed because it does not supply Hangul. Unicode detection now includes custom page headers too.
+
+Existing guide data does not need regeneration or migration: download a fresh PDF after updating. Previously downloaded PDFs retain the bad rendering. No font package installation or environment change is needed; the font is bundled with the already-used PyMuPDF dependency. The renderer is a Python script invoked for each export, so this script-only update can be applied with `git pull --ff-only` in the staging checkout without rebuilding the web app or restarting generation. If pulling other pending releases too, follow their full deployment procedure.
+
+Validation: the original Linux fallback reproduced Korean as dots; the corrected PDF was visually inspected. `scripts/test-pdf-korean.py` verifies Korean vocabulary and headers across multiple pages, embedded font bytes and successful rendering without an OS font. The existing export-selection tests passed with both real PDF and Word renderers. Ubuntu acceptance remains: download an existing guide's vocabulary PDF and confirm Korean is visible and copyable.

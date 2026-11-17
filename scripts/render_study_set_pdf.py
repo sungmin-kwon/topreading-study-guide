@@ -23,7 +23,6 @@ CONTENT_WIDTH = PAGE_WIDTH - MARGINS["left"] - MARGINS["right"]
 def get_font_path() -> str | None:
     candidates = [
         r"C:\Windows\Fonts\malgun.ttf",
-        r"C:\Windows\Fonts\arial.ttf",
     ]
     for path in candidates:
         if os.path.exists(path):
@@ -37,6 +36,7 @@ def text_needs_custom_font(value: str) -> bool:
 
 def payload_needs_custom_font(payload: dict) -> bool:
     values = [
+        payload.get("header", ""),
         payload.get("title", ""),
         payload.get("subtitle", ""),
     ]
@@ -85,16 +85,26 @@ class PdfWriter:
         self.doc = pymupdf.open()
         self.title = title
         self.font_path = get_font_path() if use_custom_font else None
-        self.font_name = "body" if self.font_path else "helv"
-        self.bold_font_name = self.font_name if self.font_path else "hebo"
+        # PyMuPDF bundles this CJK font on Linux too. Embed its bytes so the
+        # exported file renders independently of fonts on the reader's device.
+        self.font_buffer = (
+            pymupdf.Font("korea").buffer
+            if use_custom_font and not self.font_path else None
+        )
+        self.font_name = "body" if self.font_path or self.font_buffer else "helv"
+        self.bold_font_name = self.font_name if use_custom_font else "hebo"
         self.page = None
         self.y = 0
         self.add_page()
 
     def add_page(self):
         self.page = self.doc.new_page(width=PAGE_WIDTH, height=PAGE_HEIGHT)
-        if self.font_path:
-            self.page.insert_font(fontname=self.font_name, fontfile=self.font_path)
+        if self.font_path or self.font_buffer:
+            self.page.insert_font(
+                fontname=self.font_name,
+                fontfile=self.font_path,
+                fontbuffer=self.font_buffer,
+            )
         self.y = MARGINS["top"]
         self.draw_header()
 
