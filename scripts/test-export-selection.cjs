@@ -19,7 +19,7 @@ test('selected student content excludes answers and unselected sections',()=>{
 });
 test('concise keys follow all questions with matching numbering and unchanged choice order',()=>{
  const p=buildSelectedExportPayload('Fixture',['multiple-choice','multiple-choice-concise-key'],chapters);
- assert.equal(p.sections.length,4);assert(p.sections[2].heading.includes('Answer Key'));
+ assert.equal(p.sections.length,4);assert.equal(p.sections[2].chapter_heading,'Multiple Choice Answer Key');assert.equal(p.sections[2].heading,'Chapter 1');
  assert.equal(p.sections[2].items[0].text,'1. A');assert.equal(p.sections[3].items[0].text,'2. A');
  assert.equal(p.sections[0].items[1].text,'A. Mina');
 });
@@ -35,4 +35,50 @@ test('teacher sections and both document renderers receive the selected content'
  for(const format of ['pdf','docx']) require('node:child_process').execFileSync(python,[path.join(root,'scripts',`render_study_set_${format}.py`),input,path.join(dir,`guide.${format}`)]);
  assert(fs.statSync(path.join(dir,'guide.pdf')).size>1000);assert(fs.statSync(path.join(dir,'guide.docx')).size>1000);
  console.log('Rendered export fixtures:',dir);
+});
+
+
+test('chapter headings occur once with section headings beneath and a break only at chapter boundaries',()=>{
+ const p=buildSelectedExportPayload('Fixture',['vocabulary-list','multiple-choice','short-answer'],chapters);
+ assert.equal(p.sections.length,6);
+ assert.deepEqual(p.sections.map(s=>Boolean(s.page_break_before)),[true,false,false,true,false,false]);
+ assert.deepEqual(p.sections.map(s=>s.heading),['Vocabulary List','Multiple Choice','Short Answer','Vocabulary List','Multiple Choice','Short Answer']);
+ assert.equal(p.sections.filter(s=>s.chapter_heading).length,2);
+ assert(p.sections.every(s=>s.heading_level===2));
+ const skipped=buildSelectedExportPayload('Fixture',['vocabulary-list'],[{...chapters[0],items:{...items,vocabulary:[]}},chapters[1]]);
+ assert.equal(skipped.sections.length,1);assert(skipped.sections[0].chapter_heading.startsWith('Chapter 2'));
+});
+
+test('rendered PDF separates chapters and Word carries matching heading hierarchy and page breaks',()=>{
+ const python=process.env.EXPORT_TEST_PYTHON;if(!python)return;
+ const p=buildSelectedExportPayload('Fixture',['vocabulary-list','multiple-choice','short-answer'],chapters);
+ const dir=fs.mkdtempSync('/tmp/topreading-chapter-export-');
+ try {
+  const input=path.join(dir,'input.json');fs.writeFileSync(input,JSON.stringify(p));
+  const exec=require('node:child_process').execFileSync;
+  for(const format of ['pdf','docx'])exec(python,[path.join(root,'scripts',`render_study_set_${format}.py`),input,path.join(dir,`guide.${format}`)]);
+  exec(python,['-c',`
+import sys,json,zipfile,xml.etree.ElementTree as ET,pymupdf
+from pathlib import Path
+root=Path(sys.argv[1]); payload=json.loads((root/'input.json').read_text())
+with pymupdf.open(root/'guide.pdf') as doc:
+ assert len(doc)==2, len(doc)
+ for page,chapter in zip(doc,['Chapter 1','Chapter 2']):
+  text=page.get_text();assert text.count(chapter)==1,text
+  for heading in ['Vocabulary List','Multiple Choice','Short Answer']:assert heading in text
+  assert '문' in text
+with zipfile.ZipFile(root/'guide.docx') as archive:
+ ns={'w':'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+ tree=ET.fromstring(archive.read('word/document.xml'))
+ paragraphs=tree.findall('w:body/w:p',ns)
+ headings=[];breaks=[]
+ for p in paragraphs:
+  text=''.join(p.itertext());style=p.find('w:pPr/w:pStyle',ns)
+  if style is not None and style.attrib['{'+ns['w']+'}val'] in ['Heading1','Heading2']:headings.append((text,style.attrib['{'+ns['w']+'}val']))
+  if p.find('w:pPr/w:pageBreakBefore',ns) is not None:breaks.append(text)
+ assert [style for _,style in headings]==['Heading1','Heading2','Heading2','Heading2']*2,headings
+ assert len(breaks)==1 and breaks[0].startswith('Chapter 2'),breaks
+ assert '문' in ''.join(tree.itertext())
+`,dir]);
+ } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });

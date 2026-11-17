@@ -43,6 +43,7 @@ def payload_needs_custom_font(payload: dict) -> bool:
 
     for section in payload.get("sections", []):
         values.append(section.get("heading", ""))
+        values.append(section.get("chapter_heading", ""))
         for item in section.get("items", []):
             values.append(item.get("text", ""))
 
@@ -203,9 +204,24 @@ def render(payload: dict, output_path: str):
             writer.add_text(subtitle, size=9, gap=16)
 
     for section in payload.get("sections", []):
+        # Never insert a blank first page; chapter breaks also work after overflow.
+        if section.get("page_break_before") and writer.y > MARGINS["top"]:
+            writer.add_page()
+        chapter_heading = section.get("chapter_heading", "")
         heading = section.get("heading", "")
+        # Keep the hierarchy with the start of its content where possible.
+        first_block = []
+        for item in section.get("items", []):
+            first_block.append(item)
+            if item.get("block_end"):
+                break
+        heading_height = (32 if chapter_heading else 0) + (28 if heading else 0)
+        block_height = sum(writer.estimate_item_height(item) for item in first_block)
+        writer.ensure_space(min(heading_height + block_height, PAGE_HEIGHT - MARGINS["top"] - MARGINS["bottom"]))
+        if chapter_heading:
+            writer.add_text(chapter_heading, size=15, bold=True, gap=10)
         if heading:
-            writer.add_text(heading, size=12, bold=True, gap=8)
+            writer.add_text(heading, size=11 if section.get("heading_level") == 2 else 12, bold=True, gap=8)
 
         pending_block = []
 

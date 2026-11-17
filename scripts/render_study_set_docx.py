@@ -26,6 +26,7 @@ ROOT_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 
 DOCUMENT_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
   <Relationship Id="rIdHeader1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>
 </Relationships>
 """
@@ -40,8 +41,14 @@ STYLES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <w:style w:type="paragraph" w:styleId="Heading1">
     <w:name w:val="heading 1"/>
     <w:basedOn w:val="Normal"/>
-    <w:pPr><w:spacing w:before="260" w:after="120"/><w:keepNext/></w:pPr>
+    <w:pPr><w:spacing w:before="260" w:after="120"/><w:keepNext/><w:outlineLvl w:val="0"/></w:pPr>
     <w:rPr><w:b/><w:sz w:val="24"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading2">
+    <w:name w:val="heading 2"/>
+    <w:basedOn w:val="Normal"/>
+    <w:pPr><w:spacing w:before="180" w:after="100"/><w:keepNext/><w:outlineLvl w:val="1"/></w:pPr>
+    <w:rPr><w:b/><w:sz w:val="22"/></w:rPr>
   </w:style>
   <w:style w:type="paragraph" w:styleId="Question">
     <w:name w:val="Question"/>
@@ -72,12 +79,13 @@ def text_run(text: str, bold: bool = False) -> str:
     )
 
 
-def paragraph(text: str = "", bold: bool = False, style: str | None = None, indent: int = 0, after: int | None = None, keep_next: bool = False) -> str:
+def paragraph(text: str = "", bold: bool = False, style: str | None = None, indent: int = 0, after: int | None = None, keep_next: bool = False, page_break_before: bool = False) -> str:
     style_xml = f"<w:pStyle w:val=\"{style}\"/>" if style else ""
     indent_xml = f"<w:ind w:left=\"{indent}\"/>" if indent else ""
     spacing_xml = f"<w:spacing w:after=\"{after}\"/>" if after is not None else ""
     keep_xml = "<w:keepNext/>" if keep_next else ""
-    ppr = f"<w:pPr>{style_xml}{indent_xml}{spacing_xml}{keep_xml}</w:pPr>"
+    break_xml = "<w:pageBreakBefore/>" if page_break_before else ""
+    ppr = f"<w:pPr>{style_xml}{indent_xml}{spacing_xml}{keep_xml}{break_xml}</w:pPr>"
     return f"<w:p>{ppr}{text_run(text, bold=bold)}</w:p>"
 
 
@@ -99,9 +107,13 @@ def render_document_xml(payload: dict) -> str:
     body = []
 
     for section in payload.get("sections", []):
+      chapter_heading = section.get("chapter_heading", "")
       heading = section.get("heading", "")
+      page_break = bool(section.get("page_break_before") and body)
+      if chapter_heading:
+          body.append(paragraph(chapter_heading, bold=True, style="Heading1", page_break_before=page_break))
       if heading:
-          body.append(paragraph(heading, bold=True, style="Heading1"))
+          body.append(paragraph(heading, bold=True, style="Heading2" if section.get("heading_level") == 2 else "Heading1", page_break_before=page_break and not chapter_heading))
 
       for item in section.get("items", []):
           kind = item.get("kind", "text")

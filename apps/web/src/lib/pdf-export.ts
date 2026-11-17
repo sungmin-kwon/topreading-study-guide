@@ -286,6 +286,7 @@ function buildBookPayload(input: {
 
       return {
         heading: chapterLabel,
+        page_break_before: true,
         items: buildItemsForType(section.items, input.type, startNumber)
       };
     })
@@ -303,15 +304,23 @@ export function parseExportSelection(params: URLSearchParams): PdfExportType[] |
 
 export function buildSelectedExportPayload(bookTitle: string, types: PdfExportType[], chapters: Array<{chapterNumber: number; chapterTitle: string; items: Awaited<ReturnType<typeof listStudyItems>>}>) {
   const counters = new Map<PdfExportType, number>();
-  const sections: Array<{heading: string; items: PdfPayloadItem[]}> = [];
+  const sections: Array<{heading: string; chapter_heading?: string; page_break_before?: boolean; heading_level?: number; items: PdfPayloadItem[]}> = [];
   // Concise keys go at the end; their counters follow the same chapter/item order.
   const main = types.filter(type => type !== "multiple-choice-concise-key");
   for (const chapter of chapters) {
+    let firstSection = true;
     for (const type of main) {
       const count = countItemsForType(chapter.items, type);
       if (!count) continue;
       const start = counters.get(type) || 1;
-      sections.push({heading: `${formatChapterLabel(chapter.chapterNumber, chapter.chapterTitle)} — ${exportLabels[type]}`, items: buildItemsForType(chapter.items, type, start)});
+      sections.push({
+        chapter_heading: firstSection ? formatChapterLabel(chapter.chapterNumber, chapter.chapterTitle) : undefined,
+        page_break_before: firstSection,
+        heading: exportLabels[type],
+        heading_level: 2,
+        items: buildItemsForType(chapter.items, type, start)
+      });
+      firstSection = false;
       counters.set(type, start + count);
     }
   }
@@ -319,7 +328,13 @@ export function buildSelectedExportPayload(bookTitle: string, types: PdfExportTy
     let start = 1;
     for (const chapter of chapters) {
       if (!chapter.items.multipleChoice.length) continue;
-      sections.push({heading: `${formatChapterLabel(chapter.chapterNumber, chapter.chapterTitle)} — Multiple Choice Answer Key`, items: buildMultipleChoiceConciseKeyItems(chapter.items, start)});
+      sections.push({
+        chapter_heading: start === 1 ? "Multiple Choice Answer Key" : undefined,
+        heading: formatChapterLabel(chapter.chapterNumber, chapter.chapterTitle),
+        heading_level: 2,
+        page_break_before: true,
+        items: buildMultipleChoiceConciseKeyItems(chapter.items, start)
+      });
       start += chapter.items.multipleChoice.length;
     }
   }
