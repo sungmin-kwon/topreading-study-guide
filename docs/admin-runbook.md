@@ -1434,3 +1434,10 @@ The structural pass flags `repetitive_choice_templates`. It conservatively check
 Existing guides are not rewritten or retroactively flagged. Deploy the normal web/worker pull/build/restart update with generation idle; no migration or environment changes are needed. Judge the new behavior with one chapter in a new version before committing to a full-book regeneration. Automated fixture tests cannot establish real literary quality; inspect usefulness, passage support and distractors in the new output.
 
 Validation: 30 MCQ regression checks passed with mocked provider calls, including both exact reported choice patterns, reversed choice ordering, valid short/long alternatives, budget exhaustion, unsuccessful and successful repairs, review-reason labels and shared guidance reaching generation/review/repair. No paid model calls were made. The production web/worker build passed. Actual Ubuntu deployment and real generation acceptance remain pending.
+
+
+### 2026-11-17: Study guides chapter navigator height
+
+Study guides still used the old `max-height: calc(100dvh - 300px)` sidebar limit while Text used the remaining workspace height. Both now share the available-height chapter navigation layout. Guide content scrolls independently on the right; its outer workspace no longer adds a second vertical scroll area. The mobile chapter dropdown is retained.
+
+Validation: production web/worker build passed. Read-only browser checks covered standard (1366×768), tall (1366×1100), short (1100×520) and mobile (390×844) viewports, sidebar bottom alignment, last-chapter access, real guide-content scrolling and last-question access, mobile dropdown visibility, and no outer overflow. Deploy with the usual staging pull/build/restart procedure when generation is idle. No database or environment changes are needed; Ubuntu acceptance remains pending.
