@@ -154,3 +154,53 @@ test('worker failure includes rejected-response usage and explicitly reports ret
  assert(result.generationRun.log.some(line=>line.message.includes('1 completed chapter(s) were kept')));
  assert(result.generationRun.log.some(line=>line.message.includes('total=45 tokens')));
 });
+
+const nearCopyQuestions=[
+ {questionText:'Which description matches the train that arrived at Gleiwitz to take the prisoners away?',choices:['An extremely long train of roofless passenger cars.','An extremely long train of roofed cattle cars.','An extremely long train of roofless cattle cars.','An extremely long train of roofed passenger cars.'],correctChoiceIndex:2,explanation:'Fixture explanation.'},
+ {questionText:'When his father asks for coffee, what does Eliezer do?',choices:['He fights through the crowd, brings back a cup, takes one gulp, and gives the rest to his father.','He fights through the crowd, brings back a cup, takes one gulp, and saves the rest for later.','He fights through the crowd, brings back a cup, gives it all to his father, and takes none himself.','He fights through the crowd, brings back a cup, drinks most of it, and gives the rest to his father.'],correctChoiceIndex:0,explanation:'Fixture explanation.'}
+];
+test('both reported near-copy choice patterns are flagged irrespective of answer position',()=>{
+ for(const question of nearCopyQuestions){
+  assert(checkMcq(question).includes('repetitive_choice_templates'));
+  assert(checkMcq({...question,choices:[...question.choices].reverse(),correctChoiceIndex:3-question.correctChoiceIndex}).includes('repetitive_choice_templates'));
+ }
+});
+test('short factual alternatives and distinct full-sentence misunderstandings remain valid',()=>{
+ for(const choices of [
+  ['Roofless cattle cars','Roofed passenger cars','Open freight platforms','Enclosed transport trucks'],
+  ['He gives the rest to his father.','He keeps the cup for himself.','He shares it with another prisoner.','He returns it to the kitchen.'],
+  ['He stays behind because he fears losing contact with his father.','The narrator accepts an unfamiliar task to avoid a dangerous punishment.','His friend advises him to conserve strength before the next journey.','A guard orders the entire group to move toward another building.'],
+ ])assert(!checkMcq({...q(),choices}).includes('repetitive_choice_templates'));
+});
+test('repetitive choice warnings survive reviewer agreement, exhausted budgets and failed repair',async()=>{
+ for(const question of nearCopyQuestions){
+  const noBudget=await assessMcqs([question],passage,provider,0);
+  assert(noBudget.records[0].flags.includes('repetitive_choice_templates'));assert.equal(noBudget.questions[0].status,'needs_review');
+  const repeated=await assessMcqs([question],passage,{review:async(_,blind)=>({supported_index:blind.choices.indexOf(question.choices[question.correctChoiceIndex]),ambiguous:false,stem_supported:true,cues:[],evidence_quote:'Mina opened the gate.',choice_reasons:['Reason one','Reason two','Reason three','Reason four']}),repair:async()=>question},5);
+  assert.equal(repeated.records[0].repairs,2);assert.equal(repeated.questions[0].status,'needs_review');
+  assert(repeated.records[0].flags.includes('repetitive_choice_templates'));
+ }
+});
+test('repetitive choice repairs are checked again and can clear the warning',async()=>{
+ const repaired=await assessMcqs([nearCopyQuestions[0]],passage,{review:async(_,question)=> question.questionText===q().questionText ? verdict(question) : {supported_index:question.choices.indexOf(nearCopyQuestions[0].choices[2]),ambiguous:false,stem_supported:true,cues:[],evidence_quote:'Mina opened the gate.',choice_reasons:['one','two','three','four']},repair:async(_,question,issues)=>{assert(issues.includes('repetitive_choice_templates'));return q();}},3);
+ assert.equal(repaired.records[0].repairs,1);assert.equal(repaired.calls,3);assert.deepEqual(repaired.records[0].flags,[]);assert.equal(repaired.questions[0].status,'draft');
+});
+test('generation, reviewer and repair receive the same distinct-distractor guidance',async()=>{
+ const previousFetch=global.fetch,previousKey=process.env.OPENAI_API_KEY;process.env.OPENAI_API_KEY='fixture';let calls=0;
+ try {
+  const guidance=load('generation-guidance').mcqDistractorGuidance;
+  global.fetch=async(_url,init)=>{
+   const body=JSON.parse(init.body);calls++;
+   assert(body.input.some(item=>item.content.includes(guidance)));
+   let output;
+   if(body.text.format.name==='chapter_study_guide')output={chapter_summary:'Fixture summary.',vocabulary_items:[],short_answer_questions:[],multiple_choice_questions:[{question_text:nearCopyQuestions[0].questionText,choices:nearCopyQuestions[0].choices,correct_choice_index:2,explanation:'Fixture explanation.'}]};
+   else if(body.text.format.schema.properties.questionText)output=q();
+   else {const question=JSON.parse(body.input[1].content).question;output=question.questionText===q().questionText?verdict(question):{supported_index:question.choices.indexOf(nearCopyQuestions[0].choices[2]),ambiguous:false,stem_supported:true,cues:[],evidence_quote:'Mina opened the gate.',choice_reasons:['one','two','three','four']};}
+   return {ok:true,json:async()=>({status:'completed',output_text:JSON.stringify(output),usage:{total_tokens:15}})};
+  };
+  const generate=loader({'@topreading/core':{deriveGenerationPlan:()=>({vocabularyCount:0,multipleChoiceCount:1,shortAnswerCount:0})},'@/lib/study-items':{},'@/lib/study-sets':{}})('openai-generator').generateOpenAIChapterItems;
+  const result=await generate({title:'Fixture'},{chapterNumber:1,textContent:passage,wordCount:9});
+  assert.equal(calls,4);assert.equal(result.usage.total_tokens,60);assert.equal(result.rawOutput.mcq_quality.version,3);assert.equal(result.generatedItems.multipleChoiceQuestions[0].status,'draft');
+  assert(load('mcq-review-reasons').reviewReasonLabels.repetitive_choice_templates[0].includes('repeat'));
+ } finally {global.fetch=previousFetch;if(previousKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=previousKey;}
+});

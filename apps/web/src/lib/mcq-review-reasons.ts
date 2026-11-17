@@ -20,6 +20,7 @@ export const reviewReasonLabels: Record<string, [string, string]> = {
   collective_choice: ['A choice uses all/none of the above instead of a distinct answer.', '모두 정답 또는 정답 없음 형식의 선택지가 있습니다.'],
   correct_answer_length: ['The correct answer is noticeably longer than the distractors.', '정답이 오답보다 눈에 띄게 깁니다.'],
   very_short_distractor: ['Some distractors are much shorter than the correct answer.', '일부 오답이 정답보다 훨씬 짧습니다.'],
+  repetitive_choice_templates: ['The choices repeat most of the same wording with small changes. Check that they test meaningful, distinct alternatives.', '선택지가 대부분 같은 문구를 반복하고 일부만 바꿉니다. 의미 있고 구별되는 대안인지 확인하세요.'],
   duplicate_choices: ['Two or more choices have the same wording.', '같은 내용의 선택지가 있습니다.'],
   answer_letter_reference: ['The wording refers to choice letters and may give away the answer.', '선택지 기호를 언급하여 정답을 암시할 수 있습니다.'],
   semantic_disagreement: ['The reviewer found ambiguity or disagreed with the answer key.', '검토 모델이 모호함을 발견했거나 정답에 동의하지 않았습니다.'],

@@ -1,6 +1,18 @@
 // Shared by the web generator and background worker; changing this is a new prompt version.
-export const studyGuidePromptVersion = "openai-study-guide-v4-exact-counts";
+export const studyGuidePromptVersion = "openai-study-guide-v5-distinct-distractors";
 export const generationSkills = ["literal-comprehension", "sequence-cause", "inference", "language-analysis", "argument-evidence", "synthesis"] as const;
+
+// Shared by first-pass generation, blind review and repair so revisions do not
+// restore a choice template the original generation was asked to avoid.
+export const mcqDistractorGuidance = `
+- Test one meaningful distinction per question. Prefer important actions, relationships, causes or passage-supported interpretations over incidental combinations of small attributes. Purposeful factual recall is welcome; do not force every question into inference.
+- Put context shared by all four choices in the stem. Keep choices concise and focused on the answer target. Do not repeat a whole action sequence or descriptive sentence four times.
+- Each distractor must represent a distinct, plausible misunderstanding of the passage. Do not manufacture four near-copies by swapping a few adjectives, negations, quantities or action endings, or by enumerating a two-by-two grid of attributes.
+- Parallel grammar means choices answer the same question in compatible forms; it does not mean repeating the same sentence template or matching word counts. Distinct answers may naturally share subject names or necessary domain terms.
+- For a train-description question, do not enumerate all roofed/roofless × passenger/cattle combinations. Choose one consequential feature to ask about with plausible alternatives, or choose a more worthwhile passage-supported question.
+- For an action such as obtaining a drink for a parent, put the shared context in the stem and vary the substantive response or purpose. Do not repeat the entire crowd-fetch-drink-give sequence with tiny changes to who gets how much. Never assume the example establishes what happens in the supplied passage.
+- If three useful distractors cannot be written for the chosen target, rewrite the stem or choose another meaningful target in this same passage. Preserve the requested item count, one supported answer, and the intended comprehension skill where possible. Do not invent events to fill the list.
+`;
 
 export const contentQualityGuidance = `
 Audience and coverage:
@@ -24,7 +36,8 @@ Multiple-choice requirements:
 - Verify the stem's premise, speaker, time, action and causal relationship against the passage. A true answer does not rescue a false premise.
 - Ask one clear question. Avoid double negatives, trick wording and trivia without a teaching purpose. Do not turn genuinely open interpretation into a single-answer MCQ.
 - Build distractors from plausible misreadings: wrong motive, confused event/person, reversed cause, or a claim the passage does not support. Avoid absurd alternatives, unrelated facts and answers identifiable without reading.
-- Use parallel grammar and comparable specificity and length. Remove giveaway qualifiers, uniquely elaborate correct answers, repeated wording clues and overlapping choices. Do not pad distractors or force mechanically equal word counts.
+- Keep choices grammatically compatible and comparable in specificity. Avoid uniquely elaborate correct answers, giveaway qualifiers, overlapping meanings and unnecessary length. Do not pad choices to make their lengths equal.
+${mcqDistractorGuidance}
 - Do not use all/none-of-the-above or combined-letter choices. Never refer to option letters or positions in stems, choices or explanations; choices will be shuffled.
 - Explain the evidence for the correct CONTENT and briefly why each distractor fails. Distinguish contradiction from lack of support. Keep explanations concise and do not fabricate quotations.
 
