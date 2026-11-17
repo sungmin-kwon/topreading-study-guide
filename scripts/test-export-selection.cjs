@@ -15,12 +15,12 @@ test('selected student content excludes answers and unselected sections',()=>{
  const p=buildSelectedExportPayload('Fixture',['multiple-choice','short-answer'],chapters);
  assert.equal(p.sections.length,4);const text=JSON.stringify(p);
  assert(!text.includes('Teacher-only'));assert(!text.includes('Only Mina'));assert(!text.includes('Vocabulary'));
- assert(p.sections[2].items[0].text.startsWith('2. '));
+ assert(p.sections[2].items[0].text.startsWith('MCQ 2. '));
 });
 test('concise keys follow all questions with matching numbering and unchanged choice order',()=>{
  const p=buildSelectedExportPayload('Fixture',['multiple-choice','multiple-choice-concise-key'],chapters);
  assert.equal(p.sections.length,4);assert.equal(p.sections[2].chapter_heading,'Multiple Choice Answer Key');assert.equal(p.sections[2].heading,'Chapter 1');
- assert.equal(p.sections[2].items[0].text,'1. A');assert.equal(p.sections[3].items[0].text,'2. A');
+ assert.equal(p.sections[2].items[0].text,'MCQ 1. A');assert.equal(p.sections[3].items[0].text,'MCQ 2. A');
  assert.equal(p.sections[0].items[1].text,'A. Mina');
 });
 test('empty selections fail instead of returning a misleading empty document',()=>{
@@ -66,7 +66,14 @@ with pymupdf.open(root/'guide.pdf') as doc:
  for page,chapter in zip(doc,['Chapter 1','Chapter 2']):
   text=page.get_text();assert text.count(chapter)==1,text
   for heading in ['Vocabulary List','Multiple Choice','Short Answer']:assert heading in text
-  assert '문' in text
+  assert '• gate: an entrance | 문' in text
+  assert 'MCQ ' in text and 'SA ' in text
+  words=page.get_text('words')
+  vocab=next(w for w in words if w[4]=='•')
+  heading=next(w for w in words if w[4]=='Vocabulary')
+  mcq=next(w for w in words if w[4]=='MCQ')
+  choice=next(w for w in words if w[4]=='A.')
+  assert vocab[0]>heading[0] and mcq[0]>heading[0] and choice[0]>mcq[0]
 with zipfile.ZipFile(root/'guide.docx') as archive:
  ns={'w':'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
  tree=ET.fromstring(archive.read('word/document.xml'))
@@ -79,6 +86,27 @@ with zipfile.ZipFile(root/'guide.docx') as archive:
  assert [style for _,style in headings]==['Heading1','Heading2','Heading2','Heading2']*2,headings
  assert len(breaks)==1 and breaks[0].startswith('Chapter 2'),breaks
  assert '문' in ''.join(tree.itertext())
+ for p in paragraphs:
+  text=''.join(p.itertext())
+  if text.startswith(('• ', 'MCQ ', 'SA ')):
+   indent=p.find('w:pPr/w:ind',ns)
+   assert indent is not None and int(indent.attrib['{'+ns['w']+'}left'])>0,text
 `,dir]);
  } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+
+test('mixed sections identify questions and indent bodies while preserving choice nesting',()=>{
+ const p=buildSelectedExportPayload('Fixture',['vocabulary-list','multiple-choice-key','short-answer-key','multiple-choice-concise-key'],chapters);
+ assert(p.sections[0].items[0].text.startsWith('• gate:'));
+ assert(p.sections[1].items[0].text.startsWith('MCQ 1.'));
+ assert(p.sections[2].items[0].text.startsWith('SA 1.'));
+ assert(p.sections[4].items[0].text.startsWith('MCQ 2.'));
+ assert(p.sections[5].items[0].text.startsWith('SA 2.'));
+ assert.equal(p.sections[6].items[0].text,'MCQ 1. A');
+ assert(p.sections.every(section=>section.items.every(item=>item.indent>=16)));
+ assert(p.sections[1].items[1].indent>p.sections[1].items[0].indent);
+ assert(p.sections[2].items[1].indent>p.sections[2].items[0].indent);
+ const quiz=buildSelectedExportPayload('Fixture',['vocabulary-quiz'],chapters);
+ assert.equal(quiz.sections[0].items[0].text,'1. gate');
 });

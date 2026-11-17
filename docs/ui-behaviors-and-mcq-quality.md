@@ -122,3 +122,10 @@ Selected content now appears beneath one chapter heading, with smaller section h
 Question numbering remains continuous per content type across chapters. Optional concise MCQ keys remain at the end, beneath an Answer Key heading, grouped by chapter with chapter page breaks; numbers match their original questions. Existing guides are not regenerated. Re-download files after deployment to get the new structure.
 
 Validation: seven export checks passed, including actual PDF page content, Word heading/page-break XML, answer-key numbering and skipped empty content; Korean font tests passed and a rendered PDF was visually inspected. The production app/worker build is required for deployment. This update changes TypeScript export assembly as well as Python renderers, so use the standard staging pull/build/restart sequence with generation idle. No database migration or environment changes are required. Ubuntu acceptance remains pending.
+
+
+### 2026-11-17: clearer labels and section indentation in exports
+
+PDF and Word vocabulary lists now use bullets instead of numbers. MCQ stems use `MCQ 42.` and short-answer stems use `SA 13.`, preserving their existing continuous per-type numbering across chapters. Teacher versions and concise MCQ keys use matching labels. Vocabulary quizzes retain their existing numbering for responses. This is export formatting; stored questions and website item numbering are unchanged.
+
+Section bodies are indented beneath the section heading, with choices, model answers, rubrics and writing lines retaining additional indentation. Chapter grouping, page breaks, selected content and Korean text support remain in place. Eight export checks passed, including actual PDF text/positions and Word indentation XML; a rendered PDF was visually inspected. Deploy with the usual staging pull/build/restart procedure when generation is idle; no migration, environment changes or guide regeneration is needed. Download fresh files after deployment.

@@ -122,7 +122,7 @@ function buildVocabularyItems(items: Awaited<ReturnType<typeof listStudyItems>>,
 
     const meaning = [definitions.english, definitions.korean].filter(Boolean).join(" | ");
     const listItems: PdfPayloadItem[] = [
-      { text: `${number}. ${item.term}: ${meaning || item.definition}`, gap: 5, block_start: true, block_end: true }
+      { text: `• ${item.term}: ${meaning || item.definition}`, gap: 5, block_start: true, block_end: true }
     ];
     return listItems;
   });
@@ -143,7 +143,7 @@ function buildMultipleChoiceItems(items: Awaited<ReturnType<typeof listStudyItem
     const choices = JSON.parse(item.choicesJson) as string[];
     const answerLabel = String.fromCharCode(65 + item.correctChoiceIndex);
     const questionItems: PdfPayloadItem[] = [
-      { text: `${number}. ${item.questionText}`, bold: true, gap: 3, block_start: true },
+      { text: `MCQ ${number}. ${item.questionText}`, bold: true, gap: 3, block_start: true },
       ...choices.map((choice: string, choiceIndex: number) => ({
         text: `${String.fromCharCode(65 + choiceIndex)}. ${choice}`,
         indent: 16,
@@ -177,7 +177,7 @@ function buildMultipleChoiceConciseKeyItems(items: Awaited<ReturnType<typeof lis
   return items.multipleChoice.map((item, index) => {
     const answerLabel = String.fromCharCode(65 + item.correctChoiceIndex);
     return {
-      text: `${startNumber + index}. ${answerLabel}`,
+      text: `MCQ ${startNumber + index}. ${answerLabel}`,
       gap: 3,
       block_start: true,
       block_end: true
@@ -188,7 +188,7 @@ function buildMultipleChoiceConciseKeyItems(items: Awaited<ReturnType<typeof lis
 function buildShortAnswerItems(items: Awaited<ReturnType<typeof listStudyItems>>, includeAnswers: boolean, startNumber = 1): PdfPayloadItem[] {
   return items.shortAnswer.flatMap((item, index) => {
     const questionItems: PdfPayloadItem[] = [
-      { text: `${startNumber + index}. ${item.questionText}`, bold: false, gap: 8, block_start: true }
+      { text: `SA ${startNumber + index}. ${item.questionText}`, bold: false, gap: 8, block_start: true }
     ];
 
     if (includeAnswers) {
@@ -233,7 +233,13 @@ function buildPayload(input: {
   };
 }
 
-function buildItemsForType(items: Awaited<ReturnType<typeof listStudyItems>>, type: PdfExportType, startNumber = 1) {
+// Indent the section body once; choices, answers and writing lines retain
+// their extra nesting relative to the question stems.
+function buildItemsForType(items: Awaited<ReturnType<typeof listStudyItems>>, type: PdfExportType, startNumber = 1): PdfPayloadItem[] {
+  return buildSectionItems(items, type, startNumber).map(item => ({...item, indent: 16 + (item.indent || 0)}));
+}
+
+function buildSectionItems(items: Awaited<ReturnType<typeof listStudyItems>>, type: PdfExportType, startNumber = 1) {
   if (type === "chapter-summaries") {
     return buildChapterSummaryItems(items);
   }
@@ -333,7 +339,7 @@ export function buildSelectedExportPayload(bookTitle: string, types: PdfExportTy
         heading: formatChapterLabel(chapter.chapterNumber, chapter.chapterTitle),
         heading_level: 2,
         page_break_before: true,
-        items: buildMultipleChoiceConciseKeyItems(chapter.items, start)
+        items: buildItemsForType(chapter.items, "multiple-choice-concise-key", start)
       });
       start += chapter.items.multipleChoice.length;
     }
